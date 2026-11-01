@@ -212,8 +212,8 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
   background: var(--ui-panel);
-  backdrop-filter: blur(20px) saturate(var(--ui-saturate));
-  -webkit-backdrop-filter: blur(20px) saturate(var(--ui-saturate));
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
   border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius-lg);
   box-shadow: var(--ui-shadow-popup);

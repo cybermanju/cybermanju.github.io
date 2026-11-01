@@ -21,6 +21,14 @@ describe('AgentPanel theme and interaction accessibility', () => {
     expect(styles).toContain('outline: 2px solid var(--ui-focus-color)')
   })
 
+  it('keeps the composer opaque, readable and visibly focused across themes', () => {
+    expect(styles).toMatch(/\.composer \{[^}]*background: var\(--ui-surface\)/)
+    expect(styles).toContain('.composer-box::placeholder { color: var(--ui-text-2);')
+    expect(styles).toContain('.composer.focused { border-color: var(--ui-focus-color);')
+    expect(panel).toContain('Shift+Enter for a new line')
+    expect(panel).toContain(':aria-label="jobActive ? \'Queue message\' : \'Send message\'"')
+  })
+
   it('keeps voice call actions at a 44px minimum touch height', () => {
     expect(styles).toContain('.voice-call-actions :deep(button)')
     expect(styles).toContain('.agent-phone-options :deep(button) { min-height: 44px; }')

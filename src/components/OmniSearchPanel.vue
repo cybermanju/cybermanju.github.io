@@ -4,7 +4,7 @@
 <!-- Integrates: unified search, presentation helpers, and platform external opener. -->
 <!-- Contracts: safe external links, shared filters/paging, accessible bounded results. -->
 <template>
-  <div class="omni" :class="{ 'omni--home': props.home, 'omni--desktop-palette': isWindowPalette, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0, 'motion-reduced': motion.reduced.value }" @keydown="handleKeydown">
+  <div class="omni" :class="{ 'omni--home': props.home, 'omni--desktop-palette': isWindowPalette, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0 || isFlatAmoled, 'motion-reduced': motion.reduced.value }" @keydown="handleKeydown">
     <div class="omni-col">
       <div ref="barRef" class="omni-bar" :class="{ focused: focused || query }">
         <AppIcon name="solar:magnifier-bold" :size="18" class="omni-bar__icon" />
@@ -690,7 +690,7 @@ defineExpose({ focus: () => inputRef.value?.focus() })
     border-color: color-mix(in srgb, var(--omni-accent) 44%, var(--ui-border-strong));
     background-color: color-mix(in srgb, var(--ui-glass-2) 84%, transparent);
     background-image: radial-gradient(ellipse at 18% 0%, color-mix(in srgb, var(--omni-accent) 16%, transparent), transparent 55%), var(--ui-glass-sheen);
-    backdrop-filter: blur(34px) saturate(1.5); -webkit-backdrop-filter: blur(34px) saturate(1.5);
+    backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
     box-shadow: 0 18px 55px rgba(0, 0, 0, .25), 0 0 0 1px color-mix(in srgb, var(--omni-accent) 16%, transparent), inset 0 1px 0 var(--ui-glass-highlight);
     transition: border-color 240ms ease, box-shadow 300ms ease, background-color 240ms ease;
   }
@@ -709,14 +709,14 @@ defineExpose({ focus: () => inputRef.value?.focus() })
     border-color: color-mix(in srgb, var(--omni-accent) 24%, var(--ui-border-strong));
     background-color: color-mix(in srgb, var(--ui-glass-2) 90%, transparent);
     background-image: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--omni-accent) 10%, transparent), transparent 46%), var(--ui-glass-sheen);
-    backdrop-filter: blur(38px) saturate(1.42); -webkit-backdrop-filter: blur(38px) saturate(1.42);
+    backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
     box-shadow: 0 28px 80px rgba(0, 0, 0, .34), 0 0 0 1px color-mix(in srgb, var(--omni-accent) 9%, transparent), inset 0 1px 0 var(--ui-glass-highlight);
   }
   .omni--desktop-palette .omni-filters { flex-wrap: wrap; min-height: 0; gap: 8px; overflow: visible; padding: 0 1px 2px; }
   .omni--desktop-palette .omni-filter {
     min-height: 38px; padding-inline: 13px; gap: 8px;
     background: color-mix(in srgb, var(--ui-glass-reading, var(--ui-surface)) 82%, transparent);
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(var(--ui-blur)); -webkit-backdrop-filter: blur(var(--ui-blur));
     transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
   }
   .omni--desktop-palette .omni-filter:hover { transform: translateY(-1px); box-shadow: 0 6px 18px color-mix(in srgb, var(--omni-accent) 12%, transparent); }
@@ -724,7 +724,7 @@ defineExpose({ focus: () => inputRef.value?.focus() })
   .omni--desktop-palette .omni-row {
     min-height: 58px; padding: 13px 14px; border-radius: 16px;
     background: color-mix(in srgb, var(--ui-glass-reading, var(--ui-surface)) 78%, transparent);
-    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(var(--ui-blur)); -webkit-backdrop-filter: blur(var(--ui-blur));
     animation: omni-row-arrive 320ms cubic-bezier(.2, .8, .2, 1) both;
   }
   .omni--desktop-palette .omni-row:nth-child(3) { animation-delay: 24ms; }
@@ -811,6 +811,8 @@ defineExpose({ focus: () => inputRef.value?.focus() })
 .omni--glass.omni--solid .omni-bar,
 .omni--glass.omni--solid .omni-drop,
 .omni--solid .omni-bar, .omni--solid .omni-drop, .omni--solid .omni-filter, .omni--solid .omni-row { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.omni--solid .omni-bar, .omni--solid .omni-drop { background-color: var(--ui-surface); background-image: none; }
+.omni--solid .omni-filter, .omni--solid .omni-row { background: var(--ui-surface-2); }
 @media (prefers-reduced-transparency: reduce) { .omni-bar, .omni-drop, .omni-filter, .omni-row { backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (prefers-contrast: more) { .omni-bar, .omni-drop, .omni-row, .omni-web__answer, .omni-web__result-card, .omni-filter { border-width: 2px; } }
 @media (max-width: 768px) {

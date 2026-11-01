@@ -13,6 +13,7 @@ const panel = ref<HTMLElement | null>(null)
 const panelSize = ref({ width: 240, height: 240 })
 const message = ref('')
 const manualCopyText = ref<string | null>(null)
+const mobileCustomizationEntry = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px)').matches === true
 let previousFocus: HTMLElement | null = null
 let savedRange: Range | null = null
 watch([panel, message], () => {
@@ -313,7 +314,7 @@ onUnmounted(() => {
       <button v-if="menu.form" type="button" @pointerdown.prevent @click="paste" :disabled="!canPaste(menu)">Paste</button>
       <button v-if="menu.form" type="button" @click="selectAll">Select all</button>
       <button v-if="menu.form && message" type="button" @click="close()">Use device text actions</button>
-      <button type="button" @click="customize">Enable customization</button>
+      <button v-if="mobileCustomizationEntry" type="button" @click="customize">Enable customization</button>
       <button type="button" @click="close()">Cancel</button>
       <p v-if="message" id="ui-text-copy-status" role="status">{{ message }}</p>
       <textarea v-if="manualCopyText !== null" readonly aria-label="Text to copy manually" aria-describedby="ui-text-copy-status" :value="manualCopyText" />

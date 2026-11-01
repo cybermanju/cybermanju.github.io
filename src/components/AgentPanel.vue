@@ -844,7 +844,7 @@
               <textarea
                 v-model="promptInput"
                 class="composer-box"
-                :placeholder="!chatConfigId ? 'Pick an assistant in the sidebar, then ask anything…' : jobActive ? 'Working… type on, Enter queues your follow-up…' : viewing ? 'Ask anything… (Enter to send, / for commands)' : 'Ask anything — sending starts a new conversation… (Enter to send, / for commands)'"
+                :placeholder="!chatConfigId ? 'Choose an assistant to start…' : jobActive ? 'Write a follow-up to add it to the queue…' : 'Message your assistant…'"
                 rows="2"
                 aria-label="Message the assistant"
                 @focus="composerFocused = true"
@@ -855,7 +855,7 @@
               />
               <div class="composer-bar">
                 <span class="composer-hint dim">
-                  {{ charCount ? `${charCount} chars` : 'Enter ↵ send' }} · / commands
+                  {{ charCount ? `${charCount} chars` : 'Enter to send · Shift+Enter for a new line · / for commands' }}
                 </span>
                 <span class="composer-spacer" />
                 <div v-if="voice.isSupported.value && !voiceCall.active.value" class="voice-group">
@@ -889,7 +889,7 @@
                   <UiButton size="sm" :variant="voice.listening.value ? 'danger' : 'ghost'" :title="voice.listening.value ? `Listening… ${voice.interim.value}` : `Dictate your message (${voice.lang.value === 'pt-BR' ? 'Portuguese' : 'English'})`" @click="toggleVoice">{{ voice.listening.value ? 'Stop' : 'Dictate' }}</UiButton>
                 </div>
                 <UiButton v-if="jobActive" size="sm" variant="danger" icon="solar:stop-bold" @click="abortJob">Stop</UiButton>
-                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" @click="sendTypedPrompt()">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
+                <UiButton size="sm" variant="primary" icon="solar:arrow-right-bold" :disabled="!canSend" :title="!chatConfigId ? 'Select an assistant first' : ''" :aria-label="jobActive ? 'Queue message' : 'Send message'" @click="sendTypedPrompt()">{{ jobActive ? 'Queue' : 'Send' }}</UiButton>
               </div>
             </div>
             <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
@@ -3182,19 +3182,20 @@ onMounted(async () => {
 /* composer */
 .composer {
   flex-shrink: 0; min-width: 0;
-  margin: 0 14px calc(8px + env(safe-area-inset-bottom, 0px)); border: 1px solid color-mix(in srgb, var(--ui-border-strong));
-  border-radius: var(--ui-radius-lg); background: color-mix(in srgb, var(--ui-glass) 70%, transparent);
+  margin: 0 14px calc(8px + env(safe-area-inset-bottom, 0px)); border: 1px solid var(--ui-border-strong);
+  border-radius: var(--ui-radius-xl); background: var(--ui-surface); box-shadow: var(--ui-shadow-1);
   transition: border-color var(--ui-dur) var(--ui-ease-out), box-shadow var(--ui-dur) var(--ui-ease-out);
   position: relative;
 }
-.composer.focused { border-color: color-mix(in srgb, var(--ui-accent) 70%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ui-accent) 15%, transparent); }
+.composer.focused { border-color: var(--ui-focus-color); box-shadow: var(--ui-focus-ring), var(--ui-shadow-1); }
 .composer-box {
   width: 100%; border: 0; background: transparent; color: var(--ui-text);
-  font-family: var(--ui-font); font-size: 13px; line-height: 1.5;
-  padding: 10px 12px 4px; outline: none; resize: vertical; min-height: 52px;
+  font-family: var(--ui-font); font-size: 14px; line-height: 1.5;
+  padding: 12px 14px 8px; outline: none; resize: vertical; min-height: 60px;
   max-height: min(40vh, 240px); overflow-y: auto; box-sizing: border-box; overflow-wrap: anywhere;
 }
-.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px 8px; }
+.composer-box::placeholder { color: var(--ui-text-2); opacity: 1; }
+.composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 8px; padding: 4px 0 6px; border-top: 1px solid var(--ui-hairline); }
 /* The picker has an explicit trigger: touch and keyboard never need hover. */
 .voice-group { position: relative; display: inline-flex; flex-shrink: 0; }
 .voice-language-toggle { min-height: 44px; min-width: 44px; padding: 4px; border: 0; border-radius: 8px; background: transparent; color: var(--ui-accent-text); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
@@ -3213,7 +3214,7 @@ onMounted(async () => {
 }
 .voice-opt:hover { color: var(--ui-text); background: color-mix(in srgb, var(--ui-text) 7%, transparent); }
 .voice-opt.on { color: var(--ui-accent-text); background: var(--ui-accent-softer); border-color: color-mix(in srgb, var(--ui-accent) 40%, transparent); }
-.composer-hint { font-size: 10px; }
+.composer-hint { color: var(--ui-text-2); font-size: 11px; line-height: 1.4; }
 .composer-spacer { flex: 1; }
 .composer-slash {
   position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 6px;

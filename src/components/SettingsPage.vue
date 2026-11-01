@@ -133,10 +133,11 @@
           <button v-for="id in personalThemeIds" :key="id" type="button" class="st-preset" :class="[`st-preset--${id}`, { 'is-selected': !theme.settings.followSystem && theme.themeId.value === id }]" :aria-pressed="!theme.settings.followSystem && theme.themeId.value === id" @click="theme.setTheme(id)">
             <span class="st-preset-preview" aria-hidden="true"><AppIcon name="solar:folder-bold" :size="18" /><span>Files</span></span>
             <strong>{{ theme.themes[id].label }}</strong>
-            <span>{{ id === 'flat-amoled' ? 'Only what matters. White on pure black.' : 'Soft glass. Clear content. A little depth.' }}</span>
+            <span>{{ id === 'flat-amoled' ? 'Only what matters. White on pure black.' : id === 'flat-amoled-cyberpunk' ? 'Pure black with electric magenta and cyan accents.' : 'Soft glass. Clear content. A little depth.' }}</span>
           </button>
         </div>
         <p v-if="theme.themeId.value === 'flat-amoled'" class="st-theme-note">Slim launcher · no wallpaper, coloured tiles or blur. Your wallpaper and accent stay saved for other themes.</p>
+        <p v-else-if="theme.themeId.value === 'flat-amoled-cyberpunk'" class="st-theme-note">Pure-black canvas with neon accents. Liquid glass can be switched on for eligible chrome and side panels.</p>
         <div class="st-row st-home-grid-settings"><UiText as="span" variant="label" tone="muted">Home screen grid</UiText><label>Screen <UiSelect :model-value="homeGridScreen" :options="homeGridOptions" aria-label="Home screen grid to customize" @update:model-value="homeGridScreen = String($event)" /></label><label>Columns <UiSelect :model-value="String(homeGridPage?.columns || 4)" :options="homeGridDimensionOptions" aria-label="Columns on selected home screen" @update:model-value="saveHomeGrid('columns', Number($event))" /></label><label>Rows <UiSelect :model-value="String(homeGridPage?.rows || 4)" :options="homeGridDimensionOptions" aria-label="Rows on selected home screen" @update:model-value="saveHomeGrid('rows', Number($event))" /></label><span class="st-muted">Grid settings are saved separately for each screen.</span></div>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Appearance</UiText>
@@ -274,17 +275,18 @@
           />
         </div>
         <div class="st-row">
-          <UiText as="span" variant="label" tone="muted">Chrome</UiText>
+          <UiText as="span" variant="label" tone="muted">Liquid glass</UiText>
           <UiSegmented
             :model-value="theme.settings.glass === 0 ? 'solid' : 'translucent'"
             :options="[
-              { label: 'Translucent', value: 'translucent' },
-              { label: 'Solid', value: 'solid' },
+              { label: 'On', value: 'translucent' },
+              { label: 'Off', value: 'solid' },
             ]"
-            aria-label="Window chrome"
+            aria-label="Liquid glass"
             @update:model-value="theme.setGlass($event === 'solid' ? 0 : 2)"
           />
         </div>
+        <p class="st-muted st-glass-note">Applies blur and translucency to compatible chrome and side panels; reading surfaces stay solid. Flat AMOLED stays flat.</p>
         <div class="st-row">
           <UiText as="span" variant="label" tone="muted">Motion</UiText>
           <UiSelect
@@ -636,6 +638,7 @@ const APPEARANCE_OPTIONS = [
   { label: 'Graphite', value: 'os-graphite' },
   { label: 'Modern Glass', value: 'modern-glass' },
   { label: 'Flat AMOLED', value: 'flat-amoled' },
+  { label: 'Flat AMOLED Cyberpunk', value: 'flat-amoled-cyberpunk' },
   { label: 'Plasma light', value: 'plasma-light' },
   { label: 'Plasma dark', value: 'plasma-dark' },
   { label: 'Auto', value: 'auto' },
@@ -670,7 +673,7 @@ const homeGridOptions = computed(() => homeGridPages.value.map((page, index) => 
 const homeGridDimensionOptions = [2, 3, 4, 5, 6, 7, 8].map(value => ({ label: String(value), value: String(value) }))
 function loadHomeGridSettings() { try { const raw = JSON.parse(localStorage.getItem('cybermanju.home.workspaces.v1') || 'null'); homeGridPages.value = Array.isArray(raw?.pages) ? raw.pages.filter((page: unknown): page is HomeGridPage => !!page && typeof page === 'object' && typeof (page as HomeGridPage).id === 'string').map((page: HomeGridPage, index: number) => ({ ...page, title: page.title || `Screen ${index + 1}`, columns: Number.isInteger(page.columns) ? Math.max(2, Math.min(8, page.columns!)) : 4, rows: Number.isInteger(page.rows) ? Math.max(2, Math.min(8, page.rows!)) : 4 })) : []; if (!homeGridPages.value.some(page => page.id === homeGridScreen.value)) homeGridScreen.value = homeGridPages.value[0]?.id || '' } catch { homeGridPages.value = []; homeGridScreen.value = '' } }
 function saveHomeGrid(dimension: 'columns' | 'rows', value: number) { const page = homeGridPage.value; if (!page || !Number.isInteger(value) || value < 2 || value > 8) return; page[dimension] = value; try { const raw = JSON.parse(localStorage.getItem('cybermanju.home.workspaces.v1') || 'null'); if (!raw || !Array.isArray(raw.pages)) return; const stored = raw.pages.find((candidate: HomeGridPage) => candidate.id === page.id); if (!stored) return; stored[dimension] = value; localStorage.setItem('cybermanju.home.workspaces.v1', JSON.stringify(raw)); window.dispatchEvent(new Event('cybermanju:home-workspaces-import')) } catch { /* settings remain session-local */ } }
-const personalThemeIds: ThemeId[] = ['modern-glass', 'flat-amoled']
+const personalThemeIds: ThemeId[] = ['modern-glass', 'flat-amoled', 'flat-amoled-cyberpunk']
 // Interface language (i18n foundation, ANALYSIS.md §3) — new surfaces read
 // it via t(); older panels migrate as they are touched.
 const locale = ref<Locale>(getLocale())
@@ -962,6 +965,7 @@ const APPEARANCE_LABELS: Record<string, string> = {
   'os-graphite': 'Graphite',
   'modern-glass': 'Modern Glass',
   'flat-amoled': 'Flat AMOLED',
+  'flat-amoled-cyberpunk': 'Flat AMOLED Cyberpunk',
   'plasma-light': 'Plasma light',
   'plasma-dark': 'Plasma dark',
   auto: 'Auto',
@@ -1922,6 +1926,8 @@ async function handleRefresh() {
 .st-preset-preview { display: flex; align-items: center; gap: 10px; box-sizing: border-box; width: 100%; min-height: 60px; padding: 12px; border: 1px solid #ffffff24; border-radius: 8px; color: #fff; font-size: 13px; }
 .st-preset--modern-glass .st-preset-preview { background: linear-gradient(125deg, #3c5675, #101722); box-shadow: inset 0 1px #ffffff20; }
 .st-preset--flat-amoled .st-preset-preview { background: #000; border-radius: 2px; }
+.st-preset--flat-amoled-cyberpunk .st-preset-preview { background: #000; border-color: #FF4FD8; border-radius: 2px; box-shadow: inset -4px 0 0 #62E8FF; }
 .st-theme-note { color: var(--ui-text-2); font-size: 13px; line-height: 1.6; margin: 0 0 16px; }
+.st-glass-note { margin: -8px 0 12px; line-height: 1.5; }
 @media (max-width: 360px) { .st-personal-presets { grid-template-columns: minmax(0, 1fr); } }
 </style>

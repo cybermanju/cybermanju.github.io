@@ -577,6 +577,10 @@ onUnmounted(() => {
 .orb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 /* pressed feedback stays CSS so it reads even when the render loop is frozen */
 .orb-caption { color: var(--ui-text-3, #9a9a9a); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
+.orb-navigator:not(.orb-navigator--teacher) { position: relative; width: clamp(40px, 5.5vh, 56px); height: clamp(40px, 5.5vh, 56px); gap: 0; }
+.orb-navigator:not(.orb-navigator--teacher)::before { content: ''; position: absolute; inset: -18%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, color-mix(in srgb, var(--ui-accent, #78aaff) 32%, transparent) 0%, color-mix(in srgb, var(--ui-accent, #78aaff) 12%, transparent) 48%, transparent 74%); filter: blur(.7vh); opacity: .9; }
+.orb-navigator:not(.orb-navigator--teacher) .orb-core { z-index: 1; width: clamp(40px, 5.5vh, 56px); height: clamp(40px, 5.5vh, 56px); min-width: 0 !important; min-height: 0 !important; filter: drop-shadow(0 0 1vh color-mix(in srgb, var(--ui-accent, #78aaff) 48%, transparent)); }
+.orb-navigator:not(.orb-navigator--teacher) .orb-caption { display: none; }
 .orb-navigator--teacher { gap: 6px; position: relative; isolation: isolate; }
 .orb-navigator--teacher::before, .orb-navigator--teacher::after {
   content: ''; position: absolute; z-index: 0; top: 56px; left: 50%; width: 126px; height: 126px;

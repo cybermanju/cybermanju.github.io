@@ -4932,6 +4932,7 @@ const THEME_IDS: &[&str] = &[
     "plasma-light",
     "modern-glass",
     "flat-amoled",
+    "flat-amoled-cyberpunk",
 ];
 
 /// Volume mirror of the live theme settings (`cybermanju_theme_v1` in the
@@ -4947,6 +4948,7 @@ fn canonical_theme(id: &str) -> Option<&'static str> {
         "plasma-light" => Some("plasma-light"),
         "modern-glass" => Some("modern-glass"),
         "flat-amoled" => Some("flat-amoled"),
+        "flat-amoled-cyberpunk" => Some("flat-amoled-cyberpunk"),
         "dark" => Some("os-dark"),
         "light" => Some("os-light"),
         "graphite" => Some("os-graphite"),
@@ -5149,7 +5151,7 @@ fn theme_cmd(args: &[String], json: bool) -> Result<String, String> {
 /// the Terminal panel applies via `useTheme()`, so the interface changes on
 /// all three transports.
 fn ui_cmd(args: &[String], json: bool) -> Result<String, String> {
-    const USAGE: &str = "usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light|modern-glass|flat-amoled>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get";
+    const USAGE: &str = "usage: ui theme <os-dark|os-light|os-graphite|plasma-dark|plasma-light|modern-glass|flat-amoled|flat-amoled-cyberpunk>|accent <#hex|default> [--for <theme>]|density <compact|comfortable>|glass <0|solid|2|translucent>|motion <auto|full|reduced>|glow <on|off>|get";
     let sub = args.first().map(String::as_str).unwrap_or("get");
     let plain: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     let s = load_ui();

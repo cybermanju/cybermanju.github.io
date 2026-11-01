@@ -3,7 +3,7 @@
 <template>
   <section ref="root" class="home-studio" :class="{ 'motion-reduced': motion.reduced.value, 'is-editing': editing, 'is-overview': overview, 'screen-enter-next': screenMotion === 'next', 'screen-enter-previous': screenMotion === 'previous' }" data-ui-layout-ignore data-shell-gesture-exclude @pointerdown.capture="emptyPress.newPointer" @click.capture="homeClick" :inert="props.blocked" tabindex="0" @keydown="workspaceKeys" aria-label="Personal home workspaces" @touchstart.stop.passive="touchStart" @touchmove.stop="touchMove" @touchend.stop="touchEnd" @touchcancel.stop="cancelTouch">
     <div class="studio-surface" :inert="!!picker">
-    <div class="studio-heading">
+    <div v-if="editing || overview" class="studio-heading">
       <div><span class="studio-kicker">SCREEN {{ activeIndex + 1 }} / {{ state.pages.length }}</span><h2>{{ activePage.title }}</h2></div>
       <div class="studio-tools"><button ref="overviewButton" type="button" :aria-pressed="overview" aria-controls="home-screen-overview" aria-label="Overview of home screens" @click="toggleOverview"><AppIcon name="solar:widget-bold" :size="20" /></button><button type="button" :aria-pressed="editing" @click="toggleEditing">{{ editing ? 'Done' : 'Edit' }}</button><button ref="addButton" class="studio-add" type="button" aria-label="Add apps or widgets to home" @click="openPicker('apps')"><span aria-hidden="true">+</span></button></div>
     </div>
@@ -16,7 +16,7 @@
       <div class="eagle-viewport">
         <div class="eagle-canvas" :style="{ '--overview-card-min': `${Math.round(128 * zoom)}px`, transform: `translate(${panX}px, ${panY}px)` }">
           <article v-for="(page, index) in state.pages" :key="page.id" class="eagle-card" :class="{ current: page.id === state.activeId, 'drop-ready': dragging && page.id !== dragging.from }" :data-workspace-id="page.id">
-            <button class="eagle-select" type="button" :aria-label="`Go to ${page.title}, screen ${index + 1}, ${page.items.length} items`" :aria-current="page.id === state.activeId ? 'page' : undefined" @click="selectScreen(index)"><HomeWorkspacePreview :items="page.items" :icon-for="itemIcon" :image-for="appImage" /></button>
+            <button class="eagle-select" type="button" :aria-label="`Go to ${page.title}, screen ${index + 1}, ${page.items.length} items`" :aria-current="page.id === state.activeId ? 'page' : undefined" @click="selectScreen(index)"><HomeWorkspacePreview :items="page.items" :icon-for="itemIcon" :image-for="appImage" :tint-for="appTint" :columns="page.columns" :rows="page.rows" /></button>
             <details v-if="page.items.length" class="eagle-move-list"><summary :aria-label="`Move items from screen ${index + 1}`"><AppIcon name="solar:menu-dots-bold" :size="18" /></summary><div class="eagle-items"><button v-for="item in page.items" :key="item.id" class="eagle-chip" type="button" :aria-label="`Move ${itemTitle(item)}; use Edit on home for keyboard move controls`" :title="itemTitle(item)" @pointerdown="beginDrag($event, item, page.id)" @pointerup="finishDrag" @pointercancel="dragging = null"><AppIcon :name="itemIcon(item)" :size="16" /></button></div></details>
           </article>
         </div>
@@ -32,10 +32,34 @@
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
           @touchstart.passive="emptyPress.touch" @contextmenu="emptyPress.context" @click.capture="emptyPress.click">
-          <slot v-if="page.id === state.pages[0]?.id" name="home-tools" />
           <div v-if="!page.items.length" class="empty-orbit"><h3>Your space</h3><p>Hold empty space to add an app or widget.</p><button type="button" @click="openPicker('apps')">+ Add an item</button></div>
-          <div class="workspace-apps" v-if="page.items.some(i => i.kind === 'app')" :style="{ gridTemplateColumns: `repeat(${page.columns || 4}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${page.rows || 4}, minmax(84px, auto))` }"><article v-for="item in page.items.filter(i => i.kind === 'app')" :key="item.id" class="workspace-app" :class="{ 'app-pressed': pressItem?.item.id === item.id, 'app-dragging': appDrag?.id === item.id, 'app-shaking': shakeAppId === item.id }"><button class="workspace-launch" :data-item-id="item.id" type="button" :aria-label="`Open ${itemTitle(item)}; hold for options`" @pointerdown="appPointerDown($event, item, page.id)" @pointermove="appPointerMove" @pointerup="appPointerUp($event, item, page.id)" @pointercancel="cancelAppGesture" @contextmenu.prevent="openAppMenu(item, page.id, $event.clientX, $event.clientY)" @click="appClick(item)"><span class="workspace-app-icon"><img v-if="appFor(item.ref)?.image" :src="appFor(item.ref)?.image" alt="" /><AppIcon v-else :name="itemIcon(item)" :size="32" /></span><span>{{ itemTitle(item) }}</span></button><div v-if="editing" class="item-edit"><button type="button" :aria-label="`Customize ${itemTitle(item)}`" @click="customize(item.ref)">Style</button><button type="button" :aria-label="`Remove ${itemTitle(item)} from screen`" @click="removeItem(item)">×</button><label :aria-label="`Move ${itemTitle(item)} to screen`"><select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label></div></article></div>
-          <div class="workspace-widgets"><article v-for="item in page.items.filter(i => i.kind === 'widget')" :key="item.id" class="workspace-widget" :class="{ 'native-home-card': isNative(item) }"><header><span><AppIcon :name="itemIcon(item)" :size="16" />{{ itemTitle(item) }}</span><button v-if="editing" type="button" :aria-label="`Remove ${itemTitle(item)}`" @click="removeItem(item)">×</button></header><template v-if="isNative(item)"><p class="native-state" role="status">{{ nativeState(item) }}</p><div :data-native-placement="item.id" class="native-widget-slot" :style="{ height: nativeHeight(item) + 'px', width: nativeWidth(item) }"><AppIcon name="solar:widget-bold" :size="28" /><span>Android widget · native view</span><small>No live DOM preview. Hidden during scrolling, menus and Eagle view.</small></div><p v-if="nativeHome.placementMessages.value[item.id]" class="studio-hint" role="status">{{ nativeHome.placementMessages.value[item.id] }}</p><div class="native-actions"><button type="button" @click="checkNative">Check status</button><button v-if="nativeRecord(item)?.state === 'ready'" type="button" :disabled="native.busy.value || !nativeRecord(item)?.providerAvailable" @click="configureNative(item)">Configure</button><button v-else-if="nativeRecord(item)" type="button" :disabled="native.busy.value" @click="removeNative(item, true)">Cancel setup</button></div><label v-if="editing" class="widget-move">Width (dp)<input type="number" :min="nativeMinWidth(item)" max="640" step="20" :value="Number(item.data?.widthDp || 280)" @change="resizeNativeWidth(item, ($event.target as HTMLInputElement).value)" /></label><label v-if="editing" class="widget-move">Height (dp)<input type="number" :min="nativeMinimum(item)" max="640" step="20" :value="Number(item.data?.heightDp || 180)" @change="resizeNative(item, ($event.target as HTMLInputElement).value)" /></label></template><HomeLocalWidget v-else :item="item" :app-id="widgetFor(item.ref)?.appId" @update="item.data = $event" @open="launch" /><label v-if="editing" class="widget-move">Move to<select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label></article></div>
+          <div class="workspace-grid" :style="{ gridTemplateColumns: `repeat(${page.columns || 4}, minmax(0, 1fr))`, gridAutoRows: 'minmax(84px, auto)' }">
+            <article v-for="item in page.items.filter(i => i.kind === 'app')" :key="item.id" class="workspace-app" :class="{ 'app-pressed': pressItem?.item.id === item.id, 'app-dragging': appDrag?.id === item.id, 'app-shaking': shakeAppId === item.id }" :style="gridItemStyle(item, page)">
+              <button class="workspace-launch" :data-item-id="item.id" type="button" :aria-label="`Open ${itemTitle(item)}; hold for options`" @pointerdown="appPointerDown($event, item, page.id)" @pointermove="appPointerMove" @pointerup="appPointerUp($event, item, page.id)" @pointercancel="cancelAppGesture" @contextmenu.prevent="openAppMenu(item, page.id, $event.clientX, $event.clientY)" @click="appClick(item)">
+                <span class="workspace-app-icon" :style="appIconStyle(item)"><img v-if="appFor(item.ref)?.image" :src="appFor(item.ref)?.image" alt="" /><AppIcon v-else :name="itemIcon(item)" :size="32" /></span>
+                <span>{{ itemTitle(item) }}</span>
+              </button>
+              <div v-if="editing" class="item-edit">
+                <button type="button" :aria-label="`Customize ${itemTitle(item)}`" @click="customize(item.ref)">Style</button>
+                <button type="button" :aria-label="`Remove ${itemTitle(item)} from screen`" @click="removeItem(item)">×</button>
+                <label :aria-label="`Move ${itemTitle(item)} to screen`"><select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label>
+              </div>
+            </article>
+            <article v-for="item in page.items.filter(i => i.kind === 'widget')" :key="item.id" class="workspace-widget" :class="{ 'native-home-card': isNative(item) }" :style="gridItemStyle(item, page)">
+              <header><span><AppIcon :name="itemIcon(item)" :size="16" />{{ itemTitle(item) }}</span><button v-if="editing" type="button" :aria-label="`Remove ${itemTitle(item)}`" @click="removeItem(item)">×</button></header>
+              <template v-if="isNative(item)">
+                <p class="native-state" role="status">{{ nativeState(item) }}</p>
+                <div :data-native-placement="item.id" class="native-widget-slot" :style="{ height: nativeHeight(item) + 'px', width: nativeWidth(item) }"><AppIcon name="solar:widget-bold" :size="28" /><span>Android widget · native view</span><small>No live DOM preview. Hidden during scrolling, menus and Eagle view.</small></div>
+                <p v-if="nativeHome.placementMessages.value[item.id]" class="studio-hint" role="status">{{ nativeHome.placementMessages.value[item.id] }}</p>
+                <div class="native-actions"><button type="button" @click="checkNative">Check status</button><button v-if="nativeRecord(item)?.state === 'ready'" type="button" :disabled="native.busy.value || !nativeRecord(item)?.providerAvailable" @click="configureNative(item)">Configure</button><button v-else-if="nativeRecord(item)" type="button" :disabled="native.busy.value" @click="removeNative(item, true)">Cancel setup</button></div>
+                <label v-if="editing" class="widget-move">Width (dp)<input type="number" :min="nativeMinWidth(item)" max="640" step="20" :value="Number(item.data?.widthDp || 280)" @change="resizeNativeWidth(item, ($event.target as HTMLInputElement).value)" /></label>
+                <label v-if="editing" class="widget-move">Height (dp)<input type="number" :min="nativeMinimum(item)" max="640" step="20" :value="Number(item.data?.heightDp || 180)" @change="resizeNative(item, ($event.target as HTMLInputElement).value)" /></label>
+              </template>
+              <HomeLocalWidget v-else :item="item" :app-id="widgetFor(item.ref)?.appId" @update="item.data = $event" @open="launch" />
+              <label v-if="editing" class="widget-move">Move to<select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label>
+            </article>
+          </div>
+          <slot v-if="page.id === state.pages[0]?.id" name="home-tools" />
           <p v-if="editing" class="studio-hint">Removing an app only unpins it. Removing an Android widget also deletes its host placement, not the app. Move tiles using the screen selector or Eagle view.</p>
         </div>
 
@@ -43,7 +67,7 @@
     </div>
     </div>
     </div>
-    <Teleport to="body"><div v-if="appMenu" class="app-menu-backdrop" @pointerdown.self="closeAppMenu"><section class="app-menu" role="menu" :style="{ left: `${appMenu.x}px`, top: `${appMenu.y}px` }" :aria-label="`${itemTitle(appMenu.item)} options`" @pointerdown.stop><div class="app-menu-heading"><span class="workspace-app-icon"><AppIcon :name="itemIcon(appMenu.item)" :size="24" /></span><strong>{{ itemTitle(appMenu.item) }}</strong><button type="button" aria-label="Close app options" @click="closeAppMenu">×</button></div><button role="menuitem" @click="runMenuAction('open')">Open</button><button role="menuitem" @click="runMenuAction('customize')">Switch icon / style</button><label class="app-menu-rename">Rename<input v-model="appMenu.item.data!.label" maxlength="40" aria-label="App name" @change="saveAppRename" /></label><div class="app-menu-move"><span>Move to</span><button v-for="screen in state.pages" :key="screen.id" role="menuitem" :disabled="screen.id === appMenu.pageId || screen.items.length >= MAX_ITEMS_PER_WORKSPACE" @click="moveFromMenu(screen.id)">{{ screen.title }}</button></div><button class="app-menu-remove" role="menuitem" @click="removeFromMenu">Remove from screen</button></section></div></Teleport>
+    <Teleport to="body"><div v-if="appMenu" class="app-menu-backdrop" @pointerdown.self="closeAppMenu"><section class="app-menu" role="menu" :style="{ left: `${appMenu.x}px`, top: `${appMenu.y}px` }" :aria-label="`${itemTitle(appMenu.item)} options`" @pointerdown.stop><div class="app-menu-heading"><span class="workspace-app-icon"><AppIcon :name="itemIcon(appMenu.item)" :size="24" /></span><strong>{{ itemTitle(appMenu.item) }}</strong><button type="button" aria-label="Close app options" @click="closeAppMenu">×</button></div><button role="menuitem" @click="runMenuAction('open')">Open</button><button role="menuitem" @click="runMenuAction('customize')">Switch icon / style</button><button role="menuitem" @click="editing = true; closeAppMenu()">Edit home layout</button><label class="app-menu-rename">Rename<input v-model="appMenu.item.data!.label" maxlength="40" aria-label="App name" @change="saveAppRename" /></label><div class="app-menu-move"><span>Move to</span><button v-for="screen in state.pages" :key="screen.id" role="menuitem" :disabled="screen.id === appMenu.pageId || !pageFits(screen, [...screen.items, appMenu.item])" @click="moveFromMenu(screen.id)">{{ screen.title }}</button></div><button class="app-menu-remove" role="menuitem" @click="removeFromMenu">Remove from screen</button></section></div></Teleport>
     <div v-if="picker" class="studio-veil" @click.self="closePicker" @keydown="dialogKeys">
       <section ref="dialog" class="studio-picker" role="dialog" aria-modal="true" aria-labelledby="home-picker-title" tabindex="-1">
         <header class="picker-title"><div><h2 id="home-picker-title">Add to {{ activePage.title }}</h2></div><button type="button" aria-label="Close add to home" @click="closePicker">×</button></header>
@@ -73,8 +97,8 @@ import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useHomeNativeWidgets } from '@/composables/useHomeNativeWidgets'
 import { widgetConfirmation, type NativeWidgetProvider, type NativeWidgetRecord } from '@/composables/useAndroidWidgets'
 import { homeWidgetCatalog } from '@/data/homeWidgetCatalog'
-import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, homeGridCols, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeGridDelta, type HomeWorkspace } from '@/utils/homeWorkspaces'
-type HomeApp = { id: string; label: string; icon: string; image?: string }
+import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, homeGridCols, homeItemPlacement, placeHomeItems, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeGridDelta, type HomeWorkspace } from '@/utils/homeWorkspaces'
+type HomeApp = { id: string; label: string; icon: string; tint?: string; image?: string }
 const props = defineProps<{ apps: HomeApp[]; initialIds: string[]; blocked?: boolean }>()
 const emit = defineEmits<{ open: [id: string]; openApps: []; customize: [id: string] }>()
 // Orb navigator is a touch-first control: it renders on mobile and web, never the desktop shell.
@@ -91,17 +115,18 @@ let screenMotionTimer: ReturnType<typeof setTimeout> | null = null
 const root = ref<HTMLElement>(), dialog = ref<HTMLElement>(), addButton = ref<HTMLButtonElement>(), overviewButton = ref<HTMLButtonElement>()
 const activeIndex = computed(() => Math.max(0, state.value.pages.findIndex(p => p.id === state.value.activeId)))
 const activePage = computed(() => state.value.pages[activeIndex.value]!)
-function pageCapacity(page: HomeWorkspace) { return Math.min(MAX_ITEMS_PER_WORKSPACE, Math.max(4, (page.columns || 4) * (page.rows || 4))) }
+function pageFits(page: HomeWorkspace, items = page.items) { return items.length <= MAX_ITEMS_PER_WORKSPACE && placeHomeItems(items, page.columns || 4, page.rows || 4).overflow.length === 0 }
 function arrangeOverflow(pageId: string) {
   const source = state.value.pages.find(page => page.id === pageId)
   if (!source) return
   const activeId = state.value.activeId
-  const capacity = pageCapacity(source)
-  while (source.items.length > capacity) {
-    const item = source.items[capacity]
+  while (true) {
+    const overflowId = placeHomeItems(source.items, source.columns || 4, source.rows || 4).overflow[0]
+    if (!overflowId) break
+    const item = source.items.find(candidate => candidate.id === overflowId)
     if (!item) break
     const sourceIndex = state.value.pages.indexOf(source)
-    let destination = state.value.pages.slice(sourceIndex + 1).find(page => page.items.length < pageCapacity(page) && (item.kind !== 'app' || !page.items.some(existing => existing.kind === 'app' && existing.ref === item.ref)))
+    let destination = state.value.pages.slice(sourceIndex + 1).find(page => pageFits(page, [...page.items, item]) && (item.kind !== 'app' || !page.items.some(existing => existing.kind === 'app' && existing.ref === item.ref)))
     if (!destination) {
       const id = createHomeWorkspace(state.value)
       destination = id ? state.value.pages.find(page => page.id === id) : undefined
@@ -112,7 +137,7 @@ function arrangeOverflow(pageId: string) {
 }
 function addToHome(item: HomeItem): HomeWorkspace | null {
   const origin = Math.max(0, state.value.pages.findIndex(page => page.id === state.value.activeId))
-  let destination = state.value.pages.slice(origin).find(page => page.items.length < pageCapacity(page) && page.items.length < MAX_ITEMS_PER_WORKSPACE)
+  let destination = state.value.pages.slice(origin).find(page => pageFits(page, [...page.items, item]))
   if (!destination) {
     const id = createHomeWorkspace(state.value)
     destination = id ? state.value.pages.find(page => page.id === id) : undefined
@@ -129,10 +154,16 @@ const visitedPages = computed(() => state.value.pages.filter(page => visitedIds.
 const allApps = computed<HomeApp[]>(() => [...props.apps, ...androidApps.apps.value.map(a => ({ id: `android:${a.packageName}`, label: a.label, icon: 'solar:widget-bold', image: a.iconBase64 || undefined }))])
 function appFor(id: string) { return allApps.value.find(a => a.id === id) }
 function appImage(id: string) { return appFor(id)?.image }
+function appTint(id: string) { return appFor(id)?.tint }
 function widgetFor(id: string) { return homeWidgetCatalog.find(w => w.id === id) }
 function isNative(item: HomeItem) { return item.kind === 'widget' && item.ref.startsWith('native:') }
 function itemTitle(item: HomeItem) { if (item.data?.label) return String(item.data.label); if (isNative(item)) return nativeLabel(nativeRecord(item)?.provider || String(item.data?.provider || '')); return item.kind === 'app' ? appFor(item.ref)?.label || 'Unavailable app' : widgetFor(item.ref)?.title || 'Unavailable widget' }
 function itemIcon(item: HomeItem) { if (item.data?.icon) return String(item.data.icon); if (isNative(item)) return 'solar:widget-bold'; return (item.kind === 'app' ? appFor(item.ref)?.icon : widgetFor(item.ref)?.icon) || 'solar:widget-bold' }
+function gridItemStyle(item: HomeItem, page: HomeWorkspace) {
+  const placement = homeItemPlacement(item, page.items, page.columns || 4, page.rows || 4)
+  return placement ? { gridColumn: `${placement.column + 1} / span ${placement.columnSpan}`, gridRow: `${placement.row + 1} / span ${placement.rowSpan}` } : {}
+}
+function appIconStyle(item: HomeItem) { return { '--app-tint': appFor(item.ref)?.tint || 'var(--hw-accent)' } }
 watch(state, value => { try { localStorage.setItem(HOME_WORKSPACE_KEY, JSON.stringify(value)) } catch { message.value = 'Storage unavailable — changes last only for this session.' } }, { deep: true, immediate: true })
 async function navigate(index: number, epoch = gestureEpoch) {
   if (props.blocked || epoch !== gestureEpoch || index < 0 || !await suspendHome() || props.blocked || epoch !== gestureEpoch) return
@@ -387,20 +418,19 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 .studio-heading, .screen-tools, .screen-nav, .studio-status, .gesture-hint, .screen-name, .overview-bar { flex-shrink: 0; }
 .studio-status:empty { display: none; }
 .workspace-content { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
-.workspace-apps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(84px, auto); align-content: start; gap: 10px 4px; }
+.workspace-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(84px, auto); align-content: start; gap: 10px 4px; width: 100%; min-width: 0; }
 .grid-control { display: inline-flex; align-items: center; gap: 5px; color: var(--hw-muted); font-size: 11px; }.grid-control select { min-height: 38px; border: 1px solid var(--hw-line); border-radius: 9px; color: var(--hw-text); background: var(--hw-surface); }
 .workspace-app { min-width: 0; position: relative; }
 .workspace-launch { width: 100%; min-width: 0; min-height: 84px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 6px; padding: 5px 3px; border: 0; border-radius: 14px; color: var(--hw-text); background: transparent; text-align: center; overflow: hidden; -webkit-tap-highlight-color: transparent; }
 .workspace-launch { touch-action: pan-y; transition: transform .18s cubic-bezier(.2,.8,.2,1), filter .18s ease, background-color .18s ease; }.app-pressed .workspace-launch { transform: scale(.94); filter: brightness(1.12); background: color-mix(in srgb, var(--hw-accent) 8%, transparent); }.app-dragging .workspace-launch { transform: scale(1.12) rotate(-3deg); filter: drop-shadow(0 14px 18px #0008); z-index: 3; }
 .app-shaking .workspace-launch { animation: app-icon-shake .12s ease-in-out infinite alternate; }
 @keyframes app-icon-shake { from { transform: rotate(-4deg) scale(1.04); } to { transform: rotate(4deg) scale(1.04); } }
-.workspace-app-icon { width: 52px; height: 52px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--hw-line) 78%, transparent); border-radius: 17px; color: var(--hw-accent); background: linear-gradient(145deg, color-mix(in srgb, var(--hw-surface) 88%, white 12%), var(--hw-surface)); box-shadow: 0 5px 14px color-mix(in srgb, var(--ui-shadow-color, #000) 10%, transparent); transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, border-color .2s ease; }
+.workspace-app-icon { width: clamp(42px, 11vw, 56px); height: clamp(42px, 11vw, 56px); flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; border: 1px solid color-mix(in srgb, var(--app-tint, var(--hw-accent)) 34%, var(--hw-line)); border-radius: 17px; color: var(--app-tint, var(--hw-accent)); background: color-mix(in srgb, var(--app-tint, var(--hw-accent)) 14%, var(--hw-surface)); box-shadow: 0 5px 14px color-mix(in srgb, var(--ui-shadow-color, #000) 10%, transparent); transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, border-color .2s ease; }
 .workspace-app-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .workspace-launch:active .workspace-app-icon { transform: translateY(1px) scale(.96); box-shadow: 0 2px 7px color-mix(in srgb, var(--ui-shadow-color, #000) 12%, transparent); }
-.workspace-launch>span:last-child { display: block; width: 100%; overflow: hidden; color: var(--hw-text); font-size: 11px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-launch>span:last-child { display: -webkit-box; width: 100%; min-width: 0; overflow: hidden; color: var(--hw-text); font-size: 11px; line-height: 1.25; text-align: center; overflow-wrap: anywhere; white-space: normal; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .app-menu-backdrop { position: fixed; inset: 0; z-index: 12000; background: transparent; }.app-menu { position: fixed; width: min(240px, calc(100vw - 24px)); max-height: min(420px, calc(100dvh - 24px)); overflow: auto; padding: 10px; border: 1px solid color-mix(in srgb, var(--ui-border) 68%, white); border-radius: 22px; color: var(--ui-text); background: color-mix(in srgb, var(--ui-surface) 76%, transparent); backdrop-filter: blur(26px) saturate(1.5); -webkit-backdrop-filter: blur(26px) saturate(1.5); box-shadow: 0 18px 60px #0006, inset 0 1px #ffffff36; transform-origin: top left; animation: app-menu-in .2s cubic-bezier(.2,.8,.2,1) both; }.app-menu button,.app-menu-rename { display: flex; width: 100%; min-height: 42px; align-items: center; gap: 10px; padding: 9px 11px; border: 0; border-radius: 12px; color: inherit; background: transparent; text-align: left; font-size: 13px; }.app-menu button:active { background: color-mix(in srgb, var(--ui-accent) 22%, transparent); transform: scale(.98); }.app-menu-heading { display: flex; align-items: center; gap: 10px; padding: 4px 4px 10px; border-bottom: 1px solid var(--ui-border); margin-bottom: 5px; }.app-menu-heading strong { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.app-menu-heading button { width: 38px; min-height: 38px; justify-content: center; font-size: 22px; }.app-menu-rename { display: grid; grid-template-columns: 1fr; gap: 5px; color: var(--ui-text-2); }.app-menu-rename input { width: 100%; min-height: 36px; box-sizing: border-box; padding: 7px 9px; border: 1px solid var(--ui-border); border-radius: 10px; color: var(--ui-text); background: color-mix(in srgb, var(--ui-bg) 70%, transparent); }.app-menu-move { display: grid; gap: 2px; padding-top: 6px; border-top: 1px solid var(--ui-border); }.app-menu-move>span { padding: 5px 10px; color: var(--ui-text-2); font-size: 11px; }.app-menu-move button { min-height: 36px; padding-left: 18px; }.app-menu-remove { color: #ff7878 !important; border-top: 1px solid var(--ui-border) !important; margin-top: 4px; }@keyframes app-menu-in { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: none; } }
-.workspace-widgets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 10px; }
-.workspace-widget { min-width: 0; overflow: hidden; padding: 10px; border: 1px solid var(--hw-line); border-radius: 14px; color: var(--hw-text); background: var(--hw-surface); }
+.workspace-widget { min-width: 0; min-height: 0; align-self: stretch; overflow: auto; padding: 10px; border: 1px solid var(--hw-line); border-radius: 14px; color: var(--hw-text); background: var(--hw-surface); }
 .workspace-widget>header { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; font-weight: 650; }
 .workspace-widget>header>span { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .native-widget-slot { display: grid; place-items: center; gap: 6px; margin-top: 8px; padding: 10px; box-sizing: border-box; border: 1px dashed var(--hw-line); border-radius: 10px; color: var(--hw-muted); text-align: center; }
@@ -417,7 +447,14 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 .home-studio button,.home-studio input,.home-studio select { font: inherit; }.home-studio button { cursor: pointer; }.home-studio button:disabled { opacity: .5; cursor: default; }.home-studio button:focus-visible,.home-studio input:focus-visible,.home-studio select:focus-visible,.home-studio textarea:focus-visible { outline: 3px solid var(--hw-accent); outline-offset: 3px; }
 .studio-heading,.studio-tools,.screen-tools,.overview-bar,.screen-nav,.picker-title,.picker-tabs { display: flex; align-items: center; gap: 8px; }.studio-heading,.picker-title { justify-content: space-between; }.studio-heading h2,.picker-title h2 { font-size: 20px; margin: 5px 0 0; letter-spacing: -.04em; overflow-wrap: anywhere; }.studio-kicker { color: var(--hw-accent); font-size: 10px; letter-spacing: .16em; font-weight: 700; }.studio-status,.studio-hint { color: var(--hw-muted); font-size: 11px; line-height: 1.6; margin: 10px 0; }
 .studio-tools button,.screen-tools button,.overview-bar button,.screen-nav button,.picker-title>button,.picker-tabs button,.widget-filters button { color: var(--hw-text); background: var(--hw-surface); border: 1px solid var(--hw-line); border-radius: 12px; min-width: 44px; min-height: 44px; padding: 8px 12px; }.studio-tools .studio-add { background: var(--hw-accent); color: var(--ui-on-accent); font-size: 30px; line-height: 1; border-color: transparent; }.screen-tools { justify-content: space-between; margin-bottom: 14px; }.screen-tools button { font-size: 12px; }.screen-name { display: grid; gap: 6px; margin: 10px 0; font-size: 12px; }.screen-name input { color: inherit; border: 1px solid var(--hw-line); background: var(--hw-surface); padding: 10px; border-radius: 8px; }
-.screen-nav { position: relative; flex: 0 0 auto; flex-direction: column; justify-content: center; gap: 4px; margin-top: 4px; padding-bottom: 2px; }
+.screen-nav { position: fixed; left: 50vw; bottom: calc(var(--mobile-favorites-dock-h, 7vh) + env(safe-area-inset-bottom, 0px) + 2vh); z-index: 105; transform: translateX(-50%); flex: 0 0 auto; flex-direction: column; justify-content: center; gap: 4px; margin: 0; padding: 0; }
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
+  .home-studio { padding-top: 0; }
+  .workspace-content { padding-bottom: calc(var(--mobile-favorites-dock-h, 7vh) + 12vh + env(safe-area-inset-bottom, 0px)); }
+  .screen-nav :deep(.orb-caption) { display: none; }
+  .gesture-hint { display: none; }
+}
+
 .gesture-hint { text-align: center; margin-bottom: 0; }
 .empty-orbit { text-align: center; padding: 25px 6px; }.empty-orbit h3 { font-size: 17px; margin: 18px 0 8px; }.empty-orbit p { font-size: 12px; line-height: 1.7; color: var(--hw-muted); }.empty-orbit button { color: var(--ui-on-accent); background: var(--hw-accent); min-height: 44px; padding: 12px 18px; border: 0; border-radius: 12px; }
 .studio-stage,.studio-home { display: flex; flex-direction: column; flex: 1; min-height: 0; }.studio-stage { position: relative; }.studio-heading>div:first-child { min-width: 0; }.studio-tools { flex-shrink: 0; }
@@ -442,7 +479,7 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 .eagle-chip { touch-action: none; display: grid; place-items: center; min-width: 44px; min-height: 44px; color: var(--hw-accent); background: var(--hw-bg); border: 1px solid var(--hw-line); border-radius: 10px; padding: 5px; }
 
 .studio-veil { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: flex-end; justify-content: center; background: #030711b8; padding: 12px; padding-bottom: max(12px,env(safe-area-inset-bottom)); }.studio-picker { color: var(--hw-text); background: var(--hw-bg); border: 1px solid var(--hw-line); width: min(640px,100%); max-height: 85dvh; overflow: auto; border-radius: 24px; padding: 20px; box-sizing: border-box; overscroll-behavior: contain; }.picker-title { margin-bottom: 18px; position: sticky; top: -20px; z-index: 2; background: var(--hw-bg); padding: 12px 0; }.picker-tabs { margin-bottom: 14px; }.picker-tabs button { flex: 1; font-size: 12px; }.picker-tabs button[aria-pressed=true],.widget-filters button[aria-pressed=true] { border-color: var(--hw-accent); color: var(--hw-accent); }.picker-search { display: flex; align-items: center; gap: 10px; background: var(--hw-surface); border: 1px solid var(--hw-line); padding: 10px 12px; border-radius: 12px; }.picker-search input::placeholder { color: var(--hw-muted); opacity: 1; }.picker-search input { width: 100%; min-width: 0; background: none; border: 0; color: inherit; min-height: 28px; }.picker-list { display: grid; gap: 8px; }.picker-list>button,.picker-list>article { display: flex; align-items: center; gap: 12px; padding: 12px; color: inherit; background: var(--hw-surface); border: 1px solid var(--hw-line); border-radius: 12px; text-align: left; min-height: 64px; }.picker-list>button>span:nth-child(2),.picker-list>article>span { display: grid; gap: 4px; flex: 1; min-width: 0; }.picker-list strong { font-size: 13px; }.picker-list small { font-size: 11px; line-height: 1.5; color: var(--hw-muted); }.picker-list em { font-size: 10px; color: var(--hw-accent); font-style: normal; }.picker-list a { color: var(--hw-accent); font-size: 11px; padding: 8px 0; }.picker-list article>button { align-self: center; min-width: 44px; min-height: 44px; border: 1px solid var(--hw-line); border-radius: 10px; color: var(--hw-accent); background: var(--hw-bg); }.widget-filters { display: flex; overflow: auto; gap: 6px; margin: 14px 0; }.widget-filters button { flex: 0 0 auto; white-space: nowrap; font-size: 11px; }.picker-feedback { color: var(--hw-accent); min-height: 16px; font-size: 12px; }
-@media(max-width:380px) { .home-studio { padding: 4px 0 0; }.workspace-widgets { grid-template-columns: 1fr; }.studio-picker { padding: 14px; }.studio-heading h2 { font-size: 18px; }.workspace-app-icon { width: 46px; height: 46px; }.eagle-canvas { gap: 8px; }.eagle-card { padding: 7px; } }
+@media(max-width:380px) { .home-studio { padding: 4px 0 0; }.studio-picker { padding: 14px; }.studio-heading h2 { font-size: 18px; }.workspace-app-icon { width: 46px; height: 46px; }.eagle-canvas { gap: 8px; }.eagle-card { padding: 7px; } }
 @media(max-width:599px) { .workspace-app-icon { width: 60px; height: 60px; border-radius: 18px; }.workspace-launch { min-height: 92px; font-size: 12px !important; } }
 @media(max-width:420px) {
   .home-studio { padding-top: 4px; }
@@ -452,7 +489,6 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
   .studio-tools button { min-width: 40px; min-height: 40px; padding: 6px 9px; border-radius: 11px; }
   .screen-nav { margin-top: 0; }
   .workspace-content { gap: 8px; }
-  .workspace-apps { column-gap: 2px; row-gap: 6px; }
   .workspace-launch { gap: 5px; }
   .workspace-app-icon { box-shadow: 0 3px 10px color-mix(in srgb, var(--ui-shadow-color, #000) 9%, transparent); }
 }
@@ -462,8 +498,6 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
   .screen-nav :deep(.orb-caption) { font-size: 7px; }
   .gesture-hint { display: none; }
 }
-@media(max-width:380px) { .workspace-app-icon { width: 46px; height: 46px; }.workspace-apps { grid-template-columns: repeat(3, minmax(0, 1fr)); }.workspace-widgets { grid-template-columns: minmax(0, 1fr); } }
-@media(min-width:600px) { .workspace-apps { grid-template-columns: repeat(5,minmax(0,1fr)); gap: 24px 12px; }.workspace-widgets { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media(max-height:600px) { .gesture-hint { display: none; }.studio-heading h2 { font-size: 16px; } }
 @keyframes eagle-open { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
 @keyframes home-screen-next { from { opacity: .65; transform: translate3d(18px, 0, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }

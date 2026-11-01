@@ -62,7 +62,7 @@ import { ref, toRef, computed, nextTick, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useLauncherStore } from '@/stores/launcher'
 import { useWindowManager } from '@/composables/useWindowManager'
-import type { PanelType } from '@/types'
+import { MODULE_METADATA, type PanelType } from '@/types'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 
 const store = useAppStore()
@@ -95,7 +95,7 @@ const commands = computed<CommandGroup[]>(() => [
       { id: 'nav-files', label: 'Go to Files', icon: 'solar:folder-bold', shortcut: '', action: () => { wm.open('files') } },
       { id: 'nav-search', label: 'Go to Search (apps, collections, people, files)', icon: 'solar:magnifier-bold', action: () => { wm.open('search') } },
       { id: 'nav-map', label: 'Go to Map', icon: 'solar:map-bold', action: () => { wm.open('map'); store.fetchGeoFiles() } },
-      { id: 'nav-technosutra-novel', label: 'Play The Stem Array — Ren’Py visual novel', icon: 'solar:library-bold', action: () => { wm.open('technosutra-novel') } },
+      { id: 'nav-technosutra-novel', label: `Play ${MODULE_METADATA['technosutra-novel'].label} — Ren’Py visual novel`, icon: 'solar:library-bold', action: () => { wm.open('technosutra-novel') } },
       { id: 'nav-code', label: 'Open Code Studio', icon: 'solar:code-bold', action: () => { wm.open('editor') } },
       { id: 'nav-sync', label: 'Go to Sync (providers + OAuth)', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
       { id: 'nav-transfer', label: 'Open Transfer Board (mv/cp between providers)', icon: 'solar:share-bold', action: () => { wm.open('transfer') } },

@@ -4,11 +4,8 @@
 <!-- Integrates: @/…, vue. -->
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
-  <!-- Keep app tabs for open sheets; on the home surface the launcher dock
-    is the only bottom control, like a native phone home screen. The Home
-    tab always coexists with the open sheets, so only app tabs can be
-    `active` here (there is no "no-window" state to mark). -->
-  <nav v-if="hasOpenWindows" class="mobile-nav" :class="{ 'motion-reduced': motion.reduced.value }" role="navigation" aria-label="Mobile navigation">
+  <!-- Live tasks sit above the persistent favorites dock; Home minimizes rather than destroys them. -->
+  <nav v-if="hasOpenWindows" class="mobile-nav" :class="{ 'motion-reduced': motion.reduced.value }" role="navigation" aria-label="Open tasks">
     <button
       class="mn-btn"
       type="button"
@@ -19,20 +16,18 @@
       <span class="mn-label">Home</span>
     </button>
     <button
-      v-for="t in tabs"
-      :key="t.id"
+      v-for="win in taskWindows"
+      :key="win.id"
       class="mn-btn"
-      :class="{ active: hasOpenWindows && isActive(t) }"
+      :class="{ active: win.id === wm.activeWindow.value?.id }"
       type="button"
-      :aria-label="t.label"
-      :aria-current="hasOpenWindows && isActive(t) ? 'page' : undefined"
-      @click="go(t)"
+      :aria-label="`Switch to ${win.title}`"
+      :aria-current="win.id === wm.activeWindow.value?.id ? 'page' : undefined"
+      @click="showTask(win.id)"
     >
-      <AppIcon :name="t.icon" :size="20" />
-      <span class="mn-label">{{ t.label }}</span>
+      <AppIcon :name="win.icon" :size="20" />
+      <span class="mn-label">{{ win.title }}</span>
     </button>
-    <!-- iPhone-X home indicator pill under the tab bar. -->
-    <span class="mn-home" aria-hidden="true" />
   </nav>
 </template>
 
@@ -42,53 +37,26 @@ import { computed } from 'vue'
 import { useMotion } from '@/composables/useMotion'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
-import { resolvePanel } from '@/utils/panels'
-import type { PanelType } from '@/types'
 
 const wm = useWindowManager()
 const store = useAppStore()
 const motion = useMotion()
 
-interface Tab {
-  id: string
-  label: string
-  icon: string
-  panel: PanelType
-  props?: Record<string, unknown>
-}
-
-const tabs: Tab[] = [
-  { id: 'files', label: 'Files', icon: 'solar:folder-bold', panel: 'files' },
-  { id: 'search', label: 'Search', icon: 'solar:magnifier-bold', panel: 'search' },
-  { id: 'agent', label: 'Agents', icon: 'solar:bot-bold', panel: 'agent' },
-  { id: 'disks', label: 'Vaults', icon: 'solar:diskette-bold', panel: 'storage' },
-  { id: 'settings', label: 'Settings', icon: 'solar:settings-bold', panel: 'settings' },
-]
-
 const hasOpenWindows = computed(() => wm.windows.value.some(w => !w.minimized))
-
-const activePanel = computed(() => {
-  const focused = wm.activeWindow.value?.panelType
-  if (focused) return resolvePanel(focused)
-  if (store.currentPanel === 'landing') return 'files'
-  return resolvePanel(store.currentPanel)
-})
-
-function isActive(t: Tab): boolean {
-  return activePanel.value === resolvePanel(t.panel)
-}
+const taskWindows = computed(() => wm.windows.value.slice(-8))
 
 function goHome() {
-  wm.closeAll()
+  wm.minimizeAll()
   store.currentPanel = 'files'
   try {
     ;(navigator as Navigator & { vibrate?: (p: number) => boolean }).vibrate?.(8)
   } catch { /* no haptics */ }
 }
 
-function go(t: Tab) {
+function showTask(id: string) {
   if (store.currentPanel === 'landing') store.currentPanel = 'files'
-  wm.open(t.panel, t.props)
+  wm.restore(id)
+  wm.focus(id)
   try {
     ;(navigator as Navigator & { vibrate?: (p: number) => boolean }).vibrate?.(5)
   } catch { /* no haptics */ }
@@ -99,37 +67,30 @@ function go(t: Tab) {
 .mobile-nav {
   display: none;
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: calc(64px + env(safe-area-inset-bottom, 0px));
-  min-height: 64px;
+  bottom: calc(var(--mobile-favorites-dock-h, 7vh) + env(safe-area-inset-bottom, 0px) + 2vh);
+  left: 2vw;
+  right: 2vw;
+  height: var(--mobile-taskbar-h, 6vh);
+  min-height: 40px;
   box-sizing: border-box;
-  padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
+  padding: 2px 1vw;
+  align-items: center;
+  gap: .5vw;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   /* iOS tab bar: hairline top edge + heavy blur, like Cupertino tab bars. */
   background: color-mix(in srgb, var(--ui-surface) 66%, transparent);
   backdrop-filter: blur(28px) saturate(1.6);
   -webkit-backdrop-filter: blur(28px) saturate(1.6);
   border-top: 0.5px solid color-mix(in srgb, var(--ui-border) 68%, transparent);
   box-shadow: 0 -8px 28px rgba(16, 24, 40, .06);
-  z-index: 100;
+  z-index: 111;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--ui-font), sans-serif;
 }
-/* iPhone-X home indicator pill. */
-.mn-home {
-  position: absolute;
-  bottom: calc(3px + env(safe-area-inset-bottom, 0px));
-  left: 50%;
-  width: 134px;
-  height: 5px;
-  transform: translateX(-50%);
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--ui-text-2) 36%, transparent);
-  pointer-events: none;
-}
-
 .mn-btn {
-  flex: 1;
+  flex: 0 0 auto;
   min-width: 0;
   background: transparent;
   border: none;
@@ -140,9 +101,9 @@ function go(t: Tab) {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-height: 56px;
-  padding: 5px 2px;
-  border-radius: 14px;
+  min-height: 38px;
+  padding: 2px 3vw;
+  border-radius: 12px;
   transition: color 120ms ease-out, transform 150ms cubic-bezier(.34,1.4,.4,1), background 120ms ease-out;
   -webkit-tap-highlight-color: transparent;
 }
@@ -155,6 +116,9 @@ function go(t: Tab) {
 .mn-label {
   font-size: 10px;
   font-weight: 600;
+  max-width: 18vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -165,7 +129,7 @@ function go(t: Tab) {
 
 .motion-reduced .mn-btn { transition: none !important; }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   .mobile-nav {
     display: flex;
   }

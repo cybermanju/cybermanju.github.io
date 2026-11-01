@@ -8,6 +8,7 @@ import { TECHNOSUTRA_BASE_URL, TECHNOSUTRA_ROUTES, technosutraFrameAllow, techno
 import { TECHNOSUTRA_VN_BUILD } from '@/data/technosutra-vn'
 import { MODULE_METADATA } from '@/types'
 import { resolvePanel } from '@/utils/panels'
+import { buildOmniSections } from '@/utils/omniSearch'
 
 describe('Techno Sutra app integration', () => {
   it('registers as a canonical app panel available from the launcher', () => {
@@ -22,10 +23,16 @@ describe('Techno Sutra app integration', () => {
   it('registers The Stem Array as a playable local Ren’Py app panel', () => {
     expect(MODULE_METADATA['technosutra-novel']).toMatchObject({
       id: 'technosutra-novel',
-      label: 'THE STEM ARRAY',
+      label: 'The Stem Array',
       requiresAuth: false,
     })
     expect(resolvePanel('technosutra-novel')).toBe('technosutra-novel')
+    const registeredApp = MODULE_METADATA['technosutra-novel']
+    const results = buildOmniSections('The Stem Array', {
+      apps: [{ key: registeredApp.id, name: registeredApp.label, sub: registeredApp.description }],
+      collections: [], people: [], providers: [], folders: [], files: [], content: [],
+    })
+    expect(results.find(section => section.id === 'apps')?.rows).toContainEqual(expect.objectContaining({ key: 'technosutra-novel', name: 'The Stem Array' }))
     expect(TECHNOSUTRA_VN_BUILD).toMatchObject({
       assetBasePath: 'technosutra-vn/',
       validationCommit: 'GENERATED_BY_MAIN_CI',

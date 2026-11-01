@@ -25,7 +25,7 @@ describe('Technosutra Ren’Py bridge', () => {
   it('starts with empty story/art/route slots and has a distinct OS panel from the upstream AR app', () => {
     expect(createEmptyProject()).toMatchObject({ title: 'Technosutra', sourceMaterials: [], routePoints: [], artworkAssets: [] })
     expect(MODULE_METADATA.technosutra.label).toBe('TECHNO SUTRA')
-    expect(MODULE_METADATA['technosutra-novel']).toMatchObject({ id: 'technosutra-novel', label: 'THE STEM ARRAY', requiresAuth: false })
+    expect(MODULE_METADATA['technosutra-novel']).toMatchObject({ id: 'technosutra-novel', label: 'The Stem Array', requiresAuth: false })
     expect(MODULE_METADATA['technosutra-novel'].description).toContain('visual novel')
     expect(resolvePanel('technosutra')).toBe('technosutra')
     expect(resolvePanel('technosutra-novel')).toBe('technosutra-novel')

@@ -46,6 +46,7 @@ export type ThemeId =
   | 'plasma-light'
   | 'modern-glass'
   | 'flat-amoled'
+  | 'flat-amoled-cyberpunk'
 
 /**
  * Shell style — orthogonal to the theme. `macos` is the menu-bar + floating
@@ -199,7 +200,7 @@ export const LEGACY_THEME_ALIASES: Record<string, ThemeId> = {
 export const THEME_GROUPS: { id: string; label: string; ids: ThemeId[] }[] = [
   { id: 'appearance', label: 'Appearance', ids: ['os-dark', 'os-light', 'os-graphite'] },
   { id: 'deck', label: 'Deck', ids: ['os-deck'] },
-  { id: 'personal', label: 'Personal', ids: ['modern-glass', 'flat-amoled'] },
+  { id: 'personal', label: 'Personal', ids: ['modern-glass', 'flat-amoled', 'flat-amoled-cyberpunk'] },
   { id: 'plasma', label: 'Plasma', ids: ['plasma-dark', 'plasma-light'] },
 ]
 
@@ -212,6 +213,7 @@ export const THEME_IDS: ThemeId[] = [
   'plasma-light',
   'modern-glass',
   'flat-amoled',
+  'flat-amoled-cyberpunk',
 ]
 
 /**
@@ -244,7 +246,7 @@ export const FONT_TRACKING_WIDE: Record<ThemeFont, string> = {
 
 const SINGLE_DESIGN: ThemeDesign = { shape: 'soft', font: 'system', elevation: 'soft' }
 
-const SYSTEM_THEMES: Record<Exclude<ThemeId, 'modern-glass' | 'flat-amoled'>, ThemeDefinition> = {
+const SYSTEM_THEMES: Record<Exclude<ThemeId, 'modern-glass' | 'flat-amoled' | 'flat-amoled-cyberpunk'>, ThemeDefinition> = {
   'os-dark': {
     id: 'os-dark',
     label: 'Dark',
@@ -500,6 +502,26 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
       hover: 'rgba(255, 255, 255, 0.08)', info: '#FFFFFF', glassBase: '0, 0, 0',
     },
   },
+  'flat-amoled-cyberpunk': {
+    id: 'flat-amoled-cyberpunk',
+    label: 'Flat AMOLED Cyberpunk',
+    blurb: 'Pure-black AMOLED · electric magenta and cyan accents · optional liquid-glass chrome',
+    mode: 'dark',
+    design: SINGLE_DESIGN,
+    palette: {
+      ...SYSTEM_THEMES['os-dark'].palette,
+      bg: '#000000', bgDeep: '#000000', surface: '#000000',
+      surface2: '#09060C', surface3: '#140B19',
+      window: 'rgba(18, 5, 23, 0.82)', windowIdle: 'rgba(12, 3, 17, 0.78)',
+      sidebar: 'rgba(13, 4, 18, 0.84)', panel: 'rgba(18, 5, 23, 0.86)',
+      text: '#FFF8FF', text2: '#D2C5D8', accent: '#FF4FD8', onAccent: '#160011',
+      border: 'rgba(255, 79, 216, 0.18)', borderStrong: 'rgba(255, 120, 225, 0.32)',
+      borderHover: 'rgba(98, 232, 255, 0.52)',
+      hover: 'rgba(255, 79, 216, 0.12)', info: '#62E8FF',
+      success: '#70F0B0', warning: '#FFE17A', danger: '#FF718F',
+      glassBase: '18, 5, 23',
+    },
+  },
 }
 
 export const ACCENT_CHOICES: { id: string; label: string; value: string }[] = [
@@ -632,6 +654,8 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
   const theme = THEMES[s.theme] ?? THEMES['os-dark']
   const p = theme.palette
   const flat = theme.id === 'flat-amoled'
+  const cyberpunkAmoled = theme.id === 'flat-amoled-cyberpunk'
+  const liquidGlass = theme.id === 'modern-glass' || cyberpunkAmoled
   const modernGlass = theme.id === 'modern-glass'
   const hexOk = (v: unknown): v is string =>
     typeof v === 'string' && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(v)
@@ -698,15 +722,15 @@ export function buildCssVars(s: ThemeSettings): Record<string, string> {
     '--ui-glass-2': chromeBg(p.window),
     '--ui-glass-border': p.border,
     '--ui-glass-highlight': p.hairline,
-    '--ui-glass-sheen': modernGlass && !solid ? 'linear-gradient(135deg, rgba(255,255,255,.10), transparent 55%)' : 'none',
+    '--ui-glass-sheen': liquidGlass && !solid ? 'linear-gradient(135deg, rgba(255,255,255,.10), transparent 55%)' : 'none',
     // Static ambient light is shared by home and Search; never animate large
     // blurred layers or wash out reading surfaces with a second nested blur.
     '--ui-ambient-background': modernGlass
       ? `radial-gradient(ellipse 85% 72% at 8% 8%, rgba(${accentRgb}, .23), transparent 68%), radial-gradient(ellipse 75% 85% at 96% 40%, rgba(146, 118, 224, .16), transparent 70%), radial-gradient(ellipse 95% 65% at 48% 108%, rgba(44, 151, 164, .17), transparent 72%), linear-gradient(150deg, #101b2d, #070b15 70%)`
       : 'none',
     '--ui-glass-reading': modernGlass && !solid ? 'rgba(16, 23, 34, 0.88)' : p.surface,
-    '--ui-glass-edge': modernGlass && !solid ? 'inset 0 1px 0 rgba(238, 246, 255, .16)' : 'inset 0 0 0 transparent',
-    '--ui-glass-shadow': modernGlass && !solid ? '0 18px 52px rgba(0, 7, 18, .28), 0 3px 12px rgba(0, 7, 18, .14)' : '0 0 0 transparent',
+    '--ui-glass-edge': liquidGlass && !solid ? 'inset 0 1px 0 rgba(238, 246, 255, .16)' : 'inset 0 0 0 transparent',
+    '--ui-glass-shadow': liquidGlass && !solid ? '0 18px 52px rgba(0, 7, 18, .28), 0 3px 12px rgba(0, 7, 18, .14)' : '0 0 0 transparent',
     '--ui-blur': `${blur}px`,
     '--ui-blur-strong': `${blur}px`,
     '--ui-saturate': saturate,

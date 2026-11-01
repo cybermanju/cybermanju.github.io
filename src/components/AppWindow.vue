@@ -64,7 +64,7 @@
           v-if="isMobileApp"
           class="titlebar-mobile-close"
           type="button"
-          aria-label="Close window"
+          :aria-label="`Close ${win.title}`"
           @pointerdown.stop
           @click.stop="onClose"
         >
@@ -74,7 +74,8 @@
         <div class="titlebar-spacer" />
 
         <div class="titlebar-label" :title="win.title"><AppIcon v-if="isMobileApp" :name="win.icon" :size="18" />{{ win.title }}</div>
-        <button v-if="isMobileApp" class="titlebar-mobile-close titlebar-mobile-minimize" type="button" aria-label="Minimize window" @pointerdown.stop @click.stop="onMinimize"><AppIcon name="solar:minus-bold" :size="18" /></button>
+        <button v-if="isMobileApp" class="titlebar-mobile-close titlebar-mobile-menu" type="button" :aria-label="`${win.title} options`" @pointerdown.stop @click.stop="openWindowMenu($event)"><AppIcon name="solar:menu-dots-bold" :size="18" /></button>
+        <button v-if="isMobileApp" class="titlebar-mobile-close titlebar-mobile-minimize" type="button" :aria-label="`Minimize ${win.title}`" @pointerdown.stop @click.stop="onMinimize"><AppIcon name="solar:minus-bold" :size="18" /></button>
 
         <div class="titlebar-spacer" />
       </template>
@@ -121,6 +122,7 @@ import { useWindowManager } from '@/composables/useWindowManager'
 import { useContextMenu } from '@/composables/useContextMenu'
 import type { WindowState } from '@/composables/useWindowManager'
 import { createWindowUi, provideWindowUi } from '@/composables/useWindowUi'
+import { MOBILE_SHELL_MEDIA_QUERY } from '@/utils/mobileShell'
 
 const props = defineProps<{
   win: WindowState
@@ -139,7 +141,7 @@ const contentRef = ref<HTMLElement | null>(null)
 const rootRef = ref<HTMLElement | null>(null)
 const isFocused = computed(() => props.focused)
 const theme = useTheme()
-const isMobileApp = ref(typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 768px)')?.matches ?? false))
+const isMobileApp = ref(typeof window !== 'undefined' && (window.matchMedia?.(MOBILE_SHELL_MEDIA_QUERY)?.matches ?? false))
 const isSearchPalette = computed(() => props.win.panelType === 'search')
 let mobileWindowQuery: MediaQueryList | null = null
 function onMobileWindowChange(event: MediaQueryListEvent) { isMobileApp.value = event.matches }
@@ -527,7 +529,7 @@ function handleMaximizeRequest(e: Event) {
 }
 
 onMounted(() => {
-  mobileWindowQuery = window.matchMedia?.('(max-width: 768px)') ?? null
+  mobileWindowQuery = window.matchMedia?.(MOBILE_SHELL_MEDIA_QUERY) ?? null
   if (mobileWindowQuery) {
     isMobileApp.value = mobileWindowQuery.matches
     mobileWindowQuery.addEventListener?.('change', onMobileWindowChange)
@@ -789,11 +791,10 @@ onUnmounted(() => {
 }
 
 /* Mobile sheets: use a clean centered title and no draggable desktop chrome. */
-@media (max-width: 768px) {
-  .app-window--mobile-native .window-titlebar { display: none; }
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   .window-titlebar {
     display: grid;
-    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
     height: 48px;
     min-height: 48px;
     background: var(--ui-surface-2);
@@ -813,6 +814,7 @@ onUnmounted(() => {
   }
   .titlebar-label { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; max-width: none; color: var(--ui-text); }
   .titlebar-mobile-minimize { margin: 0 -8px 0 0; }
+  .titlebar-mobile-menu { margin: 0; }
   .app-window--managed-content .window-content { overflow: hidden; scrollbar-gutter: auto; }
   .app-window--managed-content .window-content > :deep(*) { height: 100%; min-height: 0; }
 }

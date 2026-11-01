@@ -36,6 +36,9 @@ describe('Language Teacher reuses the Home Orb as a voice-state teacher', () => 
     expect(template).toContain('<OrbNavigator :screen-index="0" :screen-count="1"')
     expect(template).toContain('teacher-mode :activity="teacherOrbActivity" :caption="teacherOrbCaption"')
     expect(script).toContain('teacherOrbActivityFor(progress.value.interactionMode, voice.state.value, chatSendBusy.value)')
+    expect(template).toContain('class="mi-teacher-dock"')
+    expect(template).toContain('class="mi-orb-dialog mi-orb-dialog--floating" role="status" aria-live="polite"')
+    expect(template).toContain('class="mi-teacher-dock__orb"><OrbNavigator')
     expect(orb).toContain(':data-activity="teacherMode ? activity : undefined"')
     expect(orb).toContain(':data-activity="teacherMode ? activity : undefined" :role="teacherMode ? \'img\' : undefined"')
     expect(orb).toContain(':aria-hidden="teacherMode || undefined"')
@@ -51,12 +54,16 @@ describe('Language Teacher reuses the Home Orb as a voice-state teacher', () => 
     }
     expect(teacherOrbActivityFor('text', 'listening', true)).toBe('thinking')
     expect(teacherOrbActivityFor('voice', 'listening', true)).toBe('listening')
+    expect(teacherOrbActivityFor('voice', 'idle', true)).toBe('thinking')
     expect(script).toContain("if (progress.value.interactionMode === 'text') return 'Modo Texto completo · microfone desligado'")
     expect(script).toContain('o microfone fica desligado até tocar em Iniciar')
+    expect(script).toContain("progress.value.interactionMode !== 'voice'")
+    expect(script).toContain("if (voice.state.value === 'speaking' && latestTutorLine.value) return latestTutorLine.value.text")
+    expect(template).toContain(':disabled="progress.interactionMode === \'text\'"')
   })
 
   it('renders a live Orb dialogue, provisional student/tutor bubbles, and prevents duplicate sends', () => {
-    expect(template).toContain('class="mi-orb-dialog" role="status" aria-live="polite"')
+    expect(template).toContain('class="mi-orb-dialog mi-orb-dialog--floating" role="status" aria-live="polite"')
     expect(template).toContain('v-if="pendingStudentText" class="mi-chat-line mi-chat-line--student mi-chat-line--pending"')
     expect(template).toContain('mi-chat-line--thinking')
     expect(template).toContain('role="progressbar"')

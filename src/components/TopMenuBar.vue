@@ -173,12 +173,39 @@
     <div v-if="appearanceOpen" class="appearance-veil" @click.self="appearanceOpen = false" @keydown.esc="appearanceOpen = false">
       <section ref="appearanceRef" class="appearance-sheet" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
         <header class="appearance-heading"><div><h2 id="appearance-title">Make it yours</h2><p>Appearance for your home, windows and apps.</p></div><button type="button" aria-label="Close appearance" @click="appearanceOpen = false"><AppIcon name="solar:close-bold" :size="20" /></button></header>
-        <div class="appearance-options" aria-label="Themes">
-          <button type="button" :class="{ selected: theme.settings.followSystem }" :aria-pressed="theme.settings.followSystem" @click="theme.setAppearance('auto')"><span class="appearance-swatch appearance-swatch--auto" />System</button>
-          <button v-for="(option, id) in theme.themes" :key="id" type="button" :class="{ selected: !theme.settings.followSystem && theme.themeId.value === id }" :aria-pressed="!theme.settings.followSystem && theme.themeId.value === id" :title="option.blurb" @click="theme.setTheme(id)"><span class="appearance-swatch" :class="`appearance-swatch--${id}`" aria-hidden="true" />{{ option.label }}</button>
+        <div class="appearance-mode">
+          <p class="appearance-section-label">Mode</p>
+          <button class="appearance-system-card" type="button" :class="{ selected: theme.settings.followSystem }" :aria-pressed="theme.settings.followSystem" @click="theme.setAppearance('auto')">
+            <span class="appearance-swatch appearance-swatch--auto" aria-hidden="true" />
+            <span class="appearance-system-copy"><strong>System</strong><small>Follow this device’s light or dark setting</small></span>
+            <AppIcon v-if="theme.settings.followSystem" name="solar:check-circle-bold" :size="18" class="appearance-selected" aria-hidden="true" />
+          </button>
+        </div>
+        <div class="appearance-theme-catalog" aria-label="Theme families">
+          <section v-for="group in THEME_GROUPS" :key="group.id" class="appearance-group" :aria-label="`${group.label} themes`">
+            <header class="appearance-group-heading"><h3>{{ group.label }}</h3><span>{{ group.ids.length }} looks</span></header>
+            <div class="appearance-options">
+              <button
+                v-for="id in group.ids"
+                :key="id"
+                type="button"
+                class="appearance-option"
+                :class="{ selected: !theme.settings.followSystem && theme.themeId.value === id }"
+                :style="{ '--preview-background': theme.themes[id].palette.bg, '--preview-surface': theme.themes[id].palette.surface, '--preview-accent': theme.themes[id].palette.accent }"
+                :aria-pressed="!theme.settings.followSystem && theme.themeId.value === id"
+                :aria-label="`Select ${theme.themes[id].label} theme`"
+                @click="theme.setTheme(id)"
+              >
+                <span class="appearance-option-visual"><span class="appearance-swatch" :class="`appearance-swatch--${id}`" aria-hidden="true" /><AppIcon v-if="!theme.settings.followSystem && theme.themeId.value === id" name="solar:check-circle-bold" :size="18" class="appearance-selected" aria-hidden="true" /></span>
+                <strong>{{ theme.themes[id].label }}</strong>
+                <small>{{ theme.themes[id].blurb }}</small>
+              </button>
+            </div>
+          </section>
         </div>
         <p class="appearance-description" aria-live="polite">{{ theme.themes[theme.themeId.value].blurb }}</p>
         <p v-if="theme.themeId.value === 'flat-amoled'" class="appearance-description">Your wallpaper and accent are kept for other themes. This launcher stays black and white.</p>
+        <p v-else-if="theme.themeId.value === 'flat-amoled-cyberpunk'" class="appearance-description">Pure black with neon accents. Liquid glass follows the on/off setting in Appearance.</p>
         <label class="appearance-accent">Accent color<input type="color" :value="theme.accent.value || theme.themes[theme.themeId.value].palette.accent" :disabled="theme.themeId.value === 'flat-amoled'" aria-label="Accent color" @input="theme.setAccent(($event.target as HTMLInputElement).value)" /></label>
         <button class="appearance-more" type="button" @click="appearanceOpen = false; wm.open('settings')">More personalization settings <AppIcon name="solar:arrow-right-bold" :size="16" /></button>
       </section>
@@ -204,9 +231,11 @@ import { useMessages } from '@/composables/useMessages'
 import { useNotifications } from '@/composables/useNotifications'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useTheme } from '@/composables/useTheme'
+import { THEME_GROUPS } from '@/ui/tokens'
 import { useFocusTrap } from '@/composables/useFocusTrap'
 import { openExternalUrl } from '@/utils/openExternal'
 import { isTauri } from '@/composables/useTauri'
+import { MOBILE_SHELL_MEDIA_QUERY } from '@/utils/mobileShell'
 import appPackage from '../../package.json'
 
 const store = useAppStore()
@@ -395,8 +424,8 @@ function executeMenuItem(item: MenuItem, event?: Event) {
 
 
 function handleHome() {
-  if (window.matchMedia?.('(max-width: 768px)').matches) {
-    wm.closeAll()
+  if (window.matchMedia?.(MOBILE_SHELL_MEDIA_QUERY).matches) {
+    wm.minimizeAll()
     store.currentPanel = 'files'
   } else {
     store.currentPanel = 'landing'
@@ -899,7 +928,7 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   /* Single-line status-bar header: logo + status + theme + one clock in a
      slim `--mobile-header-h` strip (the shell owns the notch inset, so this
      bar never grows around it). Nothing wraps — extra tray icons stay
@@ -956,22 +985,34 @@ onUnmounted(() => {
 .appearance-heading h2 { font-size: 22px; margin: 0 0 5px; }
 .appearance-heading p { font-size: 13px; color: var(--ui-text-2); margin: 0 0 16px; }
 .appearance-heading button { flex-shrink: 0; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--ui-surface-2); }
-.appearance-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.appearance-options button { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 88px; padding: 12px 4px; border-radius: 14px; border: 1px solid var(--ui-border-strong); background: var(--ui-surface-2); color: var(--ui-text); font-size: 12px; }
-.appearance-options button.selected { border-color: var(--ui-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 25%, transparent); }
-.appearance-swatch { width: 40px; height: 28px; border-radius: 7px; border: 1px solid #8888; background: #17191f; box-shadow: inset 0 7px #ffffff20; }
-.appearance-swatch--os-light, .appearance-swatch--plasma-light { background: #f4f5f9; box-shadow: inset 0 7px #3984e850; }
-.appearance-swatch--os-graphite { background: #34363c; }
-.appearance-swatch--plasma-dark { background: #162d43; }
-.appearance-swatch--auto { background: linear-gradient(90deg, #f4f5f9 50%, #17191f 50%); }
-.appearance-swatch--modern-glass { background: linear-gradient(135deg, #405777, #101722); box-shadow: inset 0 7px #bcd9ff45; border-color: #bcd9ff80; }
-.appearance-swatch--flat-amoled { background: #000; box-shadow: none; position: relative; }
-.appearance-swatch--flat-amoled::after { content: ''; position: absolute; inset: 7px 10px; background: repeating-linear-gradient(to bottom, #fff 0 2px, transparent 2px 5px); }
+.appearance-section-label { margin: 0 0 8px; color: var(--ui-text-2); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.appearance-system-card { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 66px; padding: 10px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-surface-2); color: var(--ui-text); text-align: left; }
+.appearance-system-copy { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.appearance-system-copy strong, .appearance-option strong { font-size: 12px; font-weight: 650; }
+.appearance-system-copy small, .appearance-option small { color: var(--ui-text-2); font-size: 10px; line-height: 1.4; }
+.appearance-theme-catalog { display: grid; gap: 16px; margin-top: 18px; }
+.appearance-group { min-width: 0; }
+.appearance-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
+.appearance-group-heading h3 { margin: 0; font-size: 13px; font-weight: 700; }
+.appearance-group-heading > span { color: var(--ui-text-2); font-size: 10px; }
+.appearance-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.appearance-option { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; min-height: 106px; padding: 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-surface-2); color: var(--ui-text); text-align: left; transition: background-color var(--ui-dur-fast), border-color var(--ui-dur-fast), box-shadow var(--ui-dur-fast); }
+.appearance-option.selected, .appearance-system-card.selected { border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 7%, var(--ui-surface-2)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--ui-accent) 24%, transparent); }
+.appearance-option-visual { display: flex; align-items: flex-start; justify-content: space-between; min-height: 36px; }
+.appearance-selected { flex: 0 0 auto; color: var(--ui-accent-text); }
+.appearance-swatch { position: relative; display: block; flex: 0 0 auto; width: 56px; height: 36px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--ui-text) 20%, transparent); border-radius: 7px; background: var(--preview-background); }
+.appearance-swatch:not(.appearance-swatch--auto) { background: linear-gradient(to bottom, var(--preview-surface) 0 28%, var(--preview-background) 28% 100%); }
+.appearance-swatch::before { position: absolute; inset: 0 0 auto; height: 8px; border-bottom: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); background: var(--preview-surface, #f1f2f4); content: ''; }
+.appearance-swatch::after { position: absolute; right: 5px; bottom: 5px; width: 9px; height: 9px; border: 2px solid color-mix(in srgb, var(--preview-background) 55%, white); border-radius: 50%; background: var(--preview-accent, #3984e8); content: ''; }
+.appearance-swatch--auto { --preview-surface: #f4f5f9; --preview-background: #17191f; --preview-accent: #3984e8; background: linear-gradient(90deg, #f4f5f9 0 50%, #17191f 50%); }
+.appearance-swatch--modern-glass { box-shadow: inset 0 1px rgba(255, 255, 255, .22); }
+.appearance-swatch--flat-amoled { border-radius: 4px; }
+.appearance-swatch--flat-amoled-cyberpunk { border-color: #FF4FD8; border-radius: 4px; }
 .appearance-description { margin: 14px 0 0; color: var(--ui-text-2); font-size: 13px; line-height: 1.5; }
 .appearance-accent { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; margin-top: 12px; color: var(--ui-text-2); }
 .appearance-accent input { width: 52px; min-height: 44px; cursor: pointer; }
 .appearance-more { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 48px; padding: 10px 12px; border-radius: 12px; background: var(--ui-surface-2); color: var(--ui-text); }
-.appearance-sheet button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.appearance-sheet button:focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 2px; }
 
 .search-launcher { width: 100%; text-align: left; cursor: pointer; color: var(--ui-text-2); font: inherit; -webkit-app-region: no-drag; }
 .search-launcher-copy { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }

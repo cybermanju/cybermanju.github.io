@@ -25,12 +25,13 @@ describe('mobile viewport geometry', () => {
   })
 })
 describe('mobile shell interaction contracts', () => {
-  it('pins the favorite dock in the flex viewport without fixed positioning', () => {
+  it('pins the persistent favorites dock to the viewport above the safe area', () => {
     const launcher = read('src/components/MobileLauncher.vue')
     expect(launcher).toContain('<HomeWorkspaceStudio')
-    expect(launcher).toContain('class="mla-dock"')
-    expect(launcher).toMatch(/\.mla-dock\s*\{[^}]*flex-shrink:\s*0/)
-    expect(launcher).not.toMatch(/\.mla-dock\s*\{[^}]*position:\s*fixed/)
+    expect(launcher).toContain('class="mobile-favorites-dock"')
+    expect(launcher).toContain('position: fixed; z-index: 10001; left: 50vw;')
+    expect(launcher).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 1vh)')
+    expect(launcher).not.toContain('class="mla-dock"')
     expect(launcher).toContain('min-height: 0')
   })
   it('provides a real app grid on non-Android builds and reduced-motion support', () => {

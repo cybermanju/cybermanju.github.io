@@ -31,6 +31,21 @@ describe('personal appearance presets', () => {
     expect(solid['--ui-blur']).toBe('0px')
     expect(solid['--ui-glass-sheen']).toBe('none')
   })
+  it('keeps Cyberpunk AMOLED black while Liquid Glass can switch on and off for chrome', () => {
+    const on = buildCssVars({ ...DEFAULT_SETTINGS, theme: 'flat-amoled-cyberpunk', glass: 2 })
+    const off = buildCssVars({ ...DEFAULT_SETTINGS, theme: 'flat-amoled-cyberpunk', glass: 0 })
+    expect(on['--ui-bg']).toBe('#000000')
+    expect(on['--ui-surface']).toBe('#000000')
+    expect(on['--ui-content']).toBe('#000000')
+    expect(on['--ui-accent']).toBe('#FF4FD8')
+    expect(on['--ui-window']).toMatch(/^rgba/)
+    expect(on['--ui-blur']).toBe('40px')
+    expect(on['--ui-glass-sheen']).not.toBe('none')
+    expect(off['--ui-window']).toBe('#000000')
+    expect(off['--ui-blur']).toBe('0px')
+    expect(off['--ui-glass-sheen']).toBe('none')
+    expect(contrastRatio(parseColor(THEMES['flat-amoled-cyberpunk'].palette.accent).slice(0, 3) as [number, number, number], [0, 0, 0])).toBeGreaterThanOrEqual(3)
+  })
   it('keeps secondary glass labels readable even over the chrome base', () => {
     const p = THEMES['modern-glass'].palette
     const panel = compositeOver(p.panel, p.bg)
@@ -40,7 +55,7 @@ describe('personal appearance presets', () => {
   it('supports both ids in native and WASM terminal allowlists', () => {
     for (const path of ['crates/os/src/shell.rs', 'crates/os-wasm/src/os.rs']) {
       const source = readFileSync(path, 'utf8')
-      for (const id of ['modern-glass', 'flat-amoled']) expect(source).toContain(`"${id}" => Some("${id}")`)
+      for (const id of ['modern-glass', 'flat-amoled', 'flat-amoled-cyberpunk']) expect(source).toContain(`"${id}" => Some("${id}")`)
     }
     expect(readFileSync('src/utils/staticCybsh.ts', 'utf8')).toContain('const STATIC_THEME_IDS = THEME_IDS')
   })
@@ -48,7 +63,8 @@ describe('personal appearance presets', () => {
     const settings = readFileSync('src/components/SettingsPage.vue', 'utf8')
     const header = readFileSync('src/components/TopMenuBar.vue', 'utf8')
     expect(settings).toContain('Personal launcher themes')
-    for (const id of ['modern-glass', 'flat-amoled']) expect(header).toContain(`.appearance-swatch--${id}`)
+    for (const id of ['modern-glass', 'flat-amoled', 'flat-amoled-cyberpunk']) expect(header).toContain(`.appearance-swatch--${id}`)
+    expect(settings).toContain("{ label: 'Flat AMOLED Cyberpunk', value: 'flat-amoled-cyberpunk' }")
   })
   it('persists Flat AMOLED without overwriting the previous accent, wallpaper, or glass preference', async () => {
     vi.resetModules()

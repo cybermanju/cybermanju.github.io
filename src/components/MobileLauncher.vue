@@ -32,14 +32,6 @@
           <section id="home-search-tools" class="mla-search-tools" aria-label="Search and commands" @focusin="searchToolsOpen = true" @focusout="onSearchToolsBlur">
             <OmniSearchPanel ref="searchRef" home :before-open="hideNative" class="mla-unified-search" />
           </section>
-          <nav data-ui-layout-ignore v-if="dock.length" class="mla-dock" aria-label="Favorite apps">
-            <button v-for="app in dock" :key="app.panel" class="mla-dock-btn" type="button"
-              @pointerdown="onHomePressStart(app, $event)" @pointermove="onHomePressMove" @pointerup="onHomePressEnd" @pointerleave="onHomePressEnd" @pointercancel="onHomePressEnd"
-              @contextmenu.prevent="onHomeContextMenu(app)" :aria-label="`Open ${homeName(app)}`" :title="homeName(app)" @click="open(app.panel)">
-              <span class="mla-dock-icon"><img v-if="homeTile(app).kind === 'image'" class="mla-photo" :src="homeTile(app).src" alt="" draggable="false" /><AppIcon v-else :name="homeTile(app).src" :size="23" /></span>
-              <span v-if="isPanelOpen(app.panel)" class="mla-dock-indicator" aria-hidden="true" />
-            </button>
-          </nav>
         </div>
       </template>
     </HomeWorkspaceStudio>
@@ -108,6 +100,17 @@
       </div>
     </div>
   </div>
+  <Teleport to="body">
+    <nav v-if="isMobileShell && dock.length && !launcher.drawerOpen && !launcher.messagesOpen && !customHome" class="mobile-favorites-dock" :class="`theme-${themeId}`" aria-label="Favorite apps" data-ui-layout-ignore>
+      <button v-for="app in dock" :key="app.panel" class="mobile-favorite" type="button"
+        :style="{ '--favorite-tint': app.tint }"
+        @pointerdown="onHomePressStart(app, $event)" @pointermove="onHomePressMove" @pointerup="onHomePressEnd" @pointerleave="onHomePressEnd" @pointercancel="onHomePressEnd"
+        @contextmenu.prevent="onHomeContextMenu(app)" :aria-label="`Open ${homeName(app)}`" :title="homeName(app)" @click="open(app.panel)">
+        <span class="mobile-favorite-icon"><img v-if="homeTile(app).kind === 'image'" class="mla-photo" :src="homeTile(app).src" alt="" draggable="false" /><AppIcon v-else :name="homeTile(app).src" :size="23" /></span>
+        <span v-if="isPanelOpen(app.panel)" class="mobile-favorite-indicator" aria-hidden="true" />
+      </button>
+    </nav>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -132,11 +135,15 @@ import {
   fileToLauncherIcon,
   launcherKeyForPanel,
 } from '@/utils/launcher'
-import type { PanelType } from '@/types'
+import { MODULE_METADATA, type PanelType } from '@/types'
+import { MOBILE_SHELL_MEDIA_QUERY } from '@/utils/mobileShell'
 
 const store = useAppStore()
 const theme = useTheme()
 const themeId = computed(() => String(theme.themeId.value))
+const mobileShellQuery = typeof window !== 'undefined' ? window.matchMedia?.(MOBILE_SHELL_MEDIA_QUERY) ?? null : null
+const isMobileShell = ref(mobileShellQuery?.matches ?? false)
+function onMobileShellChange(event: MediaQueryListEvent) { isMobileShell.value = event.matches }
 const tapActivation = useHomeTapActivation()
 function cancelHomeTap() { tapActivation.cancel(); workspaceGestures.cancel(); resetDrawerGesture() }
 const wm = useWindowManager()
@@ -217,6 +224,7 @@ function handleMsgVisible() {
 }
 
 onMounted(() => {
+  mobileShellQuery?.addEventListener?.('change', onMobileShellChange)
   window.addEventListener('blur', cancelHomeTap)
   document.addEventListener('visibilitychange', cancelHomeTap)
   void store.fetchDisks().catch(() => {})
@@ -231,6 +239,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   onHomePressEnd()
+  mobileShellQuery?.removeEventListener?.('change', onMobileShellChange)
   window.removeEventListener('blur', cancelHomeTap)
   document.removeEventListener('visibilitychange', cancelHomeTap)
   document.removeEventListener('visibilitychange', handleMsgVisible)
@@ -241,6 +250,7 @@ interface LauncherApp {
   label: string
   icon: string
   tint: string
+  image?: string
   badge?: string
   dot?: boolean
   hint?: string
@@ -251,7 +261,8 @@ function count(value: number): string {
   return value > 99 ? '99+' : String(value)
 }
 
-const apps = computed<LauncherApp[]>(() => [
+const apps = computed<LauncherApp[]>(() => {
+  const definitions: LauncherApp[] = [
   { panel: 'files', label: 'Files', icon: 'solar:folder-bold', tint: '#3984e8', badge: count(store.files.length), hint: 'Browse and manage files' },
   { panel: 'search', label: 'Search', icon: 'solar:magnifier-bold', tint: '#727be8', hint: 'Full-text search' },
   { panel: 'agent', label: 'Agents', icon: 'solar:bot-bold', tint: '#8b5ad8', dot: store.activeAgentJob?.status === 'running', hint: 'Agents, profiles and conversations' },
@@ -264,11 +275,16 @@ const apps = computed<LauncherApp[]>(() => [
   { panel: 'sync', label: 'Sync', icon: 'solar:refresh-bold', tint: '#159ba0', hint: 'Provider sync jobs' },
   { panel: 'map', label: 'Map', icon: 'solar:map-bold', tint: '#4b9a5a', hint: 'GPS-tagged files' },
   { panel: 'technosutra', label: 'Techno Sutra', icon: 'solar:library-bold', tint: '#7652c8', hint: 'Avatamsaka Sutra gallery, map and AR experience' },
-  { panel: 'technosutra-novel', label: 'The Stem Array', icon: 'solar:library-bold', tint: '#8c9fff', hint: 'Play The Stem Array, the Ren’Py visual novel inside CyberManju OS; source and route tools included' },
+  { panel: 'technosutra-novel', label: MODULE_METADATA['technosutra-novel'].label, icon: 'solar:library-bold', tint: '#8c9fff', hint: 'Play The Stem Array, the Ren’Py visual novel inside CyberManju OS; source and route tools included' },
   { panel: 'collections', label: 'Library', icon: 'solar:library-bold', tint: '#d45d96', hint: 'Collections and favorites' },
   { panel: 'settings', label: 'Settings', icon: 'solar:settings-bold', tint: '#65758c', hint: 'Theme and transport' },
-  { panel: 'trash', label: 'Trash', icon: 'solar:trash-bin-trash-bold', tint: '#d74a61', badge: count(store.trashItems.length), hint: 'Deleted files' },
-])
+    { panel: 'trash', label: 'Trash', icon: 'solar:trash-bin-trash-bold', tint: '#d74a61', badge: count(store.trashItems.length), hint: 'Deleted files' },
+  ]
+  return definitions.map(app => {
+    const tile = homeTile(app)
+    return { ...app, label: homeName(app), image: tile.kind === 'image' ? tile.src : undefined }
+  })
+})
 
 
 /** Home springboard merged with launcher overrides (`os:<panel>` keys):
@@ -288,7 +304,7 @@ const orderedApps = computed<LauncherApp[]>(() => {
   return rows.map((r) => r.app)
 })
 
-const workspaceApps = computed(() => apps.value.map(app => ({ id: app.panel, label: homeName(app), icon: app.icon, image: homeTile(app).kind === 'image' ? homeTile(app).src : undefined })))
+const workspaceApps = computed(() => apps.value.map(app => ({ id: app.panel, label: homeName(app), icon: app.icon, tint: app.tint, image: homeTile(app).kind === 'image' ? homeTile(app).src : undefined })))
 function customizeWorkspaceApp(id: string) { const app = apps.value.find(app => app.panel === id); if (app) openHomeCustom(app) }
 
 /** Display name honoring the rename override. */
@@ -484,8 +500,8 @@ function resetHomeCustom() {
 </script>
 
 <style scoped>
-.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px max(12px, env(safe-area-inset-bottom, 0px)); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
-.mla.with-app-nav { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
+.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px calc(var(--mobile-favorites-dock-h, 7vh) + 12vh + env(safe-area-inset-bottom, 0px)); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
+.mla.with-app-nav { padding-bottom: calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-taskbar-h, 6vh) + 5vh + env(safe-area-inset-bottom, 0px)); }
 .mla :deep(.mla-screen-tools) { display: flex; flex-direction: column; flex: 0 0 auto; gap: 8px; }
 .mla :deep(.mla-home-toolbar), .mla :deep(.mla-toolbar-actions) { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mla :deep(.mla-home-toolbar) { flex-shrink: 0; }
@@ -493,11 +509,6 @@ function resetHomeCustom() {
 .mla :deep(.mla-apps-shortcut:active) { transform: scale(.95); background: color-mix(in srgb, var(--ui-accent) 18%, var(--ui-surface)); border-color: var(--ui-accent); }
 .mla :deep(.mla-mini-btn) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
 .mla :deep(.mla-search-tools) { position: relative; z-index: 2; flex: 0 0 auto; align-self: stretch; width: 100%; min-width: 0; display: grid; gap: 10px; }
-.mla :deep(.mla-dock) { display: flex; flex-shrink: 0; justify-content: center; align-self: center; gap: clamp(4px, 2vw, 14px); max-width: 100%; margin-top: auto; padding: 6px 10px; box-sizing: border-box; border-radius: 20px; background: var(--ui-surface); border: 1px solid var(--ui-border); }
-.mla :deep(.mla-dock-btn) { position: relative; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; border: 0; background: transparent; color: var(--ui-text); cursor: pointer; }
-.mla :deep(.mla-dock-icon) { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 13px; overflow: hidden; transition: transform .18s cubic-bezier(.2,.8,.2,1), background-color .18s ease; }
-.mla :deep(.mla-dock-btn:active .mla-dock-icon) { transform: translateY(-3px) scale(1.08); background: color-mix(in srgb, var(--ui-accent) 12%, transparent); }
-.mla :deep(.mla-dock-indicator) { position: absolute; bottom: 0; width: 5px; height: 4px; background: var(--ui-accent); border-radius: 99px; box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent) 55%, transparent); }
 .mla-home-toolbar, .mla-toolbar-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mla-home-toolbar { flex-shrink: 0; }
 .mla-mini-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 8px 12px; color: var(--ui-text); background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: 12px; cursor: pointer; font: inherit; font-size: 12px; }
@@ -515,23 +526,22 @@ function resetHomeCustom() {
   .mla :deep(.mla-search-tools) { gap: 8px; }
 }
 .mla-count { color: var(--ui-accent); font-size: 11px; }
-.mla-dock { display: flex; flex-shrink: 0; justify-content: center; align-self: center; gap: clamp(4px, 2vw, 14px); max-width: 100%; padding: 6px 10px; box-sizing: border-box; border-radius: 20px; background: var(--ui-surface); border: 1px solid var(--ui-border); }
-.mla-dock-btn { position: relative; width: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; border: 0; background: transparent; color: var(--ui-text); cursor: pointer; }
-.mla-dock-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; overflow: hidden; }
+.mobile-favorites-dock { position: fixed; z-index: 10001; left: 50vw; bottom: calc(env(safe-area-inset-bottom, 0px) + 1vh); transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: clamp(2px, 1.2vw, 8px); width: max-content; max-width: 94vw; height: var(--mobile-favorites-dock-h, 7vh); min-height: 44px; max-height: 60px; box-sizing: border-box; padding: 0 1vw; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border: 1px solid var(--ui-border); border-radius: 18px; background: color-mix(in srgb, var(--ui-surface) 92%, transparent); box-shadow: 0 0.8vh 2.4vh color-mix(in srgb, var(--ui-shadow-color, #000) 18%, transparent); }
+.mobile-favorite { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: clamp(38px, 11vw, 48px); min-width: 38px; min-height: 40px; padding: 0; border: 0; background: transparent; color: var(--favorite-tint, var(--ui-accent)); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mobile-favorite-icon { display: grid; place-items: center; width: clamp(32px, 9vw, 40px); height: clamp(32px, 9vw, 40px); overflow: hidden; border: 1px solid color-mix(in srgb, var(--favorite-tint, var(--ui-accent)) 34%, var(--ui-border)); border-radius: 12px; background: color-mix(in srgb, var(--favorite-tint, var(--ui-accent)) 14%, var(--ui-surface)); color: var(--favorite-tint, var(--ui-accent)); }
+.mobile-favorite-icon img { width: 100%; height: 100%; object-fit: cover; }
+.mobile-favorite-indicator { position: absolute; bottom: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--favorite-tint, var(--ui-accent)); box-shadow: 0 0 1vw color-mix(in srgb, var(--favorite-tint, var(--ui-accent)) 55%, transparent); }
+.mobile-favorite:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; border-radius: 14px; }
+.mobile-favorites-dock.theme-flat-amoled { border-color: transparent; background: #000; box-shadow: none; }
+.mobile-favorites-dock.theme-flat-amoled .mobile-favorite-icon { border-color: transparent; background: transparent; color: #fff; }
+.mobile-favorites-dock.theme-modern-glass { background: var(--ui-glass); }
 .mla-photo { width: 100%; height: 100%; object-fit: cover; }
-.mla-dock-indicator { position: absolute; bottom: 0; width: 4px; height: 4px; background: var(--ui-accent); border-radius: 50%; }
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   .mla { height: 100%; }
   .mla-search-tools { max-width: none; }
-  .mla-dock-icon { width: 42px; height: 42px; }
-  .mla-dock-btn :deep(svg) { width: 28px; height: 28px; }
 }
 .mla.theme-flat-amoled { background: #000; }
-.mla.theme-flat-amoled .mla-dock { background: transparent; }
 .mla.theme-modern-glass { background: var(--ui-ambient-background, var(--ui-glass)); }
-.mla.theme-modern-glass .mla-dock { background: var(--ui-glass); backdrop-filter: blur(var(--ui-blur, 0px)) saturate(var(--ui-saturate, 1)); }
-
-
 .mla-photo {
   position: relative;
   z-index: 1;
@@ -652,14 +662,13 @@ function resetHomeCustom() {
   font-size: 12px;
 }
 
-@media (max-width: 380px) { .mla { padding-inline: 8px; }.mla-dock { gap: 2px; padding-inline: 4px; } }
-@media (max-height: 560px) and (max-width: 768px) {
+@media (max-width: 380px) { .mla { padding-inline: 8px; } }
+@media (max-height: 560px) and (max-width: 768px), (pointer: coarse) and (max-height: 560px) {
   .mla { gap: 4px; padding-top: 4px; }
   .mla :deep(.mla-screen-tools) { gap: 4px; }
-  .mla :deep(.mla-dock) { padding-block: 3px; }
 }
 .mla :deep(.mla-mini-btn) { transition: transform .16s ease, border-color .16s ease, background-color .16s ease; }
 .mla :deep(.mla-mini-btn:active) { transform: scale(.94); border-color: var(--ui-accent); }
-.mla :deep(.mla-apps-shortcut:focus-visible), .mla :deep(.mla-mini-btn:focus-visible), .mla :deep(.mla-dock-btn:focus-visible) { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+.mla :deep(.mla-apps-shortcut:focus-visible), .mla :deep(.mla-mini-btn:focus-visible) { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 .mla.motion-reduced :deep(*), .mla.motion-reduced :deep(*::before), .mla.motion-reduced :deep(*::after) { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 </style>

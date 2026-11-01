@@ -106,7 +106,7 @@ import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useDock } from '@/composables/useDock'
 import { useTheme } from '@/composables/useTheme'
-import type { PanelType } from '@/types'
+import { MODULE_METADATA, type PanelType } from '@/types'
 import { createDragMomentum } from '@/utils/dragPhysics'
 
 const store = useAppStore()
@@ -354,7 +354,7 @@ const dockApps = computed<DockApp[]>(() => [
   { panelType: 'faces', label: 'People', icon: 'solar:face-scan-circle-bold', category: 'organize' },
   { panelType: 'archive', label: 'Archive', icon: 'solar:notebook-bold', category: 'organize' },
   { panelType: 'map', label: 'Map', icon: 'solar:map-bold', category: 'tools' },
-  { panelType: 'technosutra-novel', label: 'The Stem Array', icon: 'solar:library-bold', category: 'tools' },
+  { panelType: 'technosutra-novel', label: MODULE_METADATA['technosutra-novel'].label, icon: 'solar:library-bold', category: 'tools' },
   { panelType: 'editor', label: 'Code Studio', icon: 'solar:file-code-bold', category: 'tools' },
   { panelType: 'agent', label: 'Agent', icon: 'solar:bot-bold', category: 'tools' },
   { panelType: 'sync', label: 'Sync', icon: 'solar:refresh-bold', category: 'tools' },

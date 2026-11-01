@@ -22,7 +22,7 @@ function compileChatActions() {
   const compiled = ts.transpile(code, { target: ts.ScriptTarget.ES2022 })
   return new Function(
     'progress', 'chatDraft', 'newChatLine', 'sendTutorTurn',
-    `const chatSendBusy = { value: false }; const pendingStudentText = { value: '' }; const activeLessonId = { value: 'context' }; const chatList = { value: null }; const nextTick = callback => Promise.resolve().then(callback); let textPracticeController = null; const voiceRequest = new AbortController(); const voice = { active: { value: false } }; let stopVoiceCalls = 0; const stopVoice = () => { stopVoiceCalls++; voice.active.value = false; voiceRequest.abort(); }; ${compiled}; return { sendTextPractice, clearChat, voice, voiceSignal: voiceRequest.signal, pendingStudentText, get stopVoiceCalls() { return stopVoiceCalls; } }`,
+    `const hydrated = { value: true }; const chatSendBusy = { value: false }; const pendingStudentText = { value: '' }; const activeLessonId = { value: 'context' }; const chatList = { value: null }; const nextTick = callback => Promise.resolve().then(callback); let textPracticeController = null; const voiceRequest = new AbortController(); const voice = { active: { value: false } }; let stopVoiceCalls = 0; const stopVoice = () => { stopVoiceCalls++; voice.active.value = false; voiceRequest.abort(); }; ${compiled}; return { sendTextPractice, clearChat, voice, voiceSignal: voiceRequest.signal, pendingStudentText, get stopVoiceCalls() { return stopVoiceCalls; } }`,
   ) as (
     progress: { value: { chat: unknown[]; chatSessionIds: Record<string, string> } },
     chatDraft: { value: string },
@@ -41,14 +41,43 @@ function compileUnmountCleanup() {
   const callback = registration.arguments[0]
   if (!callback || !ts.isArrowFunction(callback)) throw new Error('MandarinInstructor unmount callback not found')
   const compiled = ts.transpile(`return (${script!.slice(callback.getStart(sourceFile), callback.end)})`, { target: ts.ScriptTarget.ES2022 })
-  return new Function('window', 'onGlobalShortcut', 'textPracticeController', 'drawingObserver', 'saveTimer', 'clearTimeout', 'stopVoice', compiled) as (
+  return new Function('window', 'onGlobalShortcut', 'textPracticeController', 'drawingObserver', 'saveTimer', 'clearTimeout', 'isUnmounting', 'flushPendingSave', 'stopVoice', compiled) as (
     window: { removeEventListener: (...args: unknown[]) => void; speechSynthesis?: { cancel: () => void } },
     onGlobalShortcut: () => void,
     textPracticeController: AbortController,
     drawingObserver: { disconnect: () => void } | null,
     saveTimer: ReturnType<typeof setTimeout> | null,
     clearTimeout: (timer: ReturnType<typeof setTimeout>) => void,
+    isUnmounting: boolean,
+    flushPendingSave: () => void,
     stopVoice: () => void,
+  ) => () => void
+}
+
+function compileVoicePrompt() {
+  const sourceFile = ts.createSourceFile('MandarinInstructor.ts', script!, ts.ScriptTarget.Latest, true)
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.FunctionDeclaration => ts.isFunctionDeclaration(statement) && statement.name?.text === 'sendVoicePrompt',
+  )
+  if (!declaration) throw new Error('Mandarin voice prompt function not found')
+  const compiled = ts.transpile(script!.slice(declaration.getStart(sourceFile), declaration.end), { target: ts.ScriptTarget.ES2022 })
+  return new Function('activeLessonId', 'pendingStudentText', 'sendTutorTurn', 'newChatLine', 'progress', 'saveState', 'chatList', 'nextTick', `${compiled}; return sendVoicePrompt`) as (
+    activeLessonId: { value: string }, pendingStudentText: { value: string }, sendTutorTurn: (...args: any[]) => Promise<string>,
+    newChatLine: (...args: any[]) => any, progress: { value: { chat: any[] } }, saveState: { value: string },
+    chatList: { value: null }, nextTick: (callback: () => void) => Promise<void>,
+  ) => (text: string, signal: AbortSignal) => Promise<string>
+}
+
+function compileFlushPendingSave() {
+  const sourceFile = ts.createSourceFile('MandarinInstructor.ts', script!, ts.ScriptTarget.Latest, true)
+  const declaration = sourceFile.statements.find(
+    (statement): statement is ts.FunctionDeclaration => ts.isFunctionDeclaration(statement) && statement.name?.text === 'flushPendingSave',
+  )
+  if (!declaration) throw new Error('Mandarin flush save function not found')
+  const compiled = ts.transpile(script!.slice(declaration.getStart(sourceFile), declaration.end), { target: ts.ScriptTarget.ES2022 })
+  return new Function('saveTimer', 'clearTimeout', 'hydrated', 'savePending', 'saveRevision', 'queueProgressSave', `${compiled}; return flushPendingSave`) as (
+    timer: ReturnType<typeof setTimeout> | null, clearTimeout: (timer: ReturnType<typeof setTimeout>) => void,
+    hydrated: { value: boolean }, savePending: boolean, saveRevision: { value: number }, queueProgressSave: (revision: number) => void,
   ) => () => void
 }
 
@@ -56,10 +85,11 @@ function getClearButtonDisabled() {
   const button = template.match(/<button\b(?=[^>]*aria-label="Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada")[^>]*>/)?.[0]
   const expression = button?.match(/:disabled="([^"]+)"/)?.[1]
   if (!expression) throw new Error('Mandarin chat clear button disabled binding not found')
-  return new Function('progress', 'pendingStudentText', 'voice = { active: { value: false } }', `return ${expression}`) as (
+  return new Function('progress', 'pendingStudentText', 'voice = { active: { value: false } }', 'hydrated = { value: true }', `return ${expression}`) as (
     progress: { chat: unknown[] },
     pendingStudentText: string,
     voice?: { active: { value: boolean } },
+    hydrated?: { value: boolean },
   ) => boolean
 }
 
@@ -105,9 +135,10 @@ describe('Mandarin local text chat cancellation', () => {
     const controller = new AbortController()
     const removeEventListener = vi.fn()
     const cancelSpeech = vi.fn()
+    const flushSave = vi.fn()
     const cleanup = compileUnmountCleanup()(
       { removeEventListener, speechSynthesis: { cancel: cancelSpeech } },
-      vi.fn(), controller, null, null, vi.fn(), vi.fn(),
+      vi.fn(), controller, null, null, vi.fn(), false, flushSave, vi.fn(),
     )
 
     cleanup()
@@ -115,6 +146,35 @@ describe('Mandarin local text chat cancellation', () => {
     expect(controller.signal.aborted).toBe(true)
     expect(removeEventListener).toHaveBeenCalledOnce()
     expect(cancelSpeech).toHaveBeenCalledOnce()
+    expect(flushSave).toHaveBeenCalledOnce()
+  })
+
+  it('flushes the latest debounced progress revision before closing', () => {
+    const timer = 17 as unknown as ReturnType<typeof setTimeout>
+    const cancelTimer = vi.fn()
+    const queueSave = vi.fn()
+    compileFlushPendingSave()(timer, cancelTimer, { value: true }, true, { value: 9 }, queueSave)()
+
+    expect(cancelTimer).toHaveBeenCalledWith(timer)
+    expect(queueSave).toHaveBeenCalledWith(9)
+  })
+
+  it('keeps recognized speech and a clear error in the local transcript when a voice turn fails', async () => {
+    const pendingStudentText = { value: '' }
+    const progress = { value: { chat: [] as any[] } }
+    const saveState = { value: '' }
+    const sendTutorTurn = vi.fn(async () => { throw new Error('Agent indisponível') })
+    const newChatLine = vi.fn((role: string, text: string, mode: string, lessonId: string) => ({ role, text, mode, lessonId }))
+    const sendVoicePrompt = compileVoicePrompt()({ value: 'context' }, pendingStudentText, sendTutorTurn, newChatLine, progress, saveState, { value: null }, async callback => { callback() })
+
+    await expect(sendVoicePrompt('你好', new AbortController().signal)).rejects.toThrow('Agent indisponível')
+
+    expect(progress.value.chat.map(line => line.text)).toEqual([
+      '你好',
+      'Não consegui concluir essa resposta: Agent indisponível Sua fala foi salva no histórico local para você consultar ou reenviar.',
+    ])
+    expect(pendingStudentText.value).toBe('')
+    expect(saveState.value).toContain('salvos no histórico local')
   })
 
   it('ends an active voice turn locally before clearing history and never deletes the remote session', () => {

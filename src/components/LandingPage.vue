@@ -510,7 +510,7 @@ onUnmounted(() => {
   border-radius: 18px;
   padding: 22px 24px;
   box-shadow: var(--ui-shadow-menu);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(var(--ui-blur));
 }
 
 .report-brand {

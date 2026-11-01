@@ -104,6 +104,7 @@ lines.extend([
     "transform master_provisional_portrait:",
     "    xalign 0.84",
     "    yalign 1.0",
+    "    yoffset -380",
     "    zoom 0.8",
     "",
     "screen master_provisional_badge():",
@@ -218,6 +219,8 @@ for chapter in CHAPTERS:
         lines.extend([
             f'        "Continuar — capítulo {number + 1}":',
             f"            jump chapter_{number + 1:02d}",
+            '        "Voltar ao índice":',
+            "            jump chapter_index",
         ])
     else:
         lines.extend([
@@ -227,8 +230,6 @@ for chapter in CHAPTERS:
             "            jump chapter_56",
         ])
     lines.extend([
-        '        "Voltar ao índice":',
-        "            jump chapter_index",
         "",
         f"label quiz_ch{number:02d}:",
         f"    centered {quoted(quiz['title_pt'])}",

@@ -4,7 +4,7 @@
 <!-- Integrates: @/…, vue, ./…. -->
 <!-- Contracts: none special (pure logic; errors bubble to caller). -->
 <template>
-  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport, 'desktop-shell--modern-glass': isModernGlass, 'desktop-shell--flat-amoled': isFlatAmoled }">
+  <div class="desktop-shell" :class="{ 'desktop-shell--glow': theme.settings.glow, 'desktop-shell--plasma': isPlasma, 'desktop-shell--mobile': isMobileViewport, 'has-mobile-windows': hasMobileWindows, 'desktop-shell--modern-glass': isModernGlass, 'desktop-shell--flat-amoled': isFlatAmoled }">
     <!-- Mobile always keeps the single unified header (logo + status +
       theme + one clock), on home and over sheets — no duplicate rows. -->
     <TopMenuBar v-if="isMobileViewport || chrome.topBar" />
@@ -13,6 +13,7 @@
       class="desktop-area"
       :style="{ '--dock-inset': `${dockInset}px` }"
       @click="handleWorkspaceClick"
+      @contextmenu="handleDesktopContextMenu"
     >
       <div class="desktop-wallpaper" :class="`wp-${theme.settings.wallpaper || 'slopes-dark'}`">
         <img
@@ -60,11 +61,6 @@
             :style="desktopHomeLayout.style(`app:${shortcut.panel}`)"
             type="button"
             :title="shortcut.label"
-            @pointerdown="onDesktopHomePressStart($event)"
-            @pointerup="onDesktopHomePressEnd"
-            @pointerleave="onDesktopHomePressEnd"
-            @pointercancel="onDesktopHomePressEnd"
-            @contextmenu.prevent="enterDesktopHomeEditing"
             @click="openShortcut(shortcut.panel)"
           >
             <span class="shortcut-icon" :class="{ selected: selectShortcut === shortcut.panel }">
@@ -114,6 +110,26 @@
            area, so the wallpaper (and windows in centered/autohide modes)
            run full-screen behind it. -->
       <Dock v-if="!isMobileViewport && chrome.bottom && !isPlasma" />
+    </div>
+
+    <div
+      v-if="desktopContextMenu.visible"
+      class="desktop-personalization-context-overlay"
+      @click="desktopContextMenu.visible = false"
+      @contextmenu.prevent="desktopContextMenu.visible = false"
+    >
+      <div
+        ref="desktopContextMenuEl"
+        class="dock-context-menu ui-shine desktop-personalization-context-menu"
+        :style="{ left: `${desktopContextMenu.x}px`, top: `${desktopContextMenu.y}px` }"
+        role="menu"
+        aria-label="Desktop context menu"
+        @click.stop
+      >
+        <button class="dock-context-item" type="button" role="menuitem" @click="startDesktopPersonalization">
+          Personalization mode
+        </button>
+      </div>
     </div>
 
     <!-- Right-bottom shell dock: shortcuts + tiling, above windows. -->
@@ -166,34 +182,19 @@ import { useKickoff } from '@/composables/useKickoff'
 import { useDock, DOCK_HEIGHT } from '@/composables/useDock'
 import { SHELL_CHROME } from '@/ui/shells'
 import { computeStripRects, stripColumnWidth } from '@/utils/shellLayout'
+import { enterDesktopPersonalizationFromContextMenu, shouldOpenDesktopPersonalizationMenu } from '@/utils/desktopPersonalization'
 import TopMenuBar from './TopMenuBar.vue'
 import Dock from './Dock.vue'
 import StatusBar from './StatusBar.vue'
 import AppWindow from './AppWindow.vue'
 import ShellShortcutDock from './ShellShortcutDock.vue'
-import type { PanelType } from '@/types'
+import { MODULE_METADATA, type PanelType } from '@/types'
 import { useHomeLayout } from '@/composables/useHomeLayout'
+import { MOBILE_SHELL_MEDIA_QUERY } from '@/utils/mobileShell'
 
 const stripScrollRef = ref<HTMLElement | null>(null)
 const homeWorkspaceRef = stripScrollRef
 const desktopHomeLayout = useHomeLayout(homeWorkspaceRef, 'cybermanju.desktop.home.layout.v1')
-let desktopHomePressTimer: ReturnType<typeof setTimeout> | null = null
-function enterDesktopHomeEditing() {
-  if (!desktopHomeLayout.editing.value) desktopHomeLayout.toggle()
-}
-function onDesktopHomePressStart(event: PointerEvent) {
-  if (document.body.hasAttribute('data-ui-layout-runtime')) return
-  if (desktopHomeLayout.editing.value || !event.isPrimary || event.button !== 0) return
-  onDesktopHomePressEnd()
-  desktopHomePressTimer = setTimeout(() => {
-    desktopHomePressTimer = null
-    enterDesktopHomeEditing()
-  }, 550)
-}
-function onDesktopHomePressEnd() {
-  if (desktopHomePressTimer) clearTimeout(desktopHomePressTimer)
-  desktopHomePressTimer = null
-}
 const wm = useWindowManager()
 const theme = useTheme()
 const customWallpaper = useCustomWallpaper()
@@ -211,8 +212,9 @@ const dockInset = computed(() =>
 )
 
 const selectShortcut = ref<PanelType | null>(null)
-const mobileShellQuery = typeof window !== 'undefined' ? window.matchMedia?.('(max-width: 768px)') ?? null : null
+const mobileShellQuery = typeof window !== 'undefined' ? window.matchMedia?.(MOBILE_SHELL_MEDIA_QUERY) ?? null : null
 const isMobileViewport = ref(mobileShellQuery?.matches ?? false)
+const hasMobileWindows = computed(() => isMobileViewport.value && wm.windows.value.some(window => !window.minimized))
 function onMobileShellChange(event: MediaQueryListEvent) {
   isMobileViewport.value = event.matches
 }
@@ -223,7 +225,6 @@ const isModernGlass = computed(() => theme.themeId.value === 'modern-glass')
 const isFlatAmoled = computed(() => theme.themeId.value === 'flat-amoled')
 
 onMounted(() => { void customWallpaper.load() })
-onUnmounted(onDesktopHomePressEnd)
 
 const overviewRef = ref<HTMLElement | null>(null)
 
@@ -232,7 +233,7 @@ const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'collections', label: 'Collections', icon: 'solar:library-bold' },
   { panel: 'map', label: 'Map', icon: 'solar:map-bold' },
   { panel: 'mandarin', label: 'Mandarin', icon: 'solar:book-bookmark-bold' },
-  { panel: 'technosutra-novel', label: 'The Stem Array', icon: 'solar:library-bold' },
+  { panel: 'technosutra-novel', label: MODULE_METADATA['technosutra-novel'].label, icon: 'solar:library-bold' },
   { panel: 'editor', label: 'Code Studio', icon: 'solar:code-square-bold' },
   { panel: 'devices', label: 'Devices', icon: 'solar:plug-circle-bold' },
   { panel: 'settings', label: 'Settings', icon: 'solar:settings-bold' },
@@ -464,7 +465,27 @@ const dockMenu = ref({
 })
 
 const dockMenuEl = ref<HTMLElement | null>(null)
-
+const desktopContextMenuEl = ref<HTMLElement | null>(null)
+const desktopContextMenu = ref({ visible: false, x: 0, y: 0 })
+function handleDesktopContextMenu(e: MouseEvent) {
+  if (!shouldOpenDesktopPersonalizationMenu(e, isMobileViewport.value)) return
+  e.preventDefault()
+  e.stopPropagation()
+  dockMenu.value.visible = false
+  desktopContextMenu.value = { visible: true, x: e.clientX, y: e.clientY }
+  void nextTick(() => {
+    const el = desktopContextMenuEl.value
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const margin = 8
+    desktopContextMenu.value.x = Math.max(margin, Math.min(e.clientX, window.innerWidth - rect.width - margin))
+    desktopContextMenu.value.y = Math.max(margin, Math.min(e.clientY, window.innerHeight - rect.height - margin))
+  })
+}
+function startDesktopPersonalization() {
+  desktopContextMenu.value.visible = false
+  enterDesktopPersonalizationFromContextMenu()
+}
 function handleDockContext(e: CustomEvent) {
   const rawX = typeof e.detail?.x === 'number' ? e.detail.x : 0
   const rawY = typeof e.detail?.y === 'number' ? e.detail.y : 0
@@ -543,7 +564,7 @@ onUnmounted(() => {
   position: relative;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   .desktop-shell { width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; }
   .desktop-shell--mobile :deep(.top-menu-bar) { display: flex !important; }
 }
@@ -746,6 +767,16 @@ onUnmounted(() => {
 .dock-context-overlay {
   position: fixed;
   z-index: 10000;
+}
+
+.desktop-personalization-context-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+}
+
+.desktop-personalization-context-menu {
+  position: fixed;
 }
 
 .dock-context-menu {
@@ -1029,7 +1060,7 @@ onUnmounted(() => {
    the specificity tie with the launcher's own `display: flex` regardless of
    stylesheet order. */
 .mobile-only-launcher { display: none !important; }
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   .mobile-only-launcher { display: flex !important; }
   /* Both window hosts stack above Home, including an empty strip. Only real
      app sheets own hit regions; transparent host space must pass through. */

@@ -414,11 +414,13 @@ body.cybermanju-offline .server-only {
    the whole top chrome: one slim strip + its one shared sheet offset.
    TopMenuBar renders it; every fixed sheet top's off it (below). */
 :root {
-  --mobile-header-h: 48px;
+  --mobile-header-h: clamp(44px, 6vh, 52px);
+  --mobile-favorites-dock-h: clamp(48px, 7vh, 60px);
+  --mobile-taskbar-h: clamp(40px, 6vh, 54px);
   --mobile-nav-h: 64px;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   body { font-size: 14px; }
   button,
   [role='button'] {
@@ -481,7 +483,13 @@ body.cybermanju-offline .server-only {
   .desktop-workspace,
   .desktop-strip,
   .desktop-overview {
-    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(var(--mobile-favorites-dock-h) + env(safe-area-inset-bottom, 0px) + 2vh);
+  }
+
+  .desktop-shell.has-mobile-windows .desktop-workspace,
+  .desktop-shell.has-mobile-windows .desktop-strip,
+  .desktop-shell.has-mobile-windows .desktop-overview {
+    padding-bottom: calc(var(--mobile-favorites-dock-h) + var(--mobile-taskbar-h) + env(safe-area-inset-bottom, 0px) + 4vh);
   }
 
   .app-window {
@@ -489,7 +497,7 @@ body.cybermanju-offline .server-only {
     inset: auto !important;
     top: calc(env(safe-area-inset-top, 0px) + var(--mobile-header-h)) !important;
     right: env(safe-area-inset-right, 0px) !important;
-    bottom: calc(var(--mobile-nav-h) + env(safe-area-inset-bottom, 0px) + var(--mobile-keyboard-inset, 0px)) !important;
+    bottom: calc(var(--mobile-favorites-dock-h) + env(safe-area-inset-bottom, 0px) + 2vh + var(--mobile-keyboard-inset, 0px)) !important;
     left: env(safe-area-inset-left, 0px) !important;
     width: auto !important;
     height: auto !important;
@@ -502,6 +510,10 @@ body.cybermanju-offline .server-only {
     border-radius: 0 !important;
     box-shadow: none !important;
     transform: none !important;
+  }
+
+  .desktop-shell.has-mobile-windows .app-window {
+    bottom: calc(var(--mobile-favorites-dock-h) + var(--mobile-taskbar-h) + env(safe-area-inset-bottom, 0px) + 4vh + var(--mobile-keyboard-inset, 0px)) !important;
   }
 
   .statusbar { display: none !important; }
@@ -737,8 +749,74 @@ body.cybermanju-offline .server-only {
 [data-ui-theme='flat-amoled'] .logo-mark img { filter: grayscale(1) brightness(0) invert(1); }
 [data-ui-theme='flat-amoled'] .tmb-dot { background: #fff; box-shadow: none; }
 [data-ui-theme='flat-amoled'] .tray-badge { background: #fff; color: #000; }
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   [data-ui-theme='flat-amoled'] .tmb-mobile-meta { display: none; }
+}
+
+/* Flat AMOLED Cyberpunk keeps the canvas black while tinting only eligible chrome.
+   The global Liquid Glass preference controls its blur/translucency tokens. */
+[data-ui-theme='flat-amoled-cyberpunk'] .mobile-nav,
+[data-ui-theme='flat-amoled-cyberpunk'] .top-menu-bar {
+  background: var(--ui-glass);
+  border-color: var(--ui-glass-border);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+}
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-area,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-workspace,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-overview { background: #000; }
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-wallpaper { display: none; }
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-shortcut,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-shortcut:hover { background: transparent; border-color: transparent; box-shadow: none; }
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .shortcut-icon,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .shortcut-icon.selected,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-shortcut:hover .shortcut-icon {
+  color: var(--ui-text); background: transparent; border-color: transparent; border-radius: 0;
+  box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .shortcut-label,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell:not(.desktop-shell--mobile) .desktop-shortcut:hover .shortcut-label { color: var(--ui-text); }
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container { height: 82px; padding-bottom: 4px; }
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock {
+  gap: 3px; padding: 4px 8px 6px; background: var(--ui-glass); border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-lg); box-shadow: var(--ui-glass-shadow), var(--ui-glass-edge);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+}
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock-item { min-width: 48px; gap: 1px; padding: 2px 4px; border-radius: 0; }
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock-icon { width: 34px; height: 30px; color: var(--ui-text); background: transparent; border: 0; border-radius: 0; }
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock-item-label,
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock-item.active .dock-icon { color: var(--ui-accent); }
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock-item-label { display: block; max-width: 78px; font-size: 9px; font-weight: 600; line-height: 1.2; }
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock-tip,
+[data-ui-theme='flat-amoled-cyberpunk'] .dock-container .dock-indicator { display: none; }
+[data-ui-theme='flat-amoled-cyberpunk'] .mla { background: #000; }
+[data-ui-theme='flat-amoled-cyberpunk'] .mla .mla-dock { background: var(--ui-glass); backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)); }
+[data-ui-theme='flat-amoled-cyberpunk'] .tmb-dot { background: var(--ui-accent); box-shadow: none; }
+[data-ui-theme='flat-amoled-cyberpunk'] .tray-badge { background: var(--ui-accent); color: var(--ui-on-accent); }
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell .top-menu-bar,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell .dock,
+[data-ui-theme='flat-amoled-cyberpunk'] .desktop-shell .shell-dock {
+  background-image: var(--ui-glass-sheen);
+  box-shadow: var(--ui-glass-shadow), var(--ui-glass-edge);
+}
+
+/* Menus and overview surfaces with legacy fixed blur still obey Liquid Glass Off. */
+:root[data-ui-glass='solid'] .app-menu {
+  background: var(--ui-surface) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: var(--ui-shadow-menu) !important;
+}
+:root[data-ui-glass='translucent'] .app-menu {
+  background: var(--ui-glass) !important;
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)) !important;
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate)) !important;
+}
+:root[data-ui-glass='solid'] .overview-surface {
+  background: var(--ui-surface) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 /* Modern Glass shares the same quiet light direction across navigation.
@@ -799,7 +877,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible,
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--ui-text-3) 48%, transparent) transparent;
 }
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   .ui-btn.ui-btn--md, .bw-btn { min-height: 42px; }
   .ui-btn.ui-btn--sm { min-height: 36px; }
 }

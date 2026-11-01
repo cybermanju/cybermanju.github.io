@@ -13,8 +13,11 @@ import {
   homeGridCols,
   homeGridNeighbors,
   homeHueForScreen,
+  homeItemPlacement,
+  homeItemSpan,
   moveHomeItem,
   normalizeHomeState,
+  placeHomeItems,
   removeHomeItem,
   type HomeItem,
   type HomeWorkspaceState,
@@ -29,6 +32,25 @@ const stateWith = (...pages: HomeWorkspaceState['pages']): HomeWorkspaceState =>
 })
 
 describe('home workspace model', () => {
+  it('packs apps before widgets into one deterministic grid and clamps legacy spans', () => {
+    const widget: HomeItem = { id: 'clock-widget', kind: 'widget', ref: 'clock', data: { gridColumns: 2, gridRows: 2 } }
+    const items = [widget, app('first-app', 'files'), app('second-app', 'notes')]
+    const result = placeHomeItems(items, 4, 4)
+    expect(result.overflow).toEqual([])
+    expect(result.placements).toEqual([
+      { itemId: 'first-app', column: 0, row: 0, columnSpan: 1, rowSpan: 1 },
+      { itemId: 'second-app', column: 1, row: 0, columnSpan: 1, rowSpan: 1 },
+      { itemId: 'clock-widget', column: 2, row: 0, columnSpan: 2, rowSpan: 2 },
+    ])
+    expect(homeItemPlacement(widget, items, 4, 4)).toEqual(result.placements[2])
+    expect(homeItemSpan(widget, 4)).toEqual({ columns: 2, rows: 2 })
+
+    const oversized: HomeItem = { id: 'legacy-widget', kind: 'widget', ref: 'notes', data: { gridColumns: 8, gridRows: 8 } }
+    const compact = placeHomeItems([oversized], 4, 2)
+    expect(compact.overflow).toEqual([])
+    expect(compact.placements[0]).toEqual({ itemId: 'legacy-widget', column: 0, row: 0, columnSpan: 4, rowSpan: 2 })
+  })
+
   it('retains deliberately empty pages and activeId across normalization/reload', () => {
     const stored = stateWith(
       { id: 'first', title: 'Home', items: [app('item-a', 'calendar')] },

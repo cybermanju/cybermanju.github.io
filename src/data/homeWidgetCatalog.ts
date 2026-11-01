@@ -16,6 +16,8 @@ export interface HomeWidgetCatalogEntry {
   /** Iconify Solar icon name or a plain text/emoji glyph. */
   icon: string
   kind: HomeWidgetKind
+  /** Default Home grid footprint in cells; user-saved item data may override it. */
+  gridSpan?: { columns: number; rows: number }
   /** Existing MobileLauncher panel ID; used only by app-link entries. */
   appId?: string
   /** Public reference backing the idea or capability. */
@@ -43,12 +45,12 @@ export const homeWidgetCategories = [
  * requires Android/widget-host work; `concept` is exploratory and not shipped.
  */
 export const homeWidgetCatalog: HomeWidgetCatalogEntry[] = [
-  { id: 'clock', title: 'Clock', description: 'Local time and date, rendered in the app UI.', category: 'Personal', icon: 'solar:clock-circle-bold', kind: 'local' },
-  { id: 'notes', title: 'Quick notes', description: 'Compact notes widget supported by the local-widget renderer.', category: 'Productivity', icon: 'solar:notes-bold', kind: 'local' },
+  { id: 'clock', title: 'Clock', description: 'Local time and date, rendered in the app UI.', category: 'Personal', icon: 'solar:clock-circle-bold', kind: 'local', gridSpan: { columns: 2, rows: 1 } },
+  { id: 'notes', title: 'Quick notes', description: 'Compact notes widget supported by the local-widget renderer.', category: 'Productivity', icon: 'solar:notes-bold', kind: 'local', gridSpan: { columns: 2, rows: 2 } },
   { id: 'counter', title: 'Counter', description: 'Tap-to-increment counter widget supported by the local-widget renderer.', category: 'Personal', icon: 'solar:calculator-bold', kind: 'local' },
   { id: 'pixel-pet', title: 'Pixel pet', description: 'Decorative companion widget supported by the local-widget renderer.', category: 'Personal', icon: 'solar:star-bold', kind: 'local' },
-  { id: 'focus', title: 'Focus timer', description: 'In-app focus timer widget; it does not promise background-accurate Android alarms.', category: 'Wellbeing', icon: 'solar:hourglass-bold', kind: 'local' },
-  { id: 'checklist', title: 'Checklist', description: 'Compact checklist widget supported by the local-widget renderer.', category: 'Productivity', icon: 'solar:checklist-minimalistic-bold', kind: 'local' },
+  { id: 'focus', title: 'Focus timer', description: 'In-app focus timer widget; it does not promise background-accurate Android alarms.', category: 'Wellbeing', icon: 'solar:hourglass-bold', kind: 'local', gridSpan: { columns: 2, rows: 1 } },
+  { id: 'checklist', title: 'Checklist', description: 'Compact checklist widget supported by the local-widget renderer.', category: 'Productivity', icon: 'solar:checklist-minimalistic-bold', kind: 'local', gridSpan: { columns: 2, rows: 2 } },
   { id: 'daily-intention', title: 'Daily intention', description: 'An idea for a brief daily prompt; no renderer exists yet.', category: 'Wellbeing', icon: 'solar:sun-2-bold', kind: 'concept' },
   { id: 'quote', title: 'Quote card', description: 'An idea for a user-managed quote card; no renderer exists yet.', category: 'Personal', icon: 'solar:chat-square-quote-bold', kind: 'concept' },
   { id: 'vault-status', title: 'Private vaults', description: 'Shortcut to the existing vault/storage panel; a future compact status view.', category: 'CyberManju', icon: 'solar:shield-check-bold', kind: 'app-link', appId: 'storage' },

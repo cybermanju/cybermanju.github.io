@@ -12,6 +12,17 @@ from pathlib import Path
 EXPECTED_IDS = list(range(1, 43)) + list(range(44, 52)) + list(range(53, 57))
 MISSING_IDS = [43, 52]
 
+EXPECTED_UI_ASSETS = {
+    "velvet-night.png",
+    "velvet-night-hover.png",
+    "glass-frost.png",
+    "glass-frost-hover.png",
+    "paper-vellum.png",
+    "paper-vellum-hover.png",
+    "paper-glass.png",
+    "paper-glass-hover.png",
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -115,6 +126,10 @@ def main() -> int:
         raise SystemExit("The opening background is missing")
     if len(list(optimized.glob("bg_ch*.jpg"))) != 56:
         raise SystemExit("Expected exactly 56 optimized runtime backgrounds")
+    ui_dir = images / "ui"
+    ui_assets = {path.name for path in ui_dir.glob("*.png")} if ui_dir.is_dir() else set()
+    if ui_assets != EXPECTED_UI_ASSETS:
+        raise SystemExit(f"Expected exactly the eight approved UI texture tiles; found {sorted(ui_assets)}")
 
     # Preserve only capture provenance, never the raw source-capture PNGs.
     source_root.mkdir(parents=True, exist_ok=True)
@@ -148,21 +163,21 @@ def main() -> int:
                 child.unlink()
 
     for child in list(images.iterdir()):
-        if child.name in {"optimized", "bg_intro_scene.jpg", "masters"}:
+        if child.name in {"optimized", "bg_intro_scene.jpg", "masters", "ui"}:
             continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
         else:
             child.unlink()
 
-    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters"}
+    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters", "ui"}
     if {path.name for path in images.iterdir()} != expected_top_level:
         raise SystemExit("Unexpected game/images files remain after local-build preparation")
     if list(source_root.glob("*.png")):
         raise SystemExit("Raw source captures remain in the local package staging tree")
     if len(list(provisional_dir.glob("*.png"))) != 54:
         raise SystemExit("Expected exactly 54 approved runtime sprites after staging cleanup")
-    print("Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites.")
+    print("Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites + 8 UI texture tiles.")
     print("Retained sprite/capture provenance manifests; excluded raw source-capture PNGs from the package.")
     print("Slots 43 and 52 remain absent; no missing renders were generated.")
     return 0

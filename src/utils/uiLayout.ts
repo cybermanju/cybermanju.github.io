@@ -120,8 +120,8 @@ export function installUiLayout(root: HTMLElement): () => void {
   let textHoldTarget: HTMLElement | null = null
   let heldPointer: number | null = null
   let entry: { pointer: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null
-  let touchPointer: { pointer: number; x: number; y: number } | null = null
-  let twoFinger: { pointers: Set<number>; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null = null
+  let touchPointers = new Map<number, { x: number; y: number }>()
+  let twoFinger: { pointers: Set<number>; starts: Map<number, { x: number; y: number }>; timer: ReturnType<typeof setTimeout> } | null = null
   let swapTarget: HTMLElement | null = null
   let disposed = false
   const idOf = (el: HTMLElement) => el.getAttribute('data-ui-layout-id') || (el.hasAttribute('data-home-item') ? `home:${el.getAttribute('data-home-item')}` : '')
@@ -345,21 +345,22 @@ export function installUiLayout(root: HTMLElement): () => void {
   }
   function onDown(event: PointerEvent) {
     if (event.pointerType === 'touch') {
-      if (!touchPointer) touchPointer = { pointer: event.pointerId, x: event.clientX, y: event.clientY }
-      else if (touchPointer.pointer !== event.pointerId && !editing && !ignored(event)) {
+      touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (!editing && touchPointers.size === 2) {
         clearEntry()
         clearTwoFinger()
-        const pointers = new Set([touchPointer.pointer, event.pointerId])
-        const target = closest(event) || (event.target instanceof Element ? event.target.closest<HTMLElement>('[data-ui-layout-entry]') : null)
-        if (target) {
-          twoFinger = { pointers, x: event.clientX, y: event.clientY, timer: setTimeout(() => {
-            if (!twoFinger) return
-            twoFinger = null
-            suppressClickUntil = Date.now() + 800
-            emit(UI_LAYOUT_EVENT, { editing: true })
-          }, 550) }
-        }
-        return
+        const pointers = new Set(touchPointers.keys())
+        const starts = new Map(Array.from(touchPointers, ([pointer, point]) => [pointer, { ...point }]))
+        twoFinger = { pointers, starts, timer: setTimeout(() => {
+          if (!twoFinger || !Array.from(twoFinger.pointers).every(pointer => touchPointers.has(pointer))) return
+          twoFinger = null
+          suppressClickUntil = Date.now() + 800
+          emit(UI_LAYOUT_EVENT, { editing: true })
+        }, 550) }
+      } else if (touchPointers.size > 2) clearTwoFinger()
+      if (twoFinger?.pointers.has(event.pointerId)) {
+        // The second touch owns this gesture, regardless of the element under it.
+        if (event.isPrimary === false) { clearEntry(); return }
       }
     }
     if (event.isPrimary === false) { clearEntry(); return }
@@ -420,8 +421,9 @@ export function installUiLayout(root: HTMLElement): () => void {
     suppressClickUntil = Date.now() + 500
   }
   function onMove(event: PointerEvent) {
-    if (twoFinger?.pointers.has(event.pointerId) && Math.hypot(event.clientX - twoFinger.x, event.clientY - twoFinger.y) > 12) clearTwoFinger()
-    if (touchPointer?.pointer === event.pointerId && Math.hypot(event.clientX - touchPointer.x, event.clientY - touchPointer.y) > 12) touchPointer = null
+    if (touchPointers.has(event.pointerId)) touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    const twoFingerStart = twoFinger?.starts.get(event.pointerId)
+    if (twoFingerStart && Math.hypot(event.clientX - twoFingerStart.x, event.clientY - twoFingerStart.y) > 12) clearTwoFinger()
     if (entry && event.pointerId === entry.pointer && Math.hypot(event.clientX - entry.x, event.clientY - entry.y) > 10) clearEntry()
     if (!drag || drag.pointerId !== event.pointerId) return
     const dx = event.clientX - drag.x; const dy = event.clientY - drag.y
@@ -438,7 +440,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   }
   function onUp(event: PointerEvent) {
     if (twoFinger?.pointers.has(event.pointerId)) clearTwoFinger()
-    if (touchPointer?.pointer === event.pointerId) touchPointer = null
+    touchPointers.delete(event.pointerId)
     if (heldPointer === event.pointerId) { heldPointer = null; suppressClickUntil = Date.now() + 800 }
     if (entry?.pointer === event.pointerId) clearEntry()
     if (!drag || drag.pointerId !== event.pointerId) return
@@ -490,9 +492,11 @@ export function installUiLayout(root: HTMLElement): () => void {
   function onCancel(event: Event) {
     if ('pointerId' in event) {
       const pointer = (event as PointerEvent).pointerId
+      if (twoFinger?.pointers.has(pointer)) clearTwoFinger()
+      touchPointers.delete(pointer)
       if (entry?.pointer === pointer) clearEntry()
       if (drag?.pointerId === pointer) finish(true)
-    } else { clearEntry(); finish(true) }
+    } else { clearEntry(); clearTwoFinger(); touchPointers.clear(); finish(true) }
   }
   function onClick(event: MouseEvent) {
     if (ignored(event)) return
@@ -620,7 +624,7 @@ export function installUiLayout(root: HTMLElement): () => void {
   window.addEventListener(UI_LAYOUT_IMPORT_EVENT, importState)
   reconcile(true)
   function cleanup() {
-    clearEntry(); clearTwoFinger(); touchPointer = null; heldPointer = null; finish(true); disposed = true
+    clearEntry(); clearTwoFinger(); touchPointers.clear(); heldPointer = null; finish(true); disposed = true
     observer?.disconnect()
     root.removeEventListener('pointerdown', onDown, true)
     root.removeEventListener('click', onClick, true)

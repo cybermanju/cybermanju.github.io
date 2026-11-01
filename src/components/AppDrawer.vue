@@ -53,7 +53,7 @@
           <template v-if="!browser.supported">
             <div v-if="visibleBuiltIns.length" v-memo="[visibleBuiltIns, showIcons, showNames, isFlatAmoled]" ref="gridRef" class="drawer-grid" aria-label="All CyberManju apps">
               <button v-for="(app, index) in visibleBuiltIns" :key="app.panel" :data-ui-appearance-id="`drawer:os:${app.panel}`" class="drawer-app drawer-cell" :style="{ '--reveal-delay': `${Math.min(index, 6) * 16}ms` }" type="button" :aria-label="`Open ${app.label}`" @click="openBuiltIn(app.panel)">
-                <span v-if="showIcons" class="drawer-tile" aria-hidden="true" :style="isFlatAmoled ? { background: 'transparent', color: '#fff' } : { background: app.tint, color: '#fff' }"><AppIcon :name="app.icon" :size="26" /></span>
+                <span v-if="showIcons" class="drawer-tile" aria-hidden="true" :style="isFlatAmoled ? { background: 'transparent', color: '#fff' } : { background: app.image ? 'transparent' : app.tint, color: '#fff' }"><img v-if="app.image" class="drawer-img" :src="app.image" alt="" loading="lazy" decoding="async" draggable="false" /><AppIcon v-else :name="app.icon" :size="26" /></span>
                 <span v-if="showNames" class="drawer-name">{{ app.label }}</span>
               </button>
             </div>
@@ -226,7 +226,7 @@ import { describeSyncError, type IconPack } from '@/types'
 
 const props = withDefaults(defineProps<{
   revealProgress?: number
-  builtInApps?: { panel: PanelType; label: string; icon: string; tint: string }[]
+  builtInApps?: { panel: PanelType; label: string; icon: string; tint: string; image?: string }[]
 }>(), { revealProgress: 0, builtInApps: () => [] })
 const wm = useWindowManager()
 const browser = useAndroidApps()
@@ -862,14 +862,18 @@ function resetActive() {
   user-select: none;
 }
 .drawer-name {
+  display: -webkit-box;
   max-width: 100%;
   overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--ui-text-2);
   font-size: 11px;
   line-height: 1.25;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-align: center;
+  white-space: normal;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 .drawer-sys {
   position: absolute;
@@ -1083,6 +1087,21 @@ function resetActive() {
 .theme-flat-amoled .drawer-tile { width: 40px; height: 40px; }
 .theme-flat-amoled .drawer-app { border-radius: 0; }
 .theme-flat-amoled .drawer-app:active { transform: scale(.97); opacity: .7; }
+
+/* Cyberpunk AMOLED keeps the reading canvas black but lets compatible drawer chrome
+   opt into the same global liquid-glass setting as windows and menus. */
+.theme-flat-amoled-cyberpunk.app-drawer-veil {
+  background: color-mix(in srgb, var(--ui-bg-deep) 34%, transparent);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+}
+.theme-flat-amoled-cyberpunk .app-drawer {
+  border-color: var(--ui-border-strong);
+  background: var(--ui-glass);
+  box-shadow: var(--ui-glass-shadow), var(--ui-glass-edge);
+  backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+  -webkit-backdrop-filter: blur(var(--ui-blur)) saturate(var(--ui-saturate));
+}
 
 @media (prefers-reduced-motion: reduce) {
   .app-drawer, .drawer-app { transition: none !important; }

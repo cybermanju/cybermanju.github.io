@@ -5,6 +5,7 @@
 // Contracts: No jsdom dependency; tests model only the DOM APIs used by the runtime.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getUiLayoutEntities, installUiLayout, requestUiLayoutSwap, UI_LAYOUT_EVENT, UI_LAYOUT_MODE_EVENT, UI_LAYOUT_SIZE_STORAGE_KEY, UI_LAYOUT_STORAGE_KEY, UI_LAYOUT_SWAP_EVENT, UI_LAYOUT_TEXT_EVENT } from '../../src/utils/uiLayout'
+import { enterDesktopPersonalizationFromContextMenu } from '../../src/utils/desktopPersonalization'
 
 class Style {
   private values = new Map<string, string>()
@@ -278,6 +279,16 @@ describe('UI layout pointer gestures', () => {
     dispatch(window, new Pointer('pointermove', 8, 40, 20, 0, 'touch', false)); vi.advanceTimersByTime(600)
     expect(root.classList.contains('ui-layout-editing')).toBe(false)
   })
+  it('enters after two stationary fingers hold anywhere, including an ignored unregistered surface', () => {
+    const surface = new MockElement(); surface.setAttribute('data-ui-layout-ignore', ''); root.append(surface)
+    const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
+    dispatch(surface, new Pointer('pointerdown', 15, 100, 300, 0, 'touch', true))
+    dispatch(surface, new Pointer('pointerdown', 16, 300, 300, 0, 'touch', false))
+    dispatch(window, new Pointer('pointermove', 15, 101, 300, 0, 'touch', true))
+    dispatch(window, new Pointer('pointermove', 16, 301, 300, 0, 'touch', false))
+    vi.advanceTimersByTime(550)
+    expect(started).toContainEqual({ editing: true })
+  })
 
   it('opens the text context menu after a 550ms hold on any registered text entity and suppresses the follow-up click', () => {
     const paragraph = new MockElement(); paragraph.tagName = 'P'; paragraph.setAttribute('data-ui-layout-id', 'paragraph'); paragraph.appendText('Texto copiado'); root.append(paragraph)
@@ -294,6 +305,28 @@ describe('UI layout pointer gestures', () => {
     const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
     dispatch(a, new Pointer('pointerdown', 42)); vi.advanceTimersByTime(550)
     expect(menus).toBe(1); expect(started).toHaveLength(0)
+  })
+  it('does not enter desktop personalization from mouse clicks, right-clicks, or a one-finger hold', () => {
+    const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
+    dispatch(a, new Pointer('pointerdown', 46, 100, 100, 0, 'mouse', true)); vi.advanceTimersByTime(600)
+    dispatch(a, new Pointer('pointerdown', 47, 100, 100, 2, 'mouse', true)); vi.advanceTimersByTime(600)
+    const rightClick = new Event('contextmenu', { bubbles: true, cancelable: true }); dispatch(a, rightClick)
+    expect(started).not.toContainEqual({ editing: true })
+    expect(root.classList.contains('ui-layout-editing')).toBe(false)
+  })
+  it('enters only when the explicit desktop context-menu action is selected', () => {
+    const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
+    enterDesktopPersonalizationFromContextMenu()
+    expect(started).toContainEqual({ editing: true })
+    expect(root.classList.contains('ui-layout-editing')).toBe(true)
+  })
+  it('does not enter customization after a one-finger hold on a desktop home icon', () => {
+    const shortcut = new MockElement(); shortcut.setAttribute('data-home-item', 'app:files'); root.append(shortcut)
+    const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))
+    dispatch(shortcut, new Pointer('pointerdown', 45, 150, 150, 0, 'touch', true))
+    vi.advanceTimersByTime(600)
+    expect(started).not.toContainEqual({ editing: true })
+    expect(root.classList.contains('ui-layout-editing')).toBe(false)
   })
   it('enables customization after a two-finger touch hold', () => {
     const started: unknown[] = []; window.addEventListener(UI_LAYOUT_EVENT, e => started.push((e as CustomEvent).detail))

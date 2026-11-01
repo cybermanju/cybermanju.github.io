@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { computed, nextTick, ref } from 'vue'
 import MandarinInstructor from '@/components/MandarinInstructor.vue'
-import { defaultMandarinProgress } from '@/utils/mandarinCourse'
+import { defaultMandarinProgress, MANDARIN_LESSONS, MANDARIN_QUIZ } from '@/utils/mandarinCourse'
 import { VoiceCallController, type VoiceCallState } from '@/utils/voiceCall'
 
 const io = vi.hoisted(() => ({
@@ -94,6 +94,47 @@ async function openVoiceTutor() {
 }
 
 describe('Mandarin clear chat rendered voice flow', () => {
+  it('keeps the Orb dock present and makes writing, review, and passing quiz controls change state', async () => {
+    wrapper = mount(MandarinInstructor, { attachTo: document.body })
+    await flushPromises()
+    expect(wrapper.find('.mi-teacher-dock').exists()).toBe(true)
+    expect(wrapper.find('.mi-orb-dialog').exists()).toBe(true)
+
+    await clickButton('Escrever')
+    const writing = wrapper.get<HTMLTextAreaElement>('.mi-writing-input')
+    const glyph = wrapper.find('.mi-character-picks button').text()
+    await wrapper.find('.mi-character-picks button').trigger('click')
+    expect(writing.element.value).toContain(glyph)
+
+    await clickButton('Aprender')
+    await clickButton('Marcar como revisada')
+    await clickButton('Revisar')
+    const lessonId = defaultMandarinProgress().activeLessonId
+    for (const question of MANDARIN_QUIZ[lessonId]) {
+      const option = wrapper.findAll<HTMLInputElement>('input[type="radio"]').find(input =>
+        input.element.name === question.id && input.element.value === question.answerId,
+      )
+      expect(option, `correct answer for ${question.id}`).toBeDefined()
+      await option!.setValue()
+    }
+    await clickButton('Conferir respostas')
+    expect(wrapper.get('.mi-quiz-result').text()).toContain('aula concluída')
+    expect(MANDARIN_LESSONS.some(lesson => lesson.id === lessonId)).toBe(true)
+  })
+
+  it('keeps pronunciation silent in Texto and selecting Voz does not start capture', async () => {
+    wrapper = mount(MandarinInstructor, { attachTo: document.body })
+    await flushPromises()
+    expect(wrapper.findAll('.mi-concept-top .mi-icon-button').every(button => (button.element as HTMLButtonElement).disabled)).toBe(true)
+
+    await clickButton('Tutor')
+    await clickButton('Voz · falar e ouvir')
+    expect(controller.state).toBe('idle')
+    expect(stopListening).not.toHaveBeenCalled()
+    expect(wrapper.find('button').text()).toBeTruthy()
+    expect(wrapper.find('.mi-voice-controls').text()).toContain('Iniciar conversa por voz')
+  })
+
   it('enables clear during the first listening call before any pending text, then stops capture locally', async () => {
     const loaded = { ...defaultMandarinProgress(), chatSessionIds: { 'agent-1': 'remote-session' } }
     io.vaultGetJson.mockResolvedValue(loaded)

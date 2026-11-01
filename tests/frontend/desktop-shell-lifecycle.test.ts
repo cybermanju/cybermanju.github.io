@@ -35,7 +35,7 @@ const renderer = createRenderer<Node, Node>({
 const all = (el: Node): Node[] => [el, ...el.children.flatMap(all)]
 const hidden = (el: Node | null): boolean => !!el && (el.style.display === 'none' || hidden(el.parent))
 
-function mount() {
+function mount(showDesktopContextMenu = false) {
   const windows = reactive([
     { id: 'one', title: 'One', icon: 'app', line: 1, column: 0, minimized: false },
     { id: 'two', title: 'Two', icon: 'app', line: 2, column: 1, minimized: false },
@@ -48,15 +48,19 @@ function mount() {
     minimize: (id: string) => { const w = windows.find(w => w.id === id); if (w) w.minimized = true },
     focus() {}, updatePosition() {}, updateSize() {}, setLayoutMode: (v: string) => { mode.value = v },
   }
+  let personalizationActions = 0
+  const desktopContextMenu = Vue.reactive({ visible: showDesktopContextMenu, x: 24, y: 32 })
   const ctx: any = {
     wm, theme: { settings: Vue.reactive({ glow: false, wallpaper: 'slopes-dark' }) }, customWallpaper: { source: Vue.ref(null), imageFailed() {} },
     dock: { layout: Vue.ref('pill'), visibility: Vue.ref('fixed') }, kickoff: { kickoffOpen: Vue.ref(false) },
     isOverview: Vue.computed(() => mode.value === 'overview'), isStrip: Vue.computed(() => mode.value === 'strip'), isVerticalStrip: false,
-    isMobileViewport: false, isPlasma: false, isModernGlass: false, isFlatAmoled: false, chrome: { topBar: false, shortcutDock: false, bottom: false }, dockInset: Vue.ref(0),
+    isMobileViewport: false, hasMobileWindows: false, isPlasma: false, isModernGlass: false, isFlatAmoled: false, chrome: { topBar: false, shortcutDock: false, bottom: false }, dockInset: Vue.ref(0),
     visibleWindowIds: Vue.computed(() => new Set((mode.value === 'strip' ? wm.stripWindows.value : windows.filter(w => !w.minimized)).map((w: any) => w.id))),
     overviewWindows: Vue.computed(() => windows), shortcuts: [], stripContentStyle: {}, desktopHomeLayout: { editing: Vue.ref(false), customized: Vue.ref(false), style: () => ({}), onPointerDown() {}, onClickCapture() {}, onKeydown() {}, toggle() {}, reset() {} },
     focusedWindowId: null, handleWorkspaceClick() {}, onStripWheel() {}, openShortcut() {}, leaveOverview() {}, pickFromOverview() {},
     dockMenu: Vue.reactive({ visible: false, items: [], x: 0, y: 0 }),
+    desktopContextMenu, desktopContextMenuEl: Vue.ref(null),
+    handleDesktopContextMenu() {}, startDesktopPersonalization() { personalizationActions++; desktopContextMenu.visible = false },
   }
   const AppWindow = { name: 'AppWindow', props: ['win'], setup(props: any) { const instance = ++lifecycle.mounts; return () => h('article', { 'data-window-id': props.win.id, 'data-instance': instance }) }, unmounted() { lifecycle.unmounts++ } }
   const lifecycle = { mounts: 0, unmounts: 0 }
@@ -64,10 +68,28 @@ function mount() {
   const component = { setup: () => ctx, render: moduleExports.render, components: { AppWindow, TopMenuBar: { render: () => null }, StatusBar: { render: () => null }, MobileLauncher: { render: () => null }, AppIcon: { render: () => null }, ShellShortcutDock: { render: () => null }, PlasmaPanel: { render: () => null }, KickoffMenu: { render: () => null }, Dock: { render: () => null } } }
   const app = renderer.createApp(component)
   app.mount(root)
-  return { root, windows, mode, lifecycle, app }
+  return { root, windows, mode, lifecycle, app, desktopContextMenu, personalizationActions: () => personalizationActions }
 }
 
 describe('DesktopShell keyed AppWindow lifecycle', () => {
+  it('exposes desktop personalization through the explicit desktop context menu item', () => {
+    expect(source).toContain('@contextmenu="handleDesktopContextMenu"')
+    expect(source).toContain('Personalization mode')
+    expect(source).toContain('@click="startDesktopPersonalization"')
+    expect(source).toContain('enterDesktopPersonalizationFromContextMenu()')
+    expect(source).not.toContain('onDesktopHomePressStart')
+    expect(source).not.toContain('enterDesktopHomeEditing')
+  })
+  it('opens personalization when the desktop context-menu item is clicked', async () => {
+    const ui = mount(true)
+    const item = all(ui.root).find(el => el.tag === 'button' && el.props.role === 'menuitem')
+    expect(item).toBeDefined()
+    item!.props.onClick()
+    await nextTick()
+    expect(ui.personalizationActions()).toBe(1)
+    expect(ui.desktopContextMenu.visible).toBe(false)
+    ui.app.unmount()
+  })
   it('keeps each host mounted and inert/hidden when minimized, in overview, floating, tiled, and strip', async () => {
     const ui = mount()
     const host = (id: string) => all(ui.root).find(el => el.props['data-shell-window-id'] === id)

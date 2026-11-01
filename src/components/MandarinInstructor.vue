@@ -18,7 +18,7 @@
     </header>
 
     <nav class="mi-stage-nav" aria-label="Áreas do curso">
-      <button v-for="item in stages" :key="item.id" type="button" class="mi-stage-button" :class="{ active: stage === item.id }" :aria-current="stage === item.id ? 'page' : undefined" @click="setStage(item.id)">
+      <button v-for="item in stages" :key="item.id" type="button" class="mi-stage-button" :class="{ active: stage === item.id }" :aria-current="stage === item.id ? 'page' : undefined" :disabled="!hydrated" @click="setStage(item.id)">
         <AppIcon :name="item.icon" :size="16" />
         <span>{{ item.label }}</span>
       </button>
@@ -29,7 +29,7 @@
 	  <aside class="mi-lesson-rail" aria-label="Aulas do curso">
 	    <section v-for="group in lessonGroups" :key="group.id" class="mi-lesson-group">
 	      <p class="mi-section-label">{{ group.title }}</p>
-	      <button v-for="lesson in group.lessons" :key="lesson.id" class="mi-lesson-link" :class="{ active: activeLessonId === lesson.id }" type="button" @click="selectLesson(lesson.id)">
+              <button v-for="lesson in group.lessons" :key="lesson.id" class="mi-lesson-link" :class="{ active: activeLessonId === lesson.id }" type="button" :disabled="!hydrated" @click="selectLesson(lesson.id)">
 	        <span class="mi-lesson-index">{{ String(lesson.sequence).padStart(2, '0') }}</span>
               <span class="mi-lesson-copy"><strong>{{ lesson.title }}</strong><small>{{ lesson.subtitle }}</small><span class="mi-lesson-progress" role="img" :aria-label="hydrated ? `${lessonStageCount(lesson.id)} de 4 etapas exploradas` : 'Carregando progresso salvo'" :title="hydrated ? `${lessonStageCount(lesson.id)} de 4 etapas exploradas` : 'Carregando progresso salvo'"><i v-for="milestone in progressStages" :key="milestone.id" :class="{ visited: lessonStageVisited(lesson.id, milestone.id) }" /></span></span>
 	        <AppIcon v-if="isComplete(lesson.id)" name="solar:check-circle-bold" :size="17" class="mi-complete-icon" />
@@ -64,7 +64,7 @@
 
 	          <div class="mi-concept-grid">
 	            <article v-for="(concept, index) in activeLesson.concepts" :key="`${activeLesson.id}-${index}`" class="mi-concept-card" :class="{ 'mi-concept-card--tone': activeLesson.id === 'sounds' }">
-              <div class="mi-concept-top"><span>{{ activeLesson.id === 'sounds' ? `TOM ${index + 1}` : `EXPRESSÃO ${String(index + 1).padStart(2, '0')}` }}</span><button type="button" class="mi-icon-button" :aria-label="`Ouvir ${concept.hanzi} ${concept.pinyin}`" title="Ouvir pronúncia" @click="speak(concept.hanzi, 'zh-CN')"><AppIcon name="solar:volume-loud-bold" :size="17" /></button></div>
+              <div class="mi-concept-top"><span>{{ activeLesson.id === 'sounds' ? `TOM ${index + 1}` : `EXPRESSÃO ${String(index + 1).padStart(2, '0')}` }}</span><button type="button" class="mi-icon-button" :aria-label="`Ouvir ${concept.hanzi} ${concept.pinyin}`" :title="progress.interactionMode === 'text' ? 'Escolha Voz no Tutor para ouvir; Texto não inicia áudio' : 'Ouvir pronúncia'" :disabled="progress.interactionMode === 'text'" @click="speak(concept.hanzi, 'zh-CN')"><AppIcon name="solar:volume-loud-bold" :size="17" /></button></div>
               <strong class="mi-hanzi" lang="zh-CN">{{ concept.hanzi }}</strong>
               <span class="mi-pinyin">{{ concept.pinyin }}</span>
               <p>{{ concept.meaning }}</p>
@@ -104,11 +104,11 @@
             </details>
             <details v-if="activePedagogy.listeningPractice?.length" class="mi-pedagogy-block">
               <summary>Prática de escuta ({{ activePedagogy.listeningPractice.length }})</summary>
-              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.listeningPractice" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.focus }}</strong><p>{{ item.prompt }}</p><UiButton v-if="item.ttsText" size="xs" variant="outline" icon="solar:volume-loud-bold" @click="speak(item.ttsText, 'zh-CN')">Ouvir modelo sintetizado</UiButton><p v-if="quizSolutionsUnlocked && item.expectedAnswer" class="mi-pedagogy-answer">Resposta de referência: {{ item.expectedAnswer }}</p><p v-if="quizSolutionsUnlocked && item.answerExplanation">{{ item.answerExplanation }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.listeningPractice" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.focus }}</strong><p>{{ item.prompt }}</p><UiButton v-if="item.ttsText" size="xs" variant="outline" icon="solar:volume-loud-bold" :disabled="progress.interactionMode === 'text'" :title="progress.interactionMode === 'text' ? 'Escolha Voz no Tutor para ouvir; Texto não inicia áudio' : 'Ouvir modelo sintetizado'" @click="speak(item.ttsText, 'zh-CN')">Ouvir modelo sintetizado</UiButton><p v-if="quizSolutionsUnlocked && item.expectedAnswer" class="mi-pedagogy-answer">Resposta de referência: {{ item.expectedAnswer }}</p><p v-if="quizSolutionsUnlocked && item.answerExplanation">{{ item.answerExplanation }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
             </details>
             <details v-if="activePedagogy.pronunciationPractice?.length" class="mi-pedagogy-block">
               <summary>Prática de pronúncia ({{ activePedagogy.pronunciationPractice.length }})</summary>
-              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.pronunciationPractice" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.focus }}</strong><p>{{ item.prompt }}</p><p v-if="item.modelText"><span lang="zh-CN">{{ item.modelText }}</span> <span class="mi-pinyin">{{ item.modelPinyin }}</span><button type="button" class="mi-icon-button" :aria-label="`Ouvir modelo de ${item.focus}`" @click="speak(item.modelText, 'zh-CN')"><AppIcon name="solar:volume-loud-bold" :size="15" /></button></p><small>{{ item.feedbackCriteria }}</small></article></div>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.pronunciationPractice" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.focus }}</strong><p>{{ item.prompt }}</p><p v-if="item.modelText"><span lang="zh-CN">{{ item.modelText }}</span> <span class="mi-pinyin">{{ item.modelPinyin }}</span><button type="button" class="mi-icon-button" :aria-label="`Ouvir modelo de ${item.focus}`" :title="progress.interactionMode === 'text' ? 'Escolha Voz no Tutor para ouvir; Texto não inicia áudio' : 'Ouvir modelo sintetizado'" :disabled="progress.interactionMode === 'text'" @click="speak(item.modelText, 'zh-CN')"><AppIcon name="solar:volume-loud-bold" :size="15" /></button></p><small>{{ item.feedbackCriteria }}</small></article></div>
             </details>
             <details v-if="activePedagogy.writingTasks?.length" class="mi-pedagogy-block">
               <summary>Propostas de escrita ({{ activePedagogy.writingTasks.length }})</summary>
@@ -139,9 +139,9 @@
           <section class="mi-practice-callout">
             <div class="mi-callout-icon"><AppIcon name="solar:lightbulb-bolt-bold" :size="20" /></div>
             <div><p class="mi-section-label">FAÇA AGORA</p><p>{{ activeLesson.practicePrompt }}</p></div>
-            <UiButton size="sm" icon="solar:pen-bold" @click="setStage('write')">Praticar</UiButton>
+            <UiButton size="sm" icon="solar:pen-bold" :disabled="!hydrated" @click="setStage('write')">Praticar</UiButton>
           </section>
-          <footer class="mi-content-foot"><span>Fonte didática: {{ activeLesson.sourcePages }}. Conteúdo do app resumido; página original não foi copiada.</span><UiButton size="sm" icon="solar:check-circle-bold" :active="reviewed" @click="markReviewed">{{ reviewed ? 'Revisão concluída' : 'Marcar como revisada' }}</UiButton></footer>
+          <footer class="mi-content-foot"><span>Fonte didática: {{ activeLesson.sourcePages }}. Conteúdo do app resumido; página original não foi copiada.</span><UiButton size="sm" icon="solar:check-circle-bold" :active="reviewed" :disabled="!hydrated" @click="markReviewed">{{ reviewed ? 'Revisão concluída' : 'Marcar como revisada' }}</UiButton></footer>
         </template>
 
         <template v-else-if="stage === 'write'">
@@ -150,12 +150,12 @@
             <section class="mi-writing-card">
               <label class="mi-field-label" :for="`writing-${activeLesson.id}`">DESAFIO DE ESCRITA</label>
               <p class="mi-writing-prompt">{{ activeLesson.writingPrompt }}</p>
-              <textarea :id="`writing-${activeLesson.id}`" v-model="currentWriting" class="mi-writing-input" rows="5" maxlength="1200" placeholder="Escreva aqui; você também pode inserir caracteres abaixo." spellcheck="false" aria-describedby="writing-count" />
-              <div class="mi-writing-bottom"><span id="writing-count">{{ currentWriting.length }} / 1200</span><div class="mi-character-picks" role="group" aria-label="Inserir caracteres de prática"><button v-for="character in writingCharacters" :key="character" type="button" @click="insertCharacter(character)">{{ character }}</button></div></div>
+              <textarea :id="`writing-${activeLesson.id}`" v-model="currentWriting" class="mi-writing-input" rows="5" maxlength="1200" placeholder="Escreva aqui; você também pode inserir caracteres abaixo." spellcheck="false" aria-describedby="writing-count" :disabled="!hydrated" />
+              <div class="mi-writing-bottom"><span id="writing-count">{{ currentWriting.length }} / 1200</span><div class="mi-character-picks" role="group" aria-label="Inserir caracteres de prática"><button v-for="character in writingCharacters" :key="character" type="button" :disabled="!hydrated" @click="insertCharacter(character)">{{ character }}</button></div></div>
             </section>
             <section class="mi-draw-card" aria-labelledby="draw-title">
-              <div class="mi-draw-head"><div><p class="mi-section-label">TRAÇO LIVRE</p><h3 id="draw-title">Área de desenho</h3></div><div class="mi-draw-actions"><UiButton size="xs" variant="ghost" icon="solar:undo-left-round-bold" :disabled="!activeStrokes.length" @click="undoStroke">Desfazer</UiButton><UiButton size="xs" variant="ghost" icon="solar:trash-bin-trash-bold" :disabled="!activeStrokes.length" @click="clearDrawing">Limpar</UiButton></div></div>
-              <div class="mi-canvas-wrap"><canvas ref="drawingCanvas" class="mi-drawing-canvas" aria-label="Área de desenho para praticar os caracteres chineses" @pointerdown="onDrawStart" @pointermove="onDrawMove" @pointerup="onDrawEnd" @pointercancel="onDrawEnd" @lostpointercapture="onDrawEnd" /></div>
+              <div class="mi-draw-head"><div><p class="mi-section-label">TRAÇO LIVRE</p><h3 id="draw-title">Área de desenho</h3></div><div class="mi-draw-actions"><UiButton size="xs" variant="ghost" icon="solar:undo-left-round-bold" :disabled="!hydrated || !activeStrokes.length" @click="undoStroke">Desfazer</UiButton><UiButton size="xs" variant="ghost" icon="solar:trash-bin-trash-bold" :disabled="!hydrated || !activeStrokes.length" @click="clearDrawing">Limpar</UiButton></div></div>
+              <div class="mi-canvas-wrap"><canvas ref="drawingCanvas" class="mi-drawing-canvas" :aria-disabled="!hydrated" aria-label="Área de desenho para praticar os caracteres chineses" @pointerdown="onDrawStart" @pointermove="onDrawMove" @pointerup="onDrawEnd" @pointercancel="onDrawEnd" @lostpointercapture="onDrawEnd" /></div>
               <p class="mi-canvas-hint"><AppIcon name="solar:pen-bold" :size="13" /> Desenhe sobre a grade; o traço é salvo no progresso do curso.</p>
             </section>
           </div>
@@ -168,13 +168,13 @@
             <fieldset v-for="(question, qIndex) in quizQuestions" :key="question.id" class="mi-question">
               <legend><span class="mi-question-number">{{ String(qIndex + 1).padStart(2, '0') }}</span>{{ question.prompt }}</legend>
               <label v-for="option in question.options" :key="option.id" class="mi-option" :class="quizOptionClass(question.id, option.id)">
-                <input v-model="quizAnswers[question.id]" type="radio" :name="question.id" :value="option.id" :disabled="quizScored" />
+                <input v-model="quizAnswers[question.id]" type="radio" :name="question.id" :value="option.id" :disabled="!hydrated || quizScored" />
                 <span>{{ option.label }}</span>
                 <AppIcon v-if="quizScored && option.id === question.answerId" name="solar:check-circle-bold" :size="16" />
               </label>
               <p v-if="quizScored" class="mi-answer-explanation">{{ question.explanation }} <span>· fonte {{ question.sourcePages }}</span></p>
             </fieldset>
-            <div class="mi-quiz-footer"><p v-if="quizScored" class="mi-quiz-result" role="status" aria-live="polite">{{ quizScore }} / {{ quizQuestions.length }} corretas. {{ quizPass ? (reviewed ? 'Mínimo atingido — aula concluída.' : 'Mínimo atingido — marque a aula como revisada para concluir.') : 'Abaixo do mínimo de 2/3; revise e tente novamente.' }}</p><UiButton size="md" icon="solar:check-read-bold" type="submit" :disabled="!allQuizAnswered || (quizScored && quizPass)">{{ quizScored && quizPass ? 'Aprovado' : quizScored ? 'Tentar novamente' : 'Conferir respostas' }}</UiButton></div>
+            <div class="mi-quiz-footer"><p v-if="quizScored" class="mi-quiz-result" role="status" aria-live="polite">{{ quizScore }} / {{ quizQuestions.length }} corretas. {{ quizPass ? (reviewed ? 'Mínimo atingido — aula concluída.' : 'Mínimo atingido — marque a aula como revisada para concluir.') : 'Abaixo do mínimo de 2/3; revise e tente novamente.' }}</p><UiButton size="md" icon="solar:check-read-bold" type="submit" :disabled="!hydrated || !allQuizAnswered || (quizScored && quizPass)">{{ quizScored && quizPass ? 'Aprovado' : quizScored ? 'Tentar novamente' : 'Conferir respostas' }}</UiButton></div>
           </form>
         </template>
 
@@ -187,42 +187,23 @@
             <div><p class="mi-section-label">CONTEXTO DE PÁGINA DO TUTOR</p><strong>{{ sourceLabel(tutorSourcePage.sourceId) }} · PDF p. {{ tutorSourcePage.pdfPage }}<template v-if="tutorSourcePage.printedPage"> · p. impressa {{ tutorSourcePage.printedPage }}</template></strong><p>{{ tutorSourcePage.summary }}</p><small>Resumo, não transcrição integral. As ressalvas e os campos de baixa confiança também seguem no contexto do Agent.</small></div>
             <UiButton size="xs" variant="outline" icon="solar:document-text-bold" @click="setStage('sources')">Trocar resumo</UiButton>
           </section>
-          <section class="mi-teacher-stage" :class="{ 'motion-reduced': motion.reduced.value }" aria-label="Diálogo com o professor Orb" :data-mode="progress.interactionMode" :data-activity="teacherOrbActivity">
-            <div class="mi-teacher-orb">
-              <OrbNavigator :screen-index="0" :screen-count="1" :motion-reduced="motion.reduced.value" teacher-mode :activity="teacherOrbActivity" :caption="teacherOrbCaption" />
-            </div>
-            <div class="mi-teacher-dialog-column">
-              <Transition name="mi-orb-dialog" mode="out-in">
-                <div :key="teacherOrbMessageKey" class="mi-orb-dialog" role="status" aria-live="polite" aria-atomic="true">
-                  <span class="mi-orb-dialog-label">{{ teacherOrbDialogLabel }}</span>
-                  <p>{{ teacherOrbMessage }}</p>
-                </div>
-              </Transition>
-              <div class="mi-orb-path">
-                <div class="mi-orb-path-top"><span>CAMINHO DESTA AULA</span><strong>{{ hydrated ? lessonStageCount(activeLesson.id) : '—' }} / 4 marcos</strong></div>
-                <div class="mi-orb-path-track" role="progressbar" :aria-valuenow="hydrated ? lessonStageCount(activeLesson.id) : undefined" :aria-valuemin="0" :aria-valuemax="4" :aria-valuetext="hydrated ? `${lessonStageCount(activeLesson.id)} de 4 etapas exploradas nesta aula` : 'Carregando progresso salvo desta aula'"><span :style="{ width: `${lessonStageCount(activeLesson.id) * 25}%` }" /></div>
-                <div class="mi-orb-path-labels"><span v-for="milestone in progressStages" :key="milestone.id" :class="{ visited: lessonStageVisited(activeLesson.id, milestone.id), current: stage === milestone.id }">{{ milestone.label }}</span></div>
-              </div>
-            </div>
-            <p class="mi-teacher-safety"><strong>Seu professor de mandarim</strong><span>O Orb acompanha a conversa sem ativar o microfone; a captura só começa ao iniciar uma chamada no modo Voz.</span></p>
-          </section>
           <div class="mi-mode-toggle" role="group" aria-label="Modo de interação com o tutor">
-            <button type="button" class="mi-mode-button" :class="{ selected: progress.interactionMode === 'text' }" :aria-pressed="progress.interactionMode === 'text'" @click="setInteractionMode('text')">Texto · teclado</button>
-            <button type="button" class="mi-mode-button" :class="{ selected: progress.interactionMode === 'voice' }" :aria-pressed="progress.interactionMode === 'voice'" :disabled="!voice.supported" @click="setInteractionMode('voice')">Voz · falar e ouvir</button>
+            <button type="button" class="mi-mode-button" :class="{ selected: progress.interactionMode === 'text' }" :aria-pressed="progress.interactionMode === 'text'" :disabled="!hydrated || chatSendBusy" @click="setInteractionMode('text')">Texto · teclado</button>
+            <button type="button" class="mi-mode-button" :class="{ selected: progress.interactionMode === 'voice' }" :aria-pressed="progress.interactionMode === 'voice'" :disabled="!hydrated || !voice.supported || chatSendBusy" @click="setInteractionMode('voice')">Voz · falar e ouvir</button>
           </div>
           <p v-if="progress.interactionMode === 'text'" class="mi-mode-note">Digite suas perguntas e respostas abaixo. O Agent responde por texto; nenhuma captura de voz ou fala automática do tutor é iniciada neste modo.</p>
           <p v-else class="mi-mode-note">A chamada de voz só começa ao tocar em “Iniciar conversa por voz”. Durante essa chamada, sua fala vira texto para o Agent e as respostas são lidas pela síntese do dispositivo.</p>
           <div class="mi-voice-layout">
             <section class="mi-voice-card">
-              <div class="mi-voice-setting-row"><label for="mandarin-agent-select">AGENTE PARA ESTA PRÁTICA</label><select id="mandarin-agent-select" v-model="studio.chatConfigId.value" :disabled="voice.active.value || studio.jobActive.value"><option value="">Selecione um Agent</option><option v-for="config in studio.configs.value" :key="config.id" :value="config.id">{{ config.name }} · {{ config.model }}</option></select></div>
-              <div class="mi-voice-setting-row"><label for="voice-language">IDIOMA DA FALA</label><select id="voice-language" v-model="progress.voiceLanguage"><option value="zh-CN">Mandarim · zh-CN</option><option value="pt-BR">Português · pt-BR</option></select></div>
+              <div class="mi-voice-setting-row"><label for="mandarin-agent-select">AGENTE PARA ESTA PRÁTICA</label><select id="mandarin-agent-select" v-model="studio.chatConfigId.value" :disabled="!hydrated || voice.active.value || studio.jobActive.value || chatSendBusy"><option value="">Selecione um Agent</option><option v-for="config in studio.configs.value" :key="config.id" :value="config.id">{{ config.name }} · {{ config.model }}</option></select></div>
+              <div class="mi-voice-setting-row"><label for="voice-language">IDIOMA DA FALA</label><select id="voice-language" v-model="progress.voiceLanguage" :disabled="!hydrated || voice.active.value"><option value="zh-CN">Mandarim · zh-CN</option><option value="pt-BR">Português · pt-BR</option></select></div>
               <p class="mi-voice-safety"><AppIcon name="solar:shield-check-bold" :size="15" />Não guardamos áudio. Em modo texto, não há captura nem resposta falada. Em modo voz, a fala é reconhecida no browser/sistema, enviada como texto ao Agent e a resposta é sintetizada no dispositivo; confira as políticas do serviço de voz escolhido.</p>
               <p v-if="progress.interactionMode === 'voice' && !voice.supported" class="mi-provider-warning" role="status">Este dispositivo não oferece o reconhecimento e a síntese exigidos pelo modo voz. O modo texto continua disponível em todas as unidades.</p>
               <div class="mi-voice-controls">
-                <UiButton v-if="progress.interactionMode === 'voice' && !voice.active.value" size="lg" icon="solar:microphone-3-bold" :disabled="!selectedAgentId || studio.jobActive.value || !voice.supported" @click="startVoice">Iniciar conversa por voz</UiButton>
+                <UiButton v-if="progress.interactionMode === 'voice' && !voice.active.value" size="lg" icon="solar:microphone-3-bold" :disabled="!hydrated || !selectedAgentId || studio.jobActive.value || chatSendBusy || !voice.supported" @click="startVoice">Iniciar conversa por voz</UiButton>
                 <template v-else-if="progress.interactionMode === 'voice'">
                   <UiButton size="md" icon="solar:stop-circle-bold" variant="danger" @click="stopVoice">Encerrar voz</UiButton>
-                  <UiButton v-if="voice.state.value === 'speaking'" size="md" icon="solar:skip-next-bold" variant="secondary" @click="voice.interrupt">Interromper e ouvir novamente</UiButton>
+                  <UiButton v-if="voice.state.value === 'speaking'" size="md" icon="solar:skip-next-bold" variant="secondary" title="Para a fala sintetizada e retoma a escuta do microfone" @click="voice.interrupt">Interromper fala e voltar a ouvir você</UiButton>
                 </template>
                 <UiButton size="md" variant="ghost" icon="solar:settings-bold" @click="wm.open('agent')">Configurar Agents</UiButton>
               </div>
@@ -231,21 +212,21 @@
               <p v-if="progress.interactionMode === 'voice' && voice.state.value === 'speaking'" class="mi-live-caption" role="status">O tutor está falando. Você pode interromper.</p>
               <p v-if="voice.error.value" class="mi-voice-error" role="alert">{{ voice.error.value }}</p>
               <div v-if="progress.interactionMode === 'voice'" class="mi-shortcut-grid">
-                <div class="mi-shortcut-row"><span><strong>Alternar voz</strong><small>Funciona só nesta aba, em modo Voz e com a janela em foco.</small></span><UiButton size="xs" variant="outline" @click="beginShortcutCapture('toggleVoice')">{{ shortcutLabel('toggleVoice') }}</UiButton></div>
-                <div class="mi-shortcut-row"><span><strong>Ouvir a frase atual</strong><small>Repete a expressão em foco da aula.</small></span><UiButton size="xs" variant="outline" @click="beginShortcutCapture('replayPhrase')">{{ shortcutLabel('replayPhrase') }}</UiButton></div>
+                <div class="mi-shortcut-row"><span><strong>Alternar voz</strong><small>Funciona só nesta aba, em modo Voz e com a janela em foco.</small></span><UiButton size="xs" variant="outline" :disabled="!hydrated || chatSendBusy" @click="beginShortcutCapture('toggleVoice')">{{ shortcutLabel('toggleVoice') }}</UiButton></div>
+                <div class="mi-shortcut-row"><span><strong>Ouvir a frase atual</strong><small>Repete a expressão em foco da aula.</small></span><UiButton size="xs" variant="outline" :disabled="!hydrated || chatSendBusy" @click="beginShortcutCapture('replayPhrase')">{{ shortcutLabel('replayPhrase') }}</UiButton></div>
                 <p v-if="capturingShortcut" class="mi-capture-message" role="status">Pressione uma combinação de tecla com pelo menos um modificador. Esc cancela.</p>
               </div>
               <p v-if="progress.interactionMode === 'voice'" class="mi-shortcut-note">Atalhos são opcionais. O navegador ou o sistema operacional pode reservar certas combinações.</p>
             </section>
             <section class="mi-chat-card" aria-label="Transcrição do tutor do curso">
-	              <div class="mi-chat-head"><div><p class="mi-section-label">HISTÓRICO LOCAL DO CURSO</p><strong>{{ progress.chat.length }} mensagens salvas</strong><small class="mi-chat-local-note">Limpar remove apenas o histórico e o vínculo locais; a sessão remota do Agent continua em Agents. Uma chamada ativa também termina localmente ao limpar.</small></div><button type="button" class="mi-icon-button" title="Apagar somente o histórico local do curso" aria-label="Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada" :disabled="!progress.chat.length && !pendingStudentText && !voice.active.value" @click="clearChat"><AppIcon name="solar:trash-bin-trash-bold" :size="16" /></button></div>
+              <div class="mi-chat-head"><div><p class="mi-section-label">HISTÓRICO LOCAL DO CURSO</p><strong>{{ progress.chat.length }} mensagens salvas</strong><small class="mi-chat-local-note">Limpar remove apenas o histórico e o vínculo locais; a sessão remota do Agent continua em Agents. Uma chamada ativa também termina localmente ao limpar.</small></div><button type="button" class="mi-icon-button" title="Apagar somente o histórico local do curso" aria-label="Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada" :disabled="!hydrated || (!progress.chat.length && !pendingStudentText && !voice.active.value)" @click="clearChat"><AppIcon name="solar:trash-bin-trash-bold" :size="16" /></button></div>
               <div ref="chatList" class="mi-chat-list" aria-live="polite">
                 <p v-if="!progress.chat.length" class="mi-chat-empty">Comece com “Nǐ hǎo” ou pergunte sobre um dos tópicos da aula.</p>
                 <article v-for="line in progress.chat" :key="line.id" class="mi-chat-line" :class="`mi-chat-line--${line.role}`"><span>{{ line.role === 'student' ? 'VOCÊ' : 'TUTOR' }} · {{ line.mode === 'voice' ? 'voz' : 'texto' }}</span><p>{{ line.text }}</p></article>
                 <article v-if="pendingStudentText" class="mi-chat-line mi-chat-line--student mi-chat-line--pending"><span>VOCÊ · {{ progress.interactionMode === 'voice' ? 'voz' : 'texto' }}</span><p>{{ pendingStudentText }}</p></article>
                 <article v-if="chatSendBusy || (progress.interactionMode === 'voice' && voice.state.value === 'thinking')" class="mi-chat-line mi-chat-line--tutor mi-chat-line--thinking" role="status"><span>ORB · PENSANDO</span><p>{{ progress.interactionMode === 'text' ? 'Estou organizando uma resposta em texto…' : 'Estou organizando uma resposta para sua fala…' }}</p><span class="mi-typing-dots" aria-hidden="true"><i /><i /><i /></span></article>
               </div>
-              <form class="mi-chat-compose" @submit.prevent="sendTextPractice"><label class="sr-only" for="mandarin-chat-input">Sua mensagem para o tutor</label><textarea id="mandarin-chat-input" v-model="chatDraft" rows="2" maxlength="800" placeholder="Escreva uma pergunta ou resposta em mandarim…" :disabled="studio.jobActive.value || voice.active.value || chatSendBusy" /><UiButton size="sm" type="submit" icon="solar:plain-bold" :disabled="!chatDraft.trim() || studio.jobActive.value || voice.active.value || chatSendBusy">Enviar</UiButton></form>
+              <form class="mi-chat-compose" @submit.prevent="sendTextPractice"><label class="sr-only" for="mandarin-chat-input">Sua mensagem para o tutor</label><textarea id="mandarin-chat-input" v-model="chatDraft" rows="2" maxlength="800" placeholder="Escreva uma pergunta ou resposta em mandarim…" :disabled="!hydrated || studio.jobActive.value || voice.active.value || chatSendBusy" /><UiButton size="sm" type="submit" icon="solar:plain-bold" :disabled="!hydrated || !chatDraft.trim() || studio.jobActive.value || voice.active.value || chatSendBusy">Enviar</UiButton></form>
             </section>
           </div>
           <LanguageTeacherVoiceProviders />
@@ -281,7 +262,7 @@
                 <p v-if="selectedSourcePage.lowConfidenceFields.length" class="mi-page-warning"><strong>Detalhes específicos de baixa confiança:</strong> {{ selectedSourcePage.lowConfidenceFields.join(', ') }}</p>
                 <p v-if="selectedSourcePage.reviewNote"><strong>Nota de revisão:</strong> {{ selectedSourcePage.reviewNote }}</p>
                 <p v-if="selectedSourcePage.visualReview"><strong>Revisão visual:</strong> {{ selectedSourcePage.visualReview }}</p>
-                <UiButton size="sm" icon="solar:chat-round-dots-bold" @click="studySelectedSourcePage">Levar este resumo ao Tutor</UiButton>
+                <UiButton size="sm" icon="solar:chat-round-dots-bold" :disabled="!hydrated" @click="studySelectedSourcePage">Levar este resumo ao Tutor</UiButton>
               </article>
               <p v-else class="mi-page-empty" role="status">Nenhum resumo corresponde à busca. Tente outro termo, fonte ou número de página.</p>
             </section>
@@ -306,6 +287,22 @@
         </template>
       </main>
     </div>
+    <section class="mi-teacher-dock" :class="{ 'motion-reduced': motion.reduced.value }" :data-activity="teacherOrbActivity" aria-label="Professor Orb sempre disponível">
+      <div class="mi-teacher-dock__inner">
+        <Transition name="mi-orb-dialog" mode="out-in">
+          <div :key="teacherOrbMessageKey" class="mi-orb-dialog mi-orb-dialog--floating" role="status" aria-live="polite" aria-atomic="true">
+            <span class="mi-orb-dialog-label">{{ teacherOrbDialogLabel }}</span>
+            <p>{{ teacherOrbMessage }}</p>
+          </div>
+        </Transition>
+        <div class="mi-orb-path mi-teacher-dock__path">
+          <div class="mi-orb-path-top"><span>CAMINHO DESTA AULA</span><strong>{{ hydrated ? lessonStageCount(activeLesson.id) : '—' }} / 4 marcos</strong></div>
+          <div class="mi-orb-path-track" role="progressbar" :aria-valuenow="hydrated ? lessonStageCount(activeLesson.id) : undefined" :aria-valuemin="0" :aria-valuemax="4" :aria-valuetext="hydrated ? `${lessonStageCount(activeLesson.id)} de 4 etapas exploradas nesta aula` : 'Carregando progresso salvo desta aula'"><span :style="{ width: `${lessonStageCount(activeLesson.id) * 25}%` }" /></div>
+          <div class="mi-orb-path-labels"><span v-for="milestone in progressStages" :key="milestone.id" :class="{ visited: lessonStageVisited(activeLesson.id, milestone.id), current: stage === milestone.id }">{{ milestone.label }}</span></div>
+        </div>
+        <div class="mi-teacher-dock__orb"><OrbNavigator :screen-index="0" :screen-count="1" :motion-reduced="motion.reduced.value" teacher-mode :activity="teacherOrbActivity" :caption="teacherOrbCaption" /></div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -418,7 +415,8 @@ type SourcePageSummary = SourcePageInput & {
   lowConfidenceFields: string[]
 }
 function teacherOrbActivityFor(mode: CourseInteractionMode, voiceState: VoiceCallState, textPending = false): VoiceCallState {
-  return mode === 'voice' ? voiceState : textPending ? 'thinking' : 'idle'
+  if (mode === 'voice') return textPending && voiceState === 'idle' ? 'thinking' : voiceState
+  return textPending ? 'thinking' : 'idle'
 }
 function countExploredCourseStages(visits: Partial<Record<CourseStage, string>> | undefined): number {
   return (['learn', 'write', 'quiz', 'voice'] as const).filter(stage => !!visits?.[stage]).length
@@ -508,6 +506,9 @@ const allQuizAnswered = computed(() => quizQuestions.value.every(question => !!q
 const chatDraft = ref('')
 const chatSendBusy = ref(false)
 const pendingStudentText = ref('')
+const manualSpeechText = ref('')
+const manualSpeechActive = ref(false)
+const manualSpeechRevision = ref(0)
 const chatList = ref<HTMLElement | null>(null)
 const drawingCanvas = ref<HTMLCanvasElement | null>(null)
 const saveRevision = ref(0)
@@ -545,9 +546,12 @@ const writingCharacters = computed(() => {
 })
 const voiceLabel = computed(() => ({ idle: 'PRONTA', listening: 'OUVINDO', thinking: 'PENSANDO', speaking: 'FALANDO', muted: 'MUTADA', error: 'ERRO' }[voice.state.value]))
 const voice = useVoiceCall(sendVoicePrompt, () => progress.value.voiceLanguage)
-const teacherOrbActivity = computed(() => teacherOrbActivityFor(progress.value.interactionMode, voice.state.value, chatSendBusy.value))
+const teacherOrbActivity = computed(() => manualSpeechActive.value && progress.value.interactionMode === 'voice'
+  ? 'speaking'
+  : teacherOrbActivityFor(progress.value.interactionMode, voice.state.value, chatSendBusy.value))
 const teacherOrbCaption = computed(() => {
   if (progress.value.interactionMode === 'text') return 'Modo Texto completo · microfone desligado'
+  if (manualSpeechActive.value) return 'Lendo em voz alta a frase selecionada; nenhuma captura foi iniciada'
   return ({
     idle: 'Voz selecionada · o microfone fica desligado até tocar em Iniciar',
     listening: 'Ouvindo · conversa por voz ativa',
@@ -558,35 +562,48 @@ const teacherOrbCaption = computed(() => {
   } satisfies Record<VoiceCallState, string>)[voice.state.value]
 })
 const latestTutorLine = computed(() => [...progress.value.chat].reverse().find(line => line.role === 'tutor' && (!line.lessonId || line.lessonId === activeLessonId.value)))
-const teacherOrbDialogLabel = computed(() => progress.value.interactionMode === 'text'
-  ? chatSendBusy.value ? 'ORB · PENSANDO EM TEXTO' : 'ORB · MICROFONE DESLIGADO'
-  : `ORB · ${voiceLabel.value}`)
+const teacherOrbDialogLabel = computed(() => {
+  if (progress.value.interactionMode === 'text') {
+    if (chatSendBusy.value) return 'ORB · PENSANDO EM TEXTO'
+    return latestTutorLine.value ? 'ORB · RESPOSTA EM TEXTO' : 'ORB · MICROFONE DESLIGADO'
+  }
+  if (manualSpeechActive.value) return 'ORB · LENDO PRONÚNCIA EM VOZ ALTA'
+  if (chatSendBusy.value && voice.state.value === 'idle') return 'ORB · PENSANDO EM TEXTO'
+  return `ORB · ${voiceLabel.value}`
+})
 const teacherOrbMessage = computed(() => {
   if (progress.value.interactionMode === 'text') {
-    if (chatSendBusy.value) return 'Estou lendo sua mensagem e organizando uma resposta. O modo Texto continua sem microfone.'
+    if (chatSendBusy.value) return 'Estou organizando uma resposta em texto. Microfone e áudio permanecem desligados.'
     if (latestTutorLine.value) {
       const answer = latestTutorLine.value.text.replace(/\s+/g, ' ').trim()
       return answer.length > 190 ? `${answer.slice(0, 187).trimEnd()}…` : answer
     }
     return `Vamos avançar em “${activeLesson.value.title}”. Você já explorou ${lessonStageCount(activeLesson.value.id)} de 4 marcos desta aula.`
   }
+  if (manualSpeechActive.value) return manualSpeechText.value
+  if (chatSendBusy.value && voice.state.value === 'idle') return 'Estou organizando sua mensagem em texto. O microfone continua desligado.'
+  if (voice.state.value === 'speaking' && latestTutorLine.value) return latestTutorLine.value.text.replace(/\s+/g, ' ').trim()
   return ({
     idle: 'Voz está selecionada, mas o microfone permanece desligado até você tocar em Iniciar conversa por voz.',
     listening: 'Estou ouvindo. Diga uma frase em mandarim quando estiver pronto.',
     thinking: 'Estou organizando uma resposta para a sua fala.',
-    speaking: 'Estou falando a resposta do tutor. Você pode interromper quando quiser.',
+    speaking: 'O tutor está falando. Você pode interromper quando quiser.',
     muted: 'O microfone está mutado. Ative-o novamente quando quiser continuar.',
     error: voice.error.value || 'A voz está indisponível agora. O modo Texto continua completo.',
   } satisfies Record<VoiceCallState, string>)[voice.state.value]
 })
-const teacherOrbMessageKey = computed(() => `${progress.value.interactionMode}:${teacherOrbActivity.value}:${chatSendBusy.value}:${activeLessonId.value}:${latestTutorLine.value?.id ?? 'welcome'}:${lessonStageCount(activeLessonId.value)}`)
+const teacherOrbMessageKey = computed(() => `${progress.value.interactionMode}:${teacherOrbActivity.value}:${chatSendBusy.value}:${activeLessonId.value}:${latestTutorLine.value?.id ?? 'welcome'}:${manualSpeechRevision.value}:${lessonStageCount(activeLessonId.value)}`)
 const capturingShortcut = ref<keyof MandarinProgress['shortcuts'] | ''>('')
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+let saveQueue: Promise<void> = Promise.resolve()
+let savePending = false
+let isUnmounting = false
 let drawingObserver: ResizeObserver | null = null
 let liveStroke: { points: Array<{ x: number; y: number }> } | null = null
 let canvasPointer: number | null = null
 let textPracticeController: AbortController | null = null
+let manualSpeechUtterance: SpeechSynthesisUtterance | null = null
 
 function lessonStageVisited(id: LessonId, milestone: Exclude<CourseStage, 'sources'>): boolean {
   return !!progress.value.lessonStageVisits[id]?.[milestone]
@@ -604,6 +621,8 @@ function isComplete(id: LessonId): boolean {
 }
 
 function setStage(next: CourseStage) {
+  if (!hydrated.value) return
+  stopManualSpeech()
   if (voice.active.value && next !== 'voice') stopVoice()
   capturingShortcut.value = ''
   stage.value = next
@@ -622,6 +641,7 @@ function moveSourcePage(direction: number) {
   selectedSourcePageKey.value = pages[next].key
 }
 function studySelectedSourcePage() {
+  if (!hydrated.value) return
   const page = selectedSourcePage.value
   if (!page) return
   tutorSourcePageKey.value = page.key
@@ -629,6 +649,12 @@ function studySelectedSourcePage() {
   setStage('voice')
 }
 function setInteractionMode(mode: CourseInteractionMode) {
+  if (!hydrated.value) return
+  if (mode === 'voice' && chatSendBusy.value) {
+    saveState.value = 'Aguarde a resposta em texto antes de mudar para Voz'
+    return
+  }
+  if (mode === 'text') stopManualSpeech()
   if (mode === 'text' && voice.active.value) stopVoice()
   capturingShortcut.value = ''
   progress.value.interactionMode = normalizeCourseInteractionMode(mode)
@@ -638,6 +664,8 @@ function setInteractionMode(mode: CourseInteractionMode) {
 }
 
 function selectLesson(id: LessonId) {
+  if (!hydrated.value) return
+  stopManualSpeech()
   if (voice.active.value) stopVoice()
   progress.value.activeLessonId = id
   recordLessonStage(id, stage.value)
@@ -650,6 +678,7 @@ function selectLesson(id: LessonId) {
 }
 
 function markReviewed() {
+  if (!hydrated.value) return
   reviewed.value = true
   if (!progress.value.completedLessons.includes(activeLessonId.value)) {
     progress.value.completedLessons.push(activeLessonId.value)
@@ -658,6 +687,7 @@ function markReviewed() {
 }
 
 function scoreQuiz() {
+  if (!hydrated.value) return
   if (quizScored.value) {
     quizAnswers.value = {}
     quizScored.value = false
@@ -680,17 +710,51 @@ function quizOptionClass(questionId: string, optionId: string) {
   return optionId === question?.answerId ? 'correct' : quizAnswers.value[questionId] === optionId ? 'incorrect' : ''
 }
 
+function stopManualSpeech() {
+  if (manualSpeechUtterance) {
+    manualSpeechUtterance.onend = null
+    manualSpeechUtterance.onerror = null
+    manualSpeechUtterance = null
+    window.speechSynthesis?.cancel()
+  }
+  manualSpeechActive.value = false
+  manualSpeechText.value = ''
+}
+
 function speak(text: string, lang: VoiceLanguage) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+  if (!hydrated.value) return
+  if (progress.value.interactionMode !== 'voice') {
+    saveState.value = 'Escolha Voz no Tutor para ouvir; o modo Texto não inicia áudio nem microfone'
+    return
+  }
+  if (voice.active.value) {
+    saveState.value = 'Encerre a chamada de voz antes de reproduzir uma pronúncia isolada'
+    return
+  }
+  if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
     saveState.value = 'Síntese de voz indisponível neste dispositivo'
     return
   }
-  window.speechSynthesis.cancel()
+  stopManualSpeech()
   const utterance = new SpeechSynthesisUtterance(text)
   utterance.lang = lang
   utterance.rate = 0.84
-  utterance.onend = () => { saveState.value = 'Pronúncia concluída' }
-  utterance.onerror = () => { saveState.value = 'Pronúncia não disponível neste dispositivo' }
+  manualSpeechText.value = text
+  manualSpeechActive.value = true
+  manualSpeechRevision.value++
+  manualSpeechUtterance = utterance
+  utterance.onend = () => {
+    if (manualSpeechUtterance !== utterance) return
+    manualSpeechUtterance = null
+    manualSpeechActive.value = false
+    saveState.value = 'Pronúncia concluída'
+  }
+  utterance.onerror = () => {
+    if (manualSpeechUtterance !== utterance) return
+    manualSpeechUtterance = null
+    manualSpeechActive.value = false
+    saveState.value = 'Pronúncia não disponível neste dispositivo'
+  }
   window.speechSynthesis.speak(utterance)
 }
 
@@ -700,14 +764,24 @@ function speakCurrentPhrase() {
 }
 
 function insertCharacter(value: string) {
+  if (!hydrated.value) return
   const start = document.querySelector<HTMLTextAreaElement>(`#writing-${activeLessonId.value}`)
   if (!start) {
+    if (currentWriting.value.length + value.length > 1200) {
+      saveState.value = 'Limite de 1.200 caracteres atingido'
+      return
+    }
     currentWriting.value += value
     return
   }
   const from = start.selectionStart
   const to = start.selectionEnd
-  currentWriting.value = `${currentWriting.value.slice(0, from)}${value}${currentWriting.value.slice(to)}`
+  const nextText = `${currentWriting.value.slice(0, from)}${value}${currentWriting.value.slice(to)}`
+  if (nextText.length > 1200) {
+    saveState.value = 'Limite de 1.200 caracteres atingido'
+    return
+  }
+  currentWriting.value = nextText
   void nextTick(() => {
     start.focus()
     const cursor = from + value.length
@@ -780,6 +854,7 @@ function pointFromEvent(event: PointerEvent) {
 }
 
 function onDrawStart(event: PointerEvent) {
+  if (!hydrated.value) return
   if (event.button !== 0 && event.pointerType === 'mouse') return
   const canvas = event.currentTarget as HTMLCanvasElement
   canvasPointer = event.pointerId
@@ -809,11 +884,13 @@ function onDrawEnd(event: PointerEvent) {
 }
 
 function undoStroke() {
+  if (!hydrated.value) return
   progress.value.drawings[activeLessonId.value] = activeStrokes.value.slice(0, -1)
   void nextTick(renderCanvas)
 }
 
 function clearDrawing() {
+  if (!hydrated.value) return
   progress.value.drawings[activeLessonId.value] = []
   liveStroke = null
   void nextTick(renderCanvas)
@@ -908,17 +985,36 @@ function scheduleSave() {
   if (!hydrated.value) return
   saveRevision.value++
   const revision = saveRevision.value
+  savePending = true
   saveState.value = 'Salvando…'
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(async () => {
-    try {
-      const snapshot: MandarinProgress = { ...progress.value, updatedAt: new Date().toISOString() }
-      await vaultSetJson(COURSE_PROGRESS_KEY, snapshot)
-      if (revision === saveRevision.value) saveState.value = `${vaultBackend() === 'kv' ? 'Vault' : 'Este dispositivo'} · salvo`
-    } catch (cause) {
-      if (revision === saveRevision.value) saveState.value = `Falha ao salvar: ${cause instanceof Error ? cause.message : String(cause)}`
-    }
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    queueProgressSave(revision)
   }, 350)
+}
+
+function queueProgressSave(revision: number) {
+  const snapshot = JSON.parse(JSON.stringify({ ...progress.value, updatedAt: new Date().toISOString() })) as MandarinProgress
+  saveQueue = saveQueue.catch(() => {}).then(async () => {
+    try {
+      await vaultSetJson(COURSE_PROGRESS_KEY, snapshot)
+      if (!isUnmounting && revision === saveRevision.value) {
+        savePending = false
+        saveState.value = `${vaultBackend() === 'kv' ? 'Vault' : 'Este dispositivo'} · salvo`
+      }
+    } catch (cause) {
+      if (!isUnmounting && revision === saveRevision.value) saveState.value = `Falha ao salvar: ${cause instanceof Error ? cause.message : String(cause)}`
+    }
+  })
+}
+
+function flushPendingSave() {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (hydrated.value && savePending) queueProgressSave(saveRevision.value)
 }
 
 function ensureTutorTurnActive(signal?: AbortSignal) {
@@ -1045,12 +1141,24 @@ async function sendVoicePrompt(text: string, signal: AbortSignal) {
   void nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
   try {
     return await sendTutorTurn(text, 'voice', signal, turnLessonId)
+  } catch (cause) {
+    if (!signal.aborted) {
+      const detail = cause instanceof Error ? cause.message : String(cause)
+      progress.value.chat.push(
+        newChatLine('student', text, 'voice', turnLessonId),
+        newChatLine('tutor', `Não consegui concluir essa resposta: ${detail} Sua fala foi salva no histórico local para você consultar ou reenviar.`, 'voice', turnLessonId),
+      )
+      if (progress.value.chat.length > 60) progress.value.chat.splice(0, progress.value.chat.length - 60)
+      saveState.value = 'A fala reconhecida e o erro foram salvos no histórico local'
+    }
+    throw cause
   } finally {
     pendingStudentText.value = ''
   }
 }
 
 async function sendTextPractice() {
+  if (!hydrated.value) return
   const text = chatDraft.value.trim()
   if (!text || chatSendBusy.value) return
   const turnLessonId = activeLessonId.value
@@ -1076,6 +1184,11 @@ async function sendTextPractice() {
 }
 
 async function startVoice() {
+  if (!hydrated.value) return
+  if (chatSendBusy.value || studio.jobActive.value) {
+    saveState.value = 'Aguarde o envio atual terminar antes de iniciar Voz'
+    return
+  }
   if (!canStartCourseVoice(progress.value.interactionMode, voice.supported)) {
     saveState.value = progress.value.interactionMode === 'voice'
       ? 'Modo voz indisponível neste dispositivo; use o modo texto'
@@ -1087,6 +1200,7 @@ async function startVoice() {
     return
   }
   if (!voice.supported) return
+  stopManualSpeech()
   voice.start()
 }
 
@@ -1096,6 +1210,7 @@ function stopVoice() {
 }
 
 function clearChat() {
+  if (!hydrated.value) return
   textPracticeController?.abort()
   if (voice.active.value) stopVoice()
   pendingStudentText.value = ''
@@ -1111,7 +1226,7 @@ function shortcutLabel(action: keyof MandarinProgress['shortcuts']) {
 }
 
 function beginShortcutCapture(action: keyof MandarinProgress['shortcuts']) {
-  if (voice.active.value) return
+  if (!hydrated.value || chatSendBusy.value || voice.active.value) return
   capturingShortcut.value = action
 }
 
@@ -1172,15 +1287,19 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isUnmounting = true
   window.removeEventListener('keydown', onGlobalShortcut)
   textPracticeController?.abort()
   drawingObserver?.disconnect()
-  if (saveTimer) clearTimeout(saveTimer)
+  flushPendingSave()
   window.speechSynthesis?.cancel()
   stopVoice()
 })
 
 watch(progress, scheduleSave, { deep: true })
+watch(() => filteredSourcePageSummaries.value.map(page => page.key), keys => {
+  if (keys.length && !keys.includes(selectedSourcePageKey.value)) selectedSourcePageKey.value = keys[0]
+})
 watch(() => activeLessonId.value, () => {
   reviewed.value = progress.value.completedLessons.includes(activeLessonId.value)
 })
@@ -1195,9 +1314,9 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 100%;
+  min-height: 0;
   height: 100%;
-  overflow: auto;
+  overflow: hidden;
   color: var(--ui-text, #eef0f4);
   background:
     radial-gradient(ellipse at 13% 0%, color-mix(in srgb, var(--ui-accent, #d99b43) 10%, transparent), transparent 38%),
@@ -1221,9 +1340,10 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-stage-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 0 12px; border: 1px solid transparent; border-radius: 8px; color: var(--ui-text-2, #b8bfca); background: transparent; font: inherit; font-size: 12px; cursor: pointer; transition: background 140ms ease, color 140ms ease, border-color 140ms ease; }
 .mi-stage-button:hover { color: var(--ui-text, #fff); background: var(--ui-glass, rgba(255,255,255,.05)); }
 .mi-stage-button.active { color: var(--ui-text, #fff); border-color: color-mix(in srgb, var(--mi-gold) 35%, transparent); background: color-mix(in srgb, var(--mi-gold) 13%, transparent); }
+.mi-stage-button:disabled, .mi-lesson-link:disabled { cursor: wait; opacity: .58; }
 .mi-save-state { margin-left: auto; overflow: hidden; color: var(--ui-text-3, #949ba7); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.mi-workspace { display: grid; flex: 1; grid-template-columns: minmax(195px, 230px) minmax(0, 1fr); align-items: stretch; min-height: 0; }
-.mi-lesson-rail { display: flex; flex-direction: column; gap: 7px; padding: 23px 15px; border-right: 1px solid var(--ui-border, rgba(255,255,255,.09)); background: color-mix(in srgb, var(--ui-surface, #111318) 94%, #000); }
+.mi-workspace { display: grid; flex: 1; grid-template-columns: minmax(195px, 230px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; min-height: 0; overflow: hidden; }
+.mi-lesson-rail { display: flex; flex-direction: column; gap: 7px; min-height: 0; overflow-y: auto; padding: 23px 15px; border-right: 1px solid var(--ui-border, rgba(255,255,255,.09)); background: color-mix(in srgb, var(--ui-surface, #111318) 94%, #000); }
 .mi-lesson-group { display: grid; gap: 5px; }
 .mi-lesson-group > .mi-section-label { padding: 0 9px 4px; font-size: 9px; }
 .mi-lesson-link { display: grid; grid-template-columns: 29px minmax(0, 1fr) 18px; align-items: center; gap: 8px; width: 100%; padding: 10px 9px; border: 1px solid transparent; border-radius: 9px; color: var(--ui-text-2, #bac1ca); background: transparent; text-align: left; cursor: pointer; }
@@ -1239,7 +1359,7 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-complete-icon { color: #64c99a; }
 .mi-rail-note { display: flex; gap: 8px; align-items: flex-start; margin-top: auto; padding: 11px 9px; border-top: 1px solid var(--ui-border, rgba(255,255,255,.08)); color: var(--ui-text-3, #949ba7); font-size: 10px; line-height: 1.45; }
 .mi-rail-note :deep(svg) { flex-shrink: 0; color: var(--mi-gold); }
-.mi-main { min-width: 0; padding: 24px clamp(16px, 3vw, 34px) 32px; }
+.mi-main { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 24px clamp(16px, 3vw, 34px) 32px; }
 .mi-content-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin: 0 0 20px; }
 .mi-content-head h2 { margin: 6px 0 5px; font-size: clamp(20px, 2.5vw, 27px); letter-spacing: -.035em; }
 .mi-subtitle { max-width: 680px; margin: 0; color: var(--ui-text-2, #bac1ca); font-size: 12px; line-height: 1.55; }
@@ -1407,6 +1527,19 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-orb-path-labels { display: flex; justify-content: space-between; gap: 5px; color: var(--ui-text-3, #949ba7); font-size: 8px; }
 .mi-orb-path-labels span.visited { color: var(--mi-gold); }
 .mi-orb-path-labels span.current { font-weight: 800; }
+.mi-teacher-dock { position: relative; z-index: 4; display: flex; flex: 0 0 auto; justify-content: center; padding: 8px 18px calc(6px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid color-mix(in srgb, var(--mi-gold) 18%, var(--ui-border, rgba(255,255,255,.1))); background: color-mix(in srgb, var(--ui-surface, #111318) 88%, transparent); box-shadow: 0 -10px 30px rgba(0,0,0,.18); backdrop-filter: blur(22px) saturate(135%); }
+.mi-teacher-dock__inner { display: grid; justify-items: center; gap: 3px; width: min(100%, 700px); min-width: 0; }
+.mi-orb-dialog--floating { width: min(100%, 640px); min-height: 0; max-height: 94px; padding: 9px 15px 11px; border-radius: 16px; }
+.mi-orb-dialog--floating::after { left: calc(50% - 6px); }
+.mi-orb-dialog--floating p { max-height: 58px; margin-top: 5px; overflow: auto; scrollbar-width: thin; font-size: 12px; line-height: 1.42; }
+.mi-teacher-dock__path { width: min(100%, 440px); gap: 4px; margin-top: 3px; }
+.mi-teacher-dock__path .mi-orb-path-labels { font-size: 7px; }
+.mi-teacher-dock__orb { position: relative; z-index: 1; display: grid; place-items: center; width: 112px; height: 94px; overflow: visible; }
+.mi-teacher-dock__orb :deep(.orb-navigator--teacher) { height: 94px; transform: scale(.72); transform-origin: top center; }
+.mi-teacher-dock__orb :deep(.orb-teacher-caption) { display: none; }
+.mi-teacher-dock[data-activity='thinking'] .mi-orb-dialog { border-color: color-mix(in srgb, var(--mi-gold) 46%, var(--ui-border, transparent)); box-shadow: 0 0 32px color-mix(in srgb, var(--mi-gold) 8%, transparent), 0 14px 32px rgba(0,0,0,.18); }
+.mi-teacher-dock[data-activity='speaking'] .mi-orb-dialog { border-color: rgba(104,176,238,.42); }
+.mi-teacher-dock.motion-reduced .mi-orb-dialog-enter-active, .mi-teacher-dock.motion-reduced .mi-orb-dialog-leave-active { transition: none; }
 .mi-teacher-safety { position: relative; z-index: 1; display: grid; gap: 3px; grid-column: 1 / -1; margin: 0; padding-top: 9px; border-top: 1px solid var(--ui-border, rgba(255,255,255,.08)); }
 .mi-teacher-safety strong { color: var(--ui-text, #f4f5f7); font-size: 10px; }
 .mi-teacher-safety span { color: var(--ui-text-2, #bac1ca); font-size: 9px; line-height: 1.45; }
@@ -1438,35 +1571,37 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 @media (max-width: 900px) {
   .mi-header { align-items: flex-start; flex-direction: column; gap: 15px; }
   .mi-progress-card { width: min(100%, 340px); }
-  .mi-workspace { grid-template-columns: 1fr; }
-  .mi-lesson-rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 10px 14px; border-right: 0; border-bottom: 1px solid var(--ui-border, rgba(255,255,255,.09)); }
-  .mi-lesson-group, .mi-rail-note { grid-column: 1 / -1; }
-  .mi-lesson-group { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-  .mi-lesson-group > .mi-section-label { grid-column: 1 / -1; }
-  .mi-rail-note { margin: 0; padding: 5px 9px 0; border: 0; }
-  .mi-lesson-link { grid-template-columns: 24px minmax(0, 1fr) 16px; gap: 5px; padding: 8px 6px; }
+  .mi-workspace { grid-template-columns: 1fr; grid-template-rows: min-content minmax(0, 1fr); }
+  .mi-lesson-rail { gap: 5px; overflow: hidden; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--ui-border, rgba(255,255,255,.09)); }
+  .mi-lesson-group { display: flex; align-items: stretch; gap: 6px; max-width: 100%; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+  .mi-lesson-group > .mi-section-label { flex: 0 0 130px; align-self: center; padding: 0 4px; font-size: 8px; }
+  .mi-rail-note { display: none; }
+  .mi-lesson-link { flex: 0 0 190px; min-height: 60px; grid-template-columns: 24px minmax(0, 1fr) 16px; gap: 5px; padding: 7px; }
   .mi-lesson-copy strong { font-size: 10px; }
   .mi-lesson-copy small { font-size: 8px; }
 }
 @media (max-width: 700px) {
-  .mi-header { padding: 20px 17px 15px; }
+  .mi-header { display: grid; grid-template-columns: minmax(0, 1fr) 108px; align-items: center; gap: 10px; padding: 10px 13px 9px; }
+  .mi-eyebrow { font-size: 8px; }
+  .mi-header h1 { margin: 5px 0; font-size: 21px; }
+  .mi-lede { display: none; }
+  .mi-progress-card { width: 108px; padding: 8px; }
+  .mi-progress-top { gap: 4px; font-size: 9px; }
+  .mi-progress-card small { display: none; }
+  .mi-progress-track { margin: 7px 0 0; }
   .mi-page-browser-controls { grid-template-columns: 1fr; }
   .mi-page-browser-nav { grid-column: auto; }
   .mi-page-context { flex-direction: column; }
-  .mi-teacher-stage { grid-template-columns: 1fr; padding: 14px; }
-  .mi-teacher-orb { justify-self: center; }
-  .mi-teacher-dialog-column { width: 100%; }
   .mi-stage-nav { gap: 2px; overflow-x: auto; padding: 7px 12px; }
   .mi-stage-button { flex: 0 0 auto; min-height: 44px; padding: 0 9px; font-size: 10px; }
   .mi-save-state { position: sticky; right: 0; flex: 0 0 98px; padding: 7px 4px 7px 8px; background: var(--ui-surface, #111318); text-align: right; }
-  .mi-lesson-rail { grid-template-columns: 1fr; padding: 9px 12px; }
-  .mi-lesson-group { grid-template-columns: 1fr; }
-  .mi-lesson-group > .mi-section-label { padding-bottom: 0; }
-  .mi-lesson-link { min-height: 44px; grid-template-columns: 28px minmax(0, 1fr) 18px; padding: 7px 8px; }
-  .mi-lesson-copy strong { font-size: 11px; }
-  .mi-lesson-copy small { font-size: 9px; }
-  .mi-rail-note { padding-top: 4px; }
-  .mi-main { padding: 18px 14px 25px; }
+  .mi-lesson-rail { gap: 4px; padding: 6px 9px; }
+  .mi-lesson-group { gap: 5px; }
+  .mi-lesson-group > .mi-section-label { flex-basis: 112px; font-size: 7px; }
+  .mi-lesson-link { flex-basis: 172px; min-height: 54px; grid-template-columns: 24px minmax(0, 1fr) 16px; padding: 6px; }
+  .mi-lesson-copy strong { font-size: 10px; }
+  .mi-lesson-copy small { font-size: 8px; }
+  .mi-main { padding: 14px 12px 18px; }
   .mi-tone-hero { grid-template-columns: 1fr; }
   .mi-tone-ribbons { gap: 5px; }
   .mi-tone-ribbon { padding: 6px; }
@@ -1478,6 +1613,13 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
   .mi-content-foot { align-items: flex-start; flex-direction: column; }
   .mi-writing-layout, .mi-voice-layout { grid-template-columns: 1fr; }
   .mi-canvas-wrap { height: 190px; }
+  .mi-teacher-dock { padding: 5px 10px calc(4px + env(safe-area-inset-bottom, 0px)); }
+  .mi-orb-dialog--floating { max-height: 72px; padding: 7px 11px 9px; }
+  .mi-orb-dialog--floating p { max-height: 39px; font-size: 11px; line-height: 1.38; }
+  .mi-teacher-dock__path { gap: 3px; margin-top: 1px; }
+  .mi-teacher-dock__path .mi-orb-path-labels { font-size: 6px; }
+  .mi-teacher-dock__orb { height: 78px; }
+  .mi-teacher-dock__orb :deep(.orb-navigator--teacher) { height: 78px; transform: scale(.62); }
   .mi-adapter { grid-template-columns: minmax(0, 1fr) auto; }
   .mi-adapter a { grid-column: 1 / -1; }
   .mi-quiz-footer { align-items: stretch; }

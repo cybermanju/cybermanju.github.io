@@ -1,11 +1,70 @@
 // CyberManju OS — Persistent Home workspace model.
 // Role: validate bounded local state, move tiles, and classify app-local gestures.
 // Exports: state types, storage key, limits, normalization and mutation helpers.
+import { homeWidgetCatalog } from '@/data/homeWidgetCatalog'
+
 export interface HomeItem {
   id: string
   kind: 'app' | 'widget'
   ref: string
   data?: Record<string, string | number | boolean>
+}
+
+export interface HomeGridPlacement {
+  itemId: string
+  column: number
+  row: number
+  columnSpan: number
+  rowSpan: number
+}
+
+/** Resolve stable widget spans while keeping old version-1 items valid. */
+export function homeItemSpan(item: HomeItem, columns = 4): { columns: number; rows: number } {
+  const widget = item.kind === 'widget' ? homeWidgetCatalog.find(entry => entry.id === item.ref) : undefined
+  const limit = Math.max(1, Math.min(8, Math.trunc(columns) || 4))
+  const bounded = (value: unknown, fallback: number, max: number) =>
+    typeof value === 'number' && Number.isInteger(value) ? Math.max(1, Math.min(max, value)) : fallback
+  const fallbackColumns = item.kind === 'widget' ? widget?.gridSpan?.columns ?? (item.ref.startsWith('native:') ? 2 : 1) : 1
+  const fallbackRows = item.kind === 'widget' ? widget?.gridSpan?.rows ?? (item.ref.startsWith('native:') ? 2 : 1) : 1
+  return {
+    columns: bounded(item.data?.gridColumns, fallbackColumns, limit),
+    rows: bounded(item.data?.gridRows, fallbackRows, 8),
+  }
+}
+
+/** Deterministic row-major packing shared by Home, overflow checks and previews. */
+export function placeHomeItems(items: HomeItem[], columns = 4, rows = 4): { placements: HomeGridPlacement[]; overflow: string[] } {
+  const cols = Math.max(1, Math.min(8, Math.trunc(columns) || 4))
+  const rowCount = Math.max(1, Math.min(8, Math.trunc(rows) || 4))
+  const occupied = Array.from({ length: rowCount }, () => Array<boolean>(cols).fill(false))
+  const placements: HomeGridPlacement[] = []
+  const overflow: string[] = []
+  // Apps take the first cells so the launcher remains useful before widgets.
+  const orderedItems = [...items].sort((a, b) => Number(a.kind !== 'app') - Number(b.kind !== 'app'))
+  for (const item of orderedItems) {
+    const requested = homeItemSpan(item, cols)
+    const span = { columns: Math.min(cols, requested.columns), rows: Math.min(rowCount, requested.rows) }
+    let location: { column: number; row: number } | null = null
+    for (let row = 0; row <= rowCount - span.rows && !location; row++) {
+      for (let column = 0; column <= cols - span.columns; column++) {
+        let free = true
+        for (let y = row; y < row + span.rows && free; y++) {
+          for (let x = column; x < column + span.columns; x++) if (occupied[y]?.[x]) { free = false; break }
+        }
+        if (free) { location = { column, row }; break }
+      }
+    }
+    if (!location) { overflow.push(item.id); continue }
+    for (let y = location.row; y < location.row + span.rows; y++) {
+      for (let x = location.column; x < location.column + span.columns; x++) occupied[y]![x] = true
+    }
+    placements.push({ itemId: item.id, ...location, columnSpan: span.columns, rowSpan: span.rows })
+  }
+  return { placements, overflow }
+}
+
+export function homeItemPlacement(item: HomeItem, items: HomeItem[], columns = 4, rows = 4): HomeGridPlacement | undefined {
+  return placeHomeItems(items, columns, rows).placements.find(placement => placement.itemId === item.id)
 }
 
 export interface HomeWorkspace {

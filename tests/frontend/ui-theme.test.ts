@@ -24,6 +24,7 @@ describe('theme registries', () => {
   it('ships system, deck, glass, AMOLED and plasma presets', () => {
     expect([...THEME_IDS].sort()).toEqual([
       'flat-amoled',
+      'flat-amoled-cyberpunk',
       'modern-glass',
       'os-dark',
       'os-deck',
@@ -51,6 +52,14 @@ describe('theme registries', () => {
     const grouped = new Set(THEME_GROUPS.flatMap((g) => g.ids))
     for (const id of THEME_IDS) expect(grouped.has(id), id).toBe(true)
     for (const id of grouped) expect(THEMES[id as ThemeId], id).toBeDefined()
+  })
+
+  it('keeps Flat AMOLED monochrome and gives its Cyberpunk sibling its own neon identity', () => {
+    expect(THEMES['flat-amoled'].palette.bg).toBe('#000000')
+    expect(THEMES['flat-amoled'].palette.accent).toBe('#FFFFFF')
+    expect(THEMES['flat-amoled-cyberpunk'].palette.bg).toBe('#000000')
+    expect(THEMES['flat-amoled-cyberpunk'].palette.accent).toBe('#FF4FD8')
+    expect(THEME_GROUPS.find(group => group.id === 'personal')?.ids).toContain('flat-amoled-cyberpunk')
   })
 
   it('legacy 17-theme ids all migrate by mode', () => {
