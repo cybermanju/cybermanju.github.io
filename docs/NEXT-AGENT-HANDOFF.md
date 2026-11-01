@@ -19,9 +19,10 @@ Estado de referência: branch `main`, checkout baseado em `d5dd0c4`; alteraçõe
 - Entrada do app: `src/components/MandarinInstructor.vue`; dados e regras: `src/utils/mandarinCourse.ts`; corpus: `src/data/mandarinLessons.json` e `src/data/mandarinCorpus.json`; auditoria: `docs/mandarin-course-audit.md`.
 - Os PDFs originais são as duas fontes enviadas pelo dono. Ele confirmou autorização de reprodução dessas duas cópias, não de outras obras. Citar páginas/fontes e não transportar essa permissão para o material do STEM Array.
 - A sequência atual tem 29 unidades. O inventário contempla 267 páginas físicas. Última métrica rastreável: 198/234 páginas substantivas com síntese específica; as outras 36 não contam como convertidas (21 só por faixa e 15 com OCR incerto). Uma rodada posterior editou conteúdo, mas a cobertura final e a revisão da tabela climática ainda não foram validadas. Não anunciar “100%” até comparar cada página substantiva com conteúdo estruturado e confiança verificável.
-- Foi solicitado 2/3 de acerto para concluir a lição, três opções distintas e gabaritos distribuídos. Na última auditoria havia inconsistência com UI, distratores e tipo `sourceRefs`; revalidar contra o estado atual.
+- A regra de aprovação está alinhada em 2/3, as opções são distintas e os gabaritos estão balanceados. Typecheck passou na última execução; confirmar novamente depois de editar.
 - OCR/revisão visual são imperfeitos; marcar cada página duvidosa em vez de completar por inferência. Revisão humana de mandarim e acessibilidade do canvas ainda são úteis.
-- Testes: `tests/frontend/mandarin-course.test.ts`, `tests/frontend/mandarin-voice-provider-integration.test.ts`. Executar também `npm run typecheck` e `npm run build`.
+- Testes: `tests/frontend/mandarin-course.test.ts` e `tests/frontend/mandarin-voice-provider-integration.test.ts` passaram juntos (15/15) após corrigir o tutor. Executar também `npm run typecheck` e `npm run build` após novas edições.
+- Segurança pedagógica: corrigido. O prompt inicial do tutor recebe perguntas sem gabarito/explicações; as soluções só são liberadas quando a melhor nota salva atinge 2/3. Há teste para impedir vazamento antes do limiar.
 
 ## Voz / Orb Chatter
 
@@ -41,9 +42,11 @@ Estado de referência: branch `main`, checkout baseado em `d5dd0c4`; alteraçõe
 - Fonte Ren’Py e manifesto estão em `integrations/renpy-technosutra/`. Há 56 capítulos e 54 PNGs frontais provisórios `model_NN.png`, 600×800 com alfa, mapeados aos modelos/capítulos existentes; os GLBs 43 e 52 não existem. O dono aprovou usar os renders brutos como provisórios; não tentar contornar bloqueios de geração das variações de boca/postura.
 - Em 13h47 havia divergências no `script.rpy`, páginas-fonte, IDs/manifesto e lint; Ren’Py estava reconciliando e refazendo build/smoke test. Verificar de novo em vez de assumir concluído.
 - `public/technosutra-vn/` inclui assets gerados e um `game.zip` de cerca de 719 MB; `integrations/renpy-technosutra/build/` tem mais de 13 GB, com zips de até 8,9 GB. A checagem final confirmou que o `build/output/game.zip` atual é inválido e o public `game.zip` está ausente; o ZIP provisório antigo, de 2,85 GB, é íntegro mas não smoke-testado no painel. Não adicionar esses artefatos ao GitHub. Guardar somente fonte/documentação pequena e um placeholder honesto enquanto a build compacta/licenciada e executável não estiver pronta.
-- Neste push, manter `game/script.rpy`, `chapters.json`, imagens e builds derivados fora do remoto até confirmar direito de distribuição pública. Eles ainda existem no worktree compartilhado para a próxima frente; não presumir que acompanham um clone limpo.
+- Neste push, `game/script.rpy`, `chapters.json`, imagens e builds derivados ficaram fora do remoto porque o pacote atual é inválido e os assets ainda precisam ser otimizados; esses arquivos continuam no worktree compartilhado, não em um clone limpo.
 - Não usar screenshots derivados do Google Street View. A VN pode manter pontos/coordenadas e abrir Maps; usar fotos próprias/licenciadas ou arte original.
-- A autorização relatada pelo dono para adaptar *The Stem Array* é separada da autorização dos PDFs de mandarim. Não publicar/distribuir sem verificar o alcance de distribuição. O Ren’Py oficial exige build e teste real do runtime web; uma pasta WASM ou lint isolados não provam que o jogo abre.
+- O dono confirmou diretamente os direitos de distribuição pública para a adaptação de *The Stem Array* e seus derivados. Isso é separado da autorização dos PDFs de mandarim. Ainda é necessário produzir e testar a build web real; lint ou uma pasta WASM isolados não provam que o jogo abre.
+- O dono confirmou diretamente a distribuição pública da adaptação do livro e seus assets derivados. Isso não resolve a licença conflitante dos renders do upstream Technosutra; manter esses sprites fora do pacote público até confirmação separada.
+- Estado cross-device: o Studio grava no `localStorage` deste dispositivo e não sincroniza fontes, waypoints nem progresso. Um próximo Agent deve propor armazenamento/sincronização autenticados e sincronização de saves Ren’Py entre desktop, web e Android, com proteção de conflitos/offline, sem subir conteúdo privado por padrão.
 
 ## Segurança e publicação
 

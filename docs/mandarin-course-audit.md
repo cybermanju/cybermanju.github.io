@@ -70,12 +70,12 @@ A revisão visual cobriu ainda o sumário do livro do aluno (PDF pp. 8–10), o 
 
 ## Direitos autorais e limites de publicação
 
-O PDF do curso Shangrila enviado não traz licença de redistribuição identificada. A segunda obra registra edição de 2010, ISBN 978-7-80200-719-2 e aviso de copyright da editora na PDF p. 209. Não foi identificada licença aberta ou autorização para publicar o conteúdo integral. Por isso, o app não embute os PDFs, imagens das páginas, transcrições OCR nem diálogos/exercícios completos; preserva créditos, referências e sínteses curtas. A ausência de licença no PDF não demonstra, por si só, que uma licença não exista — apenas que ela não foi confirmada nos arquivos fornecidos.
+Os PDFs não identificam uma licença aberta; a segunda obra registra edição de 2010, ISBN 978-7-80200-719-2 e aviso de copyright da editora na PDF p. 209. Em 2026-11-01, o dono confirmou diretamente autorização do titular para uso e reprodução pedagógica das duas cópias fornecidas neste curso, com atribuição e referências. O escopo fica limitado a esses dois PDFs e não é licença geral para outras obras. O conteúdo já estruturado é parcial: o índice cobre 267/267 páginas físicas, mas a última métrica validada apontou síntese específica em 198/234 páginas substantivas (84,62%). As outras 36 permanecem fora dessa métrica; veja a lista exata em `src/data/mandarinCorpus.json`. Isso não equivale a transcrição integral.
 
 A prática de escrita oferece modelos selecionados e desenho livre, mas não inclui diagrama completo da ordem dos traços. Para os caracteres das folhas de caligrafia e para instruções ou diálogo omitidos por OCR, consulte a cópia da fonte que o proprietário tem direito de usar.
 
 ## Testes executados
 
-- `npx vitest run tests/frontend/mandarin-course.test.ts` — **10 testes passaram**: sequência e esquema uniforme, intervalos impressos/PDF, cobertura física, exceções OCR, quizzes e progresso.
-- `npm run typecheck` — **passou** (`vue-tsc --noEmit`).
-- `npm run build` — **passou**; executou novamente `vue-tsc --noEmit` e gerou `dist` com Vite. O log reporta avisos gerais de divisão de chunks/imports do app, sem falha de build.
+- `npx vitest run tests/frontend/mandarin-course.test.ts` — **13 testes passaram** antes da correção contra vazamento do gabarito; rode novamente após esse patch.
+- `npm run typecheck` — passou às 13:55 no estado anterior ao patch contra vazamento; rode novamente.
+- `npm run build` — passou às 13:17 no estado anterior às últimas alterações de corpus; confirme novamente antes de integrar.

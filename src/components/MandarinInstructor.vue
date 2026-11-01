@@ -189,6 +189,7 @@ import {
   MANDARIN_CORPUS,
   MANDARIN_SOURCES,
   VOICE_PROVIDER_CATALOG,
+  buildTutorQuizContext,
   canFinishLesson,
   defaultMandarinProgress,
   getQuizPassingScore,
@@ -550,6 +551,9 @@ function newChatLine(role: CourseChatLine['role'], text: string, mode: CourseCha
 }
 
 function tutorPrompt(text: string) {
+  const passingScore = getQuizPassingScore(activeLesson.value.questions.length)
+  const bestScore = progress.value.bestQuizScores[activeLessonId.value] ?? 0
+  const solutionsUnlocked = passingScore > 0 && bestScore >= passingScore
   return [
     'Você é o tutor conversacional de um curso estruturado de mandarim, para alguém que estuda em português brasileiro.',
     `Módulo: ${activeLesson.value.moduleTitle}. Lição ${activeLesson.value.sequence}: ${activeLesson.value.title}. Objetivo: ${activeLesson.value.objective}`,
@@ -558,7 +562,7 @@ function tutorPrompt(text: string) {
     `Exemplo(s) original(is): ${activeLesson.value.examples.map(example => `${example.text} (${example.pinyin}) = ${example.translation}`).join('; ')}.`,
     `Exercícios propostos: ${activeLesson.value.exercises.map(exercise => exercise.prompt).join(' | ')}.`,
     `Desafio de escrita: ${activeLesson.value.writing.prompt} Modelos para praticar: ${activeLesson.value.writing.characters.join('、')}. ${activeLesson.value.writing.strokeNotes}`,
-    `Perguntas de recuperação: ${activeLesson.value.questions.map(question => `${question.prompt} (gabarito de referência: ${question.options.find(option => option.id === question.answerId)?.label ?? 'não informado'}; ${question.explanation})`).join(' | ')}.`,
+    buildTutorQuizContext(activeLesson.value.questions, solutionsUnlocked),
     activeLesson.value.agentGuidance,
     'Responda com gentileza e precisão: use caracteres simplificados, pinyin com tons e explicação curta em português. Use as perguntas para recuperação ativa, uma de cada vez, sem revelar o gabarito antes de o estudante tentar; depois explique a resposta correta. Corrija uma coisa por vez. Se a resposta não estiver sustentada pelo resumo, diga que o estudante deve consultar a fonte que pode usar; não invente citação nem reconstrua diálogo ou exercício do livro. Não peça dados pessoais, não acione ferramentas e não altere arquivos.',
     `Mensagem do estudante (${progress.value.voiceLanguage === 'zh-CN' ? 'a fala pode estar em mandarim' : 'a fala pode estar em português'}):`,

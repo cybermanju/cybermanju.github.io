@@ -172,12 +172,12 @@ export const MANDARIN_SOURCES = {
   course: {
     title: 'Curso de Língua Chinesa 汉语 — Módulo 1',
     publisher: 'Shangrila Cursos',
-    note: 'PDF enviado pelo proprietário; não há licença de redistribuição indicada. O app incorpora resumos, vocabulário breve, exemplos próprios e referências — não o PDF nem suas páginas digitalizadas.',
+    note: 'O PDF não indica licença aberta; o dono confirmou autorização do titular para uso e reprodução pedagógica desta cópia no curso, com crédito e páginas-fonte. A autorização vale só para os dois PDFs enviados, não para outras obras nem como licença geral.',
   },
   reader: {
     title: '当代中文 · Chinês Contemporâneo · versão portuguesa do livro do aluno',
     publisher: '華語教學出版社 / Sinolingua; Hanban / Confucius Institute Headquarters',
-    note: 'A ficha CIP na página PDF 209 registra edição portuguesa, 2010, ISBN 978-7-80200-719-2 e © da editora. Nenhuma licença aberta foi identificada; o app usa apenas síntese pedagógica, exemplos originais e referências de página.',
+    note: 'A ficha CIP na página PDF 209 registra edição portuguesa, 2010, ISBN 978-7-80200-719-2 e © da editora. O dono confirmou autorização do titular para uso e reprodução pedagógica desta cópia no curso, com crédito e páginas-fonte; o escopo não se estende a outras obras.',
   },
   voice: {
     title: 'Remix ChatterBots voice-loop sample',
@@ -257,6 +257,17 @@ export function isLessonId(value: unknown): value is LessonId {
 
 export function isQuizCorrect(question: QuizQuestion, selectedId: string): boolean {
   return question.answerId === selectedId
+}
+
+export function buildTutorQuizContext(questions: QuizQuestion[], revealSolutions: boolean): string {
+  if (!questions.length) return 'Não há perguntas de recuperação nesta unidade.'
+  if (!revealSolutions) {
+    return `Perguntas de recuperação ativa: ${questions.map(question => question.prompt).join(' | ')}. Faça uma por vez e aguarde a tentativa do estudante; não revele gabarito, alternativa correta ou explicação antes de ele alcançar 2/3.`
+  }
+  return `Soluções liberadas após tentativa aprovada: ${questions.map(question => {
+    const answer = question.options.find(option => option.id === question.answerId)?.label ?? 'gabarito não informado'
+    return `${question.prompt} Resposta: ${answer}. Explicação: ${question.explanation}`
+  }).join(' | ')}`
 }
 
 export function getQuizPassingScore(questionCount: number): number {

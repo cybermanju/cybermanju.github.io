@@ -7,6 +7,7 @@ import {
   MANDARIN_LESSONS,
   MANDARIN_QUIZ,
   MANDARIN_SOURCES,
+  buildTutorQuizContext,
   canFinishLesson,
   defaultMandarinProgress,
   getQuizPassingScore,
@@ -26,18 +27,18 @@ describe('Mandarin curriculum data', () => {
     expect(MANDARIN_LESSONS.filter(lesson => lesson.moduleId === 'shangrila-m1')).toHaveLength(6)
     expect(MANDARIN_LESSONS.filter(lesson => lesson.moduleId === 'contemporary')).toHaveLength(23)
     expect(MANDARIN_LESSONS.every(lesson => lesson.sourcePages.includes('PDF'))).toBe(true)
-    expect(MANDARIN_SOURCES.course.note).toMatch(/não há licença de redistribuição indicada/)
+    expect(MANDARIN_SOURCES.course.note).toMatch(/autorização do titular para uso e reprodução pedagógica desta cópia/)
     expect(MANDARIN_SOURCES.reader.note).toMatch(/ISBN 978-7-80200-719-2/)
-    expect(MANDARIN_SOURCES.reader.note).toMatch(/Nenhuma licença aberta/)
+    expect(MANDARIN_SOURCES.reader.note).toMatch(/autorização do titular para uso e reprodução pedagógica desta cópia/)
   })
 
-  it('keeps the reuse authorization scoped to the two supplied PDFs and summary-only publication', () => {
+  it('keeps the reproduction authorization scoped to the two supplied PDFs', () => {
     expect(MANDARIN_CORPUS.sources.map(source => source.id).sort()).toEqual(['reader', 'shangrila'])
     for (const source of MANDARIN_CORPUS.sources as Array<Record<string, any>>) {
       expect(source.reuseAuthorization?.status).toBe('user-confirmed-owner-permission')
       expect(source.reuseAuthorization?.scope).toMatch(/duas cópias PDF fornecidas/)
-      expect(source.reuseAuthorization?.publicationPolicy).toMatch(/sínteses pedagógicas próprias/)
-      expect(source.reuseAuthorization?.publicationPolicy).toMatch(/sem transcrição integral de diálogos, tabelas ou páginas/)
+      expect(source.reuseAuthorization?.publicationPolicy).toMatch(/reprodução pedagógica autorizada/i)
+      expect(source.reuseAuthorization?.publicationPolicy).toMatch(/somente às duas cópias PDF fornecidas/)
     }
   })
 
@@ -129,6 +130,19 @@ describe('Mandarin curriculum data', () => {
     const wrongId = question.options.find(option => option.id !== question.answerId)!.id
     expect(isQuizCorrect(question, question.answerId)).toBe(true)
     expect(isQuizCorrect(question, wrongId)).toBe(false)
+
+    const guardedQuestion = {
+      id: 'guarded-q', type: 'multiple-choice' as const, prompt: 'Qual é a resposta?',
+      options: [{ id: 'a', label: 'distrator A' }, { id: 'b', label: 'resposta secreta' }, { id: 'c', label: 'distrator C' }],
+      answerId: 'b', explanation: 'explicação secreta', sourcePages: 'PDF p. 1',
+    }
+    const beforePass = buildTutorQuizContext([guardedQuestion], false)
+    expect(beforePass).toContain(guardedQuestion.prompt)
+    expect(beforePass).not.toContain('resposta secreta')
+    expect(beforePass).not.toContain('explicação secreta')
+    const afterPass = buildTutorQuizContext([guardedQuestion], true)
+    expect(afterPass).toContain('resposta secreta')
+    expect(afterPass).toContain('explicação secreta')
   })
 })
 
