@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import functools
+import hashlib
 import json
 import os
 import shutil
@@ -37,6 +38,14 @@ def find_chromium() -> str | None:
     return None
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("web_directory", type=Path)
@@ -51,6 +60,9 @@ def main() -> int:
         with zipfile.ZipFile(web_directory / "game.zip") as archive:
             background_manifest = json.loads(archive.read("game/images/optimized/manifest.json"))
             sprite_manifest = json.loads(archive.read("game/images/masters/sprites/manifest.json"))
+            compiled_story_bytes = archive.getinfo("game/script.rpyc").file_size
+            if compiled_story_bytes <= 0:
+                raise ValueError("compiled Ren'Py story script is empty")
     except (OSError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
         raise SystemExit(f"Could not read progressive image manifests from game.zip: {error}") from error
     if len(background_manifest.get("assets", [])) != 56 or len(sprite_manifest.get("assets", [])) != 54:
@@ -60,6 +72,30 @@ def main() -> int:
     progressive_assets.extend(f"game/images/{asset['file']}" for asset in sprite_manifest["assets"])
     if len(set(progressive_assets)) != 111:
         raise SystemExit("Expected exactly 111 unique progressive runtime image paths")
+
+    image_root = web_directory / "game" / "images"
+    verified_backgrounds = 0
+    verified_sprites = 0
+    for asset in background_manifest["assets"]:
+        path = image_root / "optimized" / asset["file"]
+        if (
+            not path.is_file()
+            or path.stat().st_size != asset["sizeBytes"]
+            or sha256_file(path) != asset["sha256"]
+        ):
+            raise SystemExit(f"Real progressive background failed SHA-256/size verification: {path}")
+        verified_backgrounds += 1
+    for asset in sprite_manifest["assets"]:
+        path = image_root / asset["file"]
+        if (
+            not path.is_file()
+            or path.stat().st_size != asset["sizeBytes"]
+            or sha256_file(path) != asset["sha256"]
+        ):
+            raise SystemExit(f"Real progressive sprite failed SHA-256/size verification: {path}")
+        verified_sprites += 1
+    if not (image_root / "bg_intro_scene.jpg").is_file():
+        raise SystemExit("Independent opening background is missing from the real progressive files")
 
     try:
         from playwright.sync_api import sync_playwright
@@ -157,6 +193,17 @@ def main() -> int:
             "backgroundCount": len(background_manifest["assets"]),
             "spriteCount": len(sprite_manifest["assets"]),
             "allHttp200": all(status == 200 for status in progressive_asset_status.values()),
+        },
+        "realRuntimeFiles": {
+            "backgroundsSha256Verified": verified_backgrounds,
+            "spritesSha256Verified": verified_sprites,
+            "openingBackgroundPresent": True,
+            "placeholderFilesUsedAsEvidence": False,
+        },
+        "compiledRenpyStory": {
+            "member": "game/script.rpyc",
+            "bytes": compiled_story_bytes,
+            "loadedThroughGameZip": resource_status.get("game.zip") == 200,
         },
         "keyboardInput": "Enter dispatched after canvas initialization",
         "consoleErrors": console_errors,

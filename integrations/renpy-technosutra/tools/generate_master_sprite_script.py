@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a Ren'Py gallery for the 54 approved provisional static renders.
+"""Generate a provisional Ren'Py gallery or a license-safe no-image notice.
 
 The images are existing, byte-for-byte copies listed in the local sprite
 manifest. This script does not create or edit images and does not generate mouth
@@ -42,8 +42,12 @@ def load_assets() -> tuple[list[int], dict[int, dict]]:
     if not SPRITE_MANIFEST.is_file():
         raise SystemExit(f"Missing provisional sprite manifest: {SPRITE_MANIFEST}")
     manifest = json.loads(SPRITE_MANIFEST.read_text(encoding="utf-8"))
-    if manifest.get("status") != "provisional" or manifest.get("temporaryUseApprovedByOwner") is not True:
-        raise SystemExit("Sprite manifest must record owner-approved provisional use")
+    if (
+        manifest.get("status") != "provisional"
+        or manifest.get("temporaryUseApprovedByOwner") is not True
+        or manifest.get("publicDistributionApprovedByOwner") is not True
+    ):
+        raise SystemExit("Sprite manifest must record owner-approved public distribution")
 
     records: dict[int, dict] = {}
     for asset in manifest.get("assets", []):
@@ -171,7 +175,14 @@ def main() -> int:
         action="store_true",
         help="write a safe explanatory gallery stub without referencing upstream image files",
     )
+    parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="verify manifest and hashes without writing the generated Ren'Py script",
+    )
     args = parser.parse_args()
+    if args.exclude_upstream_renders and args.check_only:
+        parser.error("--exclude-upstream-renders and --check-only cannot be combined")
     if args.exclude_upstream_renders:
         OUTPUT.write_text(
             "\n".join([
@@ -180,7 +191,7 @@ def main() -> int:
                 "    scene bg_intro_scene with fade",
                 '    centered "Galeria Technosutra não incluída neste pacote"',
                 '    narrator "Os 54 renders brutos do upstream foram mantidos fora do pacote devido ao conflito de licença."',
-                "    return",
+                "    jump start",
                 "",
             ]),
             encoding="utf-8",
@@ -188,6 +199,9 @@ def main() -> int:
         print(f"Wrote license-safe gallery stub {OUTPUT}; no upstream render files referenced.")
         return 0
     numbers, assets = load_assets()
+    if args.check_only:
+        print(f"PASS: {len(numbers)} owner-approved runtime sprites verified; source capture hashes checked where present; slots 43 and 52 absent.")
+        return 0
     OUTPUT.write_text(build_script(numbers, assets), encoding="utf-8")
     print(f"Wrote {OUTPUT}: {len(numbers)} provisional static renders; verified runtime files and SHA-256.")
     print("Missing slots 43 and 52; generated no mouth/posture variants.")

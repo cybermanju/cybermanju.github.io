@@ -70,43 +70,60 @@ echo "SDK: $SDK_VERSION ($SDK)"
 echo "Python: $PYTHON_VERSION; Pillow: $PILLOW_VERSION; Playwright: $PLAYWRIGHT_VERSION"
 echo "All outputs stay under $BUILD_ROOT; public/ is never read or written."
 
-# Work on a disposable copy: generation, lint, and Ren'Py compilation cannot
-# alter the source tree or its ignored original assets/saves.
+# Validate protected source material in place, then copy a compact tree while
+# excluding original chapter PNG/JPEG baselines and raw source-capture PNGs.
+python3 "$ROOT/tools/prepare_assets.py" --verify
+python3 "$ROOT/tools/generate_master_sprite_script.py" --check-only
 mkdir -p "$PROJECT"
-cp -a "$ROOT/game" "$PROJECT/game"
+mkdir -p "$PROJECT/game"
+tar -C "$ROOT/game" \
+  --exclude='./images/bg_ch*.png' \
+  --exclude='./images/bg_ch*.jpg' \
+  --exclude='./images/masters/source' \
+  -cf - . | tar -C "$PROJECT/game" -xf -
+if [[ -f "$ROOT/game/images/masters/source/capture_manifest.json" ]]; then
+  mkdir -p "$PROJECT/game/images/masters/source"
+  cp "$ROOT/game/images/masters/source/capture_manifest.json" "$PROJECT/game/images/masters/source/"
+fi
 cp "$ROOT/chapters.json" "$ROOT/project.json" "$PROJECT/"
 mkdir -p "$PROJECT/tools"
 cp "$ROOT/tools/"*.py "$PROJECT/tools/"
 find "$PROJECT/game" -type f -name '*.rpyc' -delete
 rm -rf "$PROJECT/game/cache" "$PROJECT/game/saves"
 
-# Generate in the staging copy with all upstream render references disabled.
-python3 "$PROJECT/tools/generate_renpy_script.py" --exclude-upstream-renders
-python3 "$PROJECT/tools/generate_master_sprite_script.py" --exclude-upstream-renders
+# Generate scripts in the compact staging copy, retaining only authorized runtime sprites.
+python3 "$PROJECT/tools/generate_renpy_script.py"
+python3 "$PROJECT/tools/generate_master_sprite_script.py"
 python3 "$PROJECT/tools/prepare_assets.py"
 python3 "$PROJECT/tools/validate_optimized_assets.py" --project "$PROJECT"
-python3 "$PROJECT/tools/create_art_comparison.py" --project "$PROJECT" --output "$VISUAL"
+python3 "$PROJECT/tools/create_art_comparison.py" --project "$ROOT" --output "$VISUAL"
 python3 "$PROJECT/tools/prepare_local_build.py" --project "$PROJECT"
 
 python3 - "$PROJECT/game" <<'PY'
 from pathlib import Path
-import re, sys
+import json, re, sys
 root = Path(sys.argv[1])
 images = root / "images"
 story = (root / "script.rpy").read_text(encoding="utf-8")
 gallery = (root / "technosutra_masters.rpy").read_text(encoding="utf-8")
+manifest_path = images / "masters/sprites/manifest.json"
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 if len(re.findall(r'^image bg_ch\d{2} = "images/optimized/bg_ch\d{2}\.jpg"$', story, re.M)) != 56:
     raise SystemExit("Sanitized story must reference all 56 optimized backgrounds")
-if re.search(r"image\s+(?:master_ch|gallery_master)_\d{2}_provisional|show\s+master_ch\d{2}_provisional", story + gallery):
-    raise SystemExit("Upstream render image declarations/references remain in the staging scripts")
-if not re.search(r"^label technosutra_master_gallery:", gallery, re.M) or "renders brutos do upstream" not in gallery:
-    raise SystemExit("License-safe gallery notice is missing")
-if (images / "masters").exists():
-    raise SystemExit("Upstream renders/manifests must be removed from staging before packaging")
+if len(re.findall(r"^image master_ch\d{2}_provisional =", story, re.M)) != 54:
+    raise SystemExit("Story must reference exactly the 54 owner-authorized runtime sprites")
+if "jump technosutra_master_gallery" not in story or not re.search(r"^label technosutra_master_gallery:", gallery, re.M):
+    raise SystemExit("The approved 54-render gallery reference/label is missing")
+if manifest.get("publicDistributionApprovedByOwner") is not True or manifest.get("availableCount") != 54 or manifest.get("missingChapters") != [43, 52]:
+    raise SystemExit("Sprite manifest must record distribution approval, 54 assets, and absent slots 43/52")
+if list((images / "masters/source").glob("*.png")):
+    raise SystemExit("Raw upstream source-capture PNGs must be outside the package staging tree")
 if len(list((images / "optimized").glob("bg_ch*.jpg"))) != 56:
     raise SystemExit("Expected exactly 56 optimized chapter backgrounds")
-if list(images.rglob("*.png")) or list(images.rglob("*.glb")):
-    raise SystemExit("Upstream PNG/GLB files remain in staged game/images")
+if len(list((images / "masters/sprites/provisional").glob("*.png"))) != 54:
+    raise SystemExit("Expected exactly 54 hash-verified runtime sprite PNGs")
+if (images / "masters/source/capture_manifest.json").is_file() is False:
+    raise SystemExit("Source-capture provenance manifest must be retained")
 PY
 
 # Lint and WebAssembly build are local/CI validation only; never promote to public/.
@@ -147,10 +164,12 @@ output = Path(sys.argv[3])
 sdk, pillow, playwright = sys.argv[4:7]
 images = project / "game/images"
 asset_manifest = json.loads((images / "optimized/manifest.json").read_text(encoding="utf-8"))
+sprite_manifest = json.loads((images / "masters/sprites/manifest.json").read_text(encoding="utf-8"))
 smoke = json.loads((build_root / "smoke-report.json").read_text(encoding="utf-8"))
 zip_path = output / "game.zip"
 digest = hashlib.sha256(zip_path.read_bytes()).hexdigest()
 output_bytes = sum(path.stat().st_size for path in output.rglob("*") if path.is_file())
+sprite_bytes = sum((images / asset["file"]).stat().st_size for asset in sprite_manifest["assets"])
 report = {
     "status": "PASS",
     "buildId": build_root.name,
@@ -173,10 +192,14 @@ report = {
     "optimizedImageCount": asset_manifest["count"],
     "fidelityPsnrMinDb": min(asset["psnrDb"] for asset in asset_manifest["assets"]),
     "fidelityPsnrMeanDb": round(sum(asset["psnrDb"] for asset in asset_manifest["assets"]) / len(asset_manifest["assets"]), 4),
-    "upstreamRenderAssetsPackaged": 0,
-    "upstreamRenderAssetsExcludedByLicensePolicy": 54,
+    "runtimeSpriteCount": sprite_manifest["availableCount"],
+    "runtimeSpriteBytes": sprite_bytes,
+    "runtimeSpriteSha256Verified": True,
+    "authorizedSpritesIncluded": sprite_manifest["publicDistributionApprovedByOwner"] is True and sprite_manifest["availableCount"] == 54,
+    "spriteManifestPreserved": (images / "masters/sprites/manifest.json").is_file(),
+    "captureManifestPreserved": (images / "masters/source/capture_manifest.json").is_file(),
     "rawSourceCapturePngsInPackage": False,
-    "upstreamSpriteGallery": "license notice only; no image assets",
+    "missingSpriteSlots": sprite_manifest["missingChapters"],
     "visualComparisonDirectory": str(build_root / "visual-review"),
     "smokeTest": smoke,
 }
@@ -185,6 +208,7 @@ report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", 
 print(f"Build report: {report_path}")
 print(f"Local output: {output}")
 print(f"game.zip: {zip_path.stat().st_size:,} bytes; SHA-256 {digest}")
-print("Upstream render assets packaged: 0 (54 excluded due to license conflict)")
+print(f"Runtime sprites: {sprite_manifest['availableCount']} ({sprite_bytes:,} bytes), slots 43 and 52 absent")
+print("Raw source-capture PNGs in package: 0; sprite/capture provenance manifests retained")
 print(f"Visual comparison sheets: {build_root / 'visual-review'}")
 PY

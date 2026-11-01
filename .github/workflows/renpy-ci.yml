@@ -61,8 +61,8 @@ jobs:
         working-directory: integrations/renpy-technosutra
         run: |
           bash -n build_web.sh tools/install_renpy_sdk.sh
-          python tools/generate_renpy_script.py --exclude-upstream-renders
-          python tools/generate_master_sprite_script.py --exclude-upstream-renders
+          python tools/generate_renpy_script.py
+          python tools/generate_master_sprite_script.py
           python tools/prepare_assets.py
           python tools/validate_optimized_assets.py
 
@@ -83,9 +83,13 @@ jobs:
           smoke = json.loads((build / "smoke-report.json").read_text(encoding="utf-8"))
           assert report["status"] == "PASS", report
           assert smoke["status"] == "PASS", smoke
-          assert report["upstreamRenderAssetsPackaged"] == 0
-          assert report["upstreamRenderAssetsExcludedByLicensePolicy"] == 54
+          assert report["authorizedSpritesIncluded"] is True
+          assert report["runtimeSpriteCount"] == 54
+          assert report["runtimeSpriteSha256Verified"] is True
+          assert report["spriteManifestPreserved"] is True
+          assert report["captureManifestPreserved"] is True
           assert report["rawSourceCapturePngsInPackage"] is False
+          assert report["missingSpriteSlots"] == [43, 52]
           assert report["optimizedImageCount"] == 56
           assert report["smokeTest"]["status"] == "PASS"
           print(f"PASS: {build / 'build-report.json'}")

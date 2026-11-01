@@ -22,8 +22,12 @@ EXCLUDE_UPSTREAM_RENDERS = ARGS.exclude_upstream_renders
 PROVISIONAL_SPRITES: dict[int, dict] = {}
 if not EXCLUDE_UPSTREAM_RENDERS:
     SPRITE_MANIFEST = json.loads((GAME / "images/masters/sprites/manifest.json").read_text(encoding="utf-8"))
-    if SPRITE_MANIFEST.get("status") != "provisional":
-        raise SystemExit("Master sprite manifest must remain explicitly provisional")
+    if (
+        SPRITE_MANIFEST.get("status") != "provisional"
+        or SPRITE_MANIFEST.get("temporaryUseApprovedByOwner") is not True
+        or SPRITE_MANIFEST.get("publicDistributionApprovedByOwner") is not True
+    ):
+        raise SystemExit("Master sprite manifest must record owner-approved public distribution")
     EXPECTED_PROVISIONAL_CHAPTERS = list(range(1, 43)) + list(range(44, 52)) + list(range(53, 57))
     PROVISIONAL_SPRITES = {
         int(asset["chapter"]): asset
