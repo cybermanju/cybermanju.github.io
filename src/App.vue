@@ -287,7 +287,7 @@ watch(() => store.currentPanel, (panel, before) => {
 
 const mainAreaRef = ref<HTMLElement | null>(null)
 
-useSwipe(mainAreaRef, touchConfig.getSwipeOptions())
+useSwipe(mainAreaRef, () => touchConfig.getSwipeOptions())
 
 watch(shortcutOverrides, (v) => {
   localStorage.setItem('cybermanju_keybindings', JSON.stringify(v))
@@ -300,10 +300,6 @@ shortcuts.on('focus_search', () => { wm.open('search') })
 shortcuts.on('new_folder', () => { store.createFolderPromptOpen = true })
 shortcuts.on('upload_file', () => { showUploadDialog.value = true })
 shortcuts.on('refresh', () => { store.fetchFiles() })
-shortcuts.on('escape', () => {
-  store.selectedFileId = null
-  store.createFolderPromptOpen = false
-})
 // ── Window management: every handler below has a browser-safe Alt+
 // primary, so it fires identically in Tauri and in WASM/Pages. The few
 // Ctrl+ primaries (open_trash, autotile_toggle_alt, focus_next_alt…)

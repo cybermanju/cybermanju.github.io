@@ -192,7 +192,19 @@ function detectTouch(): { touchSupported: boolean; isMobile: boolean } {
   return { touchSupported, isMobile }
 }
 
+const touchConfigByStorageKey = new Map<string, ReturnType<typeof createTouchConfig>>()
+
 export function useTouchConfig(options: TouchConfigOptions = {}) {
+  const storageKey = options.storageKey || 'cybermanju_touch_config'
+  const shared = touchConfigByStorageKey.get(storageKey)
+  if (shared) return shared
+
+  const config = createTouchConfig({ ...options, storageKey })
+  touchConfigByStorageKey.set(storageKey, config)
+  return config
+}
+
+function createTouchConfig(options: TouchConfigOptions) {
   const storageKey = options.storageKey || 'cybermanju_touch_config'
 
   let savedMap: Partial<Record<GestureType, TouchAction>> = {}

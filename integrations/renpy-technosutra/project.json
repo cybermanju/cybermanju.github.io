@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 2,
+  "title": "Technosutra — The Stem Array Ren’Py VN",
+  "sourceMaterials": [],
+  "routePoints": [],
+  "sourceReference": {
+    "fileName": "toh44-45.pdf",
+    "workTitle": "The Stem Array (Gaṇḍavyūha)",
+    "identifier": "Toh 44–45",
+    "pdfPageCount": 1369,
+    "adaptedChapterTextPages": "Chapter-specific ranges in chapters.json, spanning PDF pages 59–915",
+    "englishTranslator": "Peter Alan Roberts",
+    "editor": "Emily Bower",
+    "publisher": "84000: Translating the Words of the Buddha",
+    "sourceUrl": "https://84000.co/translation/toh44-45",
+    "license": "CC BY-NC-ND 4.0",
+    "separateAdaptationPermission": "owner-confirmed",
+    "publicDistributionPermission": "not-confirmed; do not publish or distribute externally",
+    "adaptationStatus": "detailed-56-chapter-vn-adaptation"
+  },
+  "chapterCoverage": {
+    "count": 56,
+    "sourceText": "All corresponding complete chapter texts from the supplied PDF; ranges recorded per chapter",
+    "sceneCount": 246,
+    "newVnDialogueLineCount": 582,
+    "namedSpeakerCountExcludingNarrator": 94,
+    "optionalReconvergentChoices": 56,
+    "chapterSpecificQuizzes": 56,
+    "completeStoryArc": true,
+    "verbatimTranslation": false,
+    "adaptationNote": "Detailed Portuguese paraphrase; newly written dialogue, reflection choices and quizzes are original VN additions, not source quotations or claims of canonical dialogue."
+  },
+  "artwork": {
+    "opening": "Original independent environment; the supplied JPEG is excluded until its origin is confirmed",
+    "originalChapterBackgroundCount": 56,
+    "cyberpunkVariantsConnected": 56,
+    "generatedOriginalBackgroundsForChapters31to56": 26,
+    "streetViewDerivedImages": false,
+    "style": "Original anime environments with restrained ASCII/cyberpunk psychedelic motifs; abstract and non-canonical where the source gives no setting details"
+  },
+  "characterArtWorkstream": {
+    "owner": "Ryu",
+    "scope": "Static front-facing transparent GLB renders mapped to chapter slots by the capture manifest and shown with a provisional label",
+    "reportedModels": 54,
+    "reportedSlots": 56,
+    "missingSlots": [43, 52],
+    "availableStaticRenders": 54,
+    "galleryStatus": "provisional-static-render-gallery-and-chapter-slots; source filenames and hashes verified",
+    "mouthPostureVariants": "not generated and not referenced",
+    "assetManifest": "game/images/masters/sprites/manifest.json",
+    "namedInventory": "exact upstream model IDs; chapter slot names follow the capture manifest"
+  },
+  "integrations": {
+    "pdfTextPicker": "metadata-only; the authorized chapter adaptation is bundled in the VN",
+    "voiceOutput": "awaiting-owner-app",
+    "streetView": "owner-provided-coordinates-and-official-link-only",
+    "streetViewImageCapture": "not-used",
+    "renpyRuntime": "official-renpy-web-build; local build only",
+    "buildCommand": "integrations/renpy-technosutra/build_web.sh",
+    "externalPublication": "not performed; requires separate confirmation"
+  }
+}

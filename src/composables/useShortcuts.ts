@@ -258,6 +258,14 @@ export function useShortcuts(
 
   function handleKey(e: KeyboardEvent) {
     if (paused) return
+    // Bare Escape belongs to the active dialog or focused control. Do not
+    // consume it in capture phase before a modal's own close handler runs.
+    if (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (chord.timeout) clearTimeout(chord.timeout)
+      chord.timeout = null
+      chord.buffer = []
+      return
+    }
     // Ctrl/Cmd combos must still work inside inputs (they are app commands,
     // not text); plain typing must never trigger single-key shortcuts.
     if (!e.ctrlKey && !e.metaKey && isEditableTarget(e.target)) return
@@ -304,7 +312,7 @@ export function useShortcuts(
   }
 
   // VueUse-managed listener: auto-cleaned on unmount, capture phase so app
-  // shortcuts win over nested panel handlers (code editor, file grid).
+  // shortcuts win over nested panel handlers; bare Escape is the modal exception.
   useEventListener(document, 'keydown', handleKey as EventListener, { capture: true })
 
   onMounted(() => {

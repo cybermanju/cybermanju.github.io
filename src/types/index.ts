@@ -4,9 +4,8 @@
 // Integrates: standalone (no imports).
 // Contracts: signals: AGENT-, integrity, conflict.
 export type ViewMode = 'grid' | 'list' | 'masonry' | 'columns' | 'details'
-export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets' | 'passwords' | 'credentials' | 'install' | 'archive' | 'shortcuts'
+export type PanelType = 'landing' | 'files' | 'preview' | 'encryption' | 'compression' | 'collections' | 'faces' | 'map' | 'code' | 'editor' | 'agent' | 'search' | 'style' | 'accounts' | 'loose-groups' | 'sync' | 'transfer' | 'webdash' | 'users' | 'dashboard' | 'settings' | 'trash' | 'activity' | 'favorites' | 'recent' | 'storage' | 'terminal' | 'processes' | 'disks' | 'devices' | 'permissions' | 'cron' | 'automation' | 'schedules' | 'secrets' | 'passwords' | 'credentials' | 'install' | 'archive' | 'shortcuts' | 'technosutra' | 'technosutra-novel' | 'mandarin'
 export type SidebarSection = 'tree' | 'locations' | 'collections' | 'people' | 'styles' | 'loose' | 'users' | 'sync' | 'dashboard' | 'landing' | 'tools'
-
 export interface ModuleInfo {
   id: PanelType
   label: string
@@ -692,6 +691,9 @@ export const MODULE_METADATA: Record<PanelType, ModuleInfo> = {
   install: { id: 'install', label: 'INSTALL', icon: 'solar:download-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Native app + CLI downloads for every platform', requiresAuth: false },
   archive: { id: 'archive', label: 'ARCHIVE', icon: 'solar:notebook-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #000d08 50%, #000000 100%)', description: 'Life archive: notes, timeline, people, tasks, bookmarks, datasets', requiresAuth: false },
   shortcuts: { id: 'shortcuts', label: 'SHORTCUTS', icon: 'solar:code-bold', color: '#8c9fff', gradient: 'linear-gradient(180deg, #11162b 0%, #050611 100%)', description: 'Editor visual de ações e condições; execução depende do host', requiresAuth: false },
+  technosutra: { id: 'technosutra', label: 'TECHNO SUTRA', icon: 'solar:library-bold', color: '#FFFFFF', gradient: 'linear-gradient(180deg, #000000 0%, #10081b 50%, #000000 100%)', description: 'Techno Sutra AR — Avatamsaka Sutra gallery, map and 3D experience', requiresAuth: false },
+  'technosutra-novel': { id: 'technosutra-novel', label: 'TECHNOSUTRA VN', icon: 'solar:library-bold', color: '#8c9fff', gradient: 'linear-gradient(180deg, #101b2a 0%, #050611 100%)', description: 'Local Ren’Py bridge for owner-provided story sources and Street View waypoints', requiresAuth: false },
+  mandarin: { id: 'mandarin', label: 'MANDARIN', icon: 'solar:book-bookmark-bold', color: '#d99b43', gradient: 'linear-gradient(180deg, #1a1208 0%, #101318 100%)', description: 'Mandarin foundations: tones, handwriting, review and OS voice tutor', requiresAuth: false },
 }
 
 // ── OS layer (AGENT-8): cybsh, task table, compute fan-out ───────────────

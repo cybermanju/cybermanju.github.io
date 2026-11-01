@@ -610,7 +610,7 @@ onUnmounted(() => {
 
 .report-hint {
   margin-top: 10px;
-  color: var(--ui-text-3);
+  color: var(--ui-text-2);
   font-size: 11px;
   line-height: 1.45;
   padding-top: 10px;
@@ -671,7 +671,7 @@ onUnmounted(() => {
   gap: 10px;
   justify-content: center;
   font-size: 11px;
-  color: var(--ui-text-3);
+  color: var(--ui-text-2);
 }
 
 .legal-hint a {

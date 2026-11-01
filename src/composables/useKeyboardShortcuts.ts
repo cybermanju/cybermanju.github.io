@@ -21,6 +21,11 @@ interface Shortcut {
 
 export function useKeyboardShortcuts(shortcuts: Shortcut[]) {
   function handleKeydown(e: KeyboardEvent) {
+    if (e.defaultPrevented) return
+    if (e.key === 'Escape') {
+      const target = e.target as Element | null
+      if (target?.closest?.('[role="dialog"], [aria-modal="true"]')) return
+    }
     if (!e.ctrlKey && !e.metaKey && isEditableTarget(e.target)) return
     const store = useAppStore()
 
@@ -56,6 +61,7 @@ export function getGlobalShortcuts(store: ReturnType<typeof useAppStore>): Short
     {
       key: 'Escape', handler: () => {
         if (store.commandPaletteOpen) { store.commandPaletteOpen = false; return }
+        if (store.createFolderPromptOpen) { store.createFolderPromptOpen = false; return }
         if (store.selectedFileId) { store.selectedFileId = null; return }
       },
       description: 'Close panel / deselect file',
@@ -63,12 +69,6 @@ export function getGlobalShortcuts(store: ReturnType<typeof useAppStore>): Short
     {
       key: 'n', ctrl: true, handler: () => { store.createFolderPromptOpen = !store.createFolderPromptOpen },
       description: 'Create new folder',
-    },
-    {
-      key: 'Delete', handler: () => {
-        if (store.selectedFileId) store.deleteFile(store.selectedFileId)
-      },
-      description: 'Delete selected file',
     },
     {
       key: 'e', ctrl: true, handler: () => { useWindowManager().open('encryption', { tab: 'shield' }) },

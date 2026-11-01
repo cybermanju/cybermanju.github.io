@@ -778,7 +778,7 @@ function resetActive() {
   align-items: center;
   gap: 10px;
   padding: 26px 12px;
-  color: var(--ui-text-3);
+  color: var(--ui-text-2);
   font-size: 13px;
   text-align: center;
   overflow-y: auto;

@@ -10,7 +10,7 @@ const noop = { open: () => {}, notify: () => {} }
 
 describe('isKnownPanel', () => {
   it('accepts canonical panel ids', () => {
-    for (const id of ['files', 'terminal', 'agent', 'settings', 'disks', 'processes', 'secrets'] as const) {
+    for (const id of ['files', 'terminal', 'agent', 'settings', 'disks', 'processes', 'secrets', 'mandarin'] as const) {
       if (id === 'secrets') continue // Phase 3 adds it — guarded there
       expect(isKnownPanel(id), id).toBe(true)
     }

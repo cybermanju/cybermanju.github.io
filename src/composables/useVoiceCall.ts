@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { VoiceCallController, type VoiceCallState } from '@/utils/voiceCall'
 import { AndroidVoiceAudio, isNativeAndroid } from '@/utils/androidVoice'
+import { resolveVoiceProvider } from '@/integrations/orb-chatter/providers'
 
 interface RecognitionResult {
   isFinal: boolean
@@ -33,7 +34,12 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
   const speechWindow = typeof window === 'undefined' ? undefined : window as SpeechWindow
   const RecognitionClass = speechWindow?.SpeechRecognition ?? speechWindow?.webkitSpeechRecognition
   const nativeAudio = isNativeAndroid() ? new AndroidVoiceAudio() : null
-  const supported = !!nativeAudio || (!!RecognitionClass && !!speechWindow?.speechSynthesis)
+  const provider = resolveVoiceProvider({
+    androidNative: !!nativeAudio,
+    speechRecognition: !!RecognitionClass,
+    speechSynthesis: !!speechWindow?.speechSynthesis,
+  })
+  const supported = provider !== null
   let recognition: Recognition | null = null
   let utterance: SpeechSynthesisUtterance | null = null
   let restart: ReturnType<typeof setTimeout> | undefined
@@ -113,5 +119,5 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
   function visibility() { if (document.hidden) end() }
   onMounted(() => document.addEventListener('visibilitychange', visibility))
   onBeforeUnmount(() => { end(); document.removeEventListener('visibilitychange', visibility) })
-  return { state, error, muted, supported, active: computed(() => state.value !== 'idle' && state.value !== 'error'), start, end, toggleMute, interrupt: () => controller.interrupt() }
+  return { state, error, muted, supported, provider, active: computed(() => state.value !== 'idle' && state.value !== 'error'), start, end, toggleMute, interrupt: () => controller.interrupt() }
 }

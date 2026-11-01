@@ -16,7 +16,7 @@
           :aria-label="title || undefined"
           :aria-describedby="subtitle ? subtitleId : undefined"
           v-bind="$attrs"
-          @keydown.esc="onClose"
+          @keydown.esc.stop.prevent="onClose"
         >
           <header class="ui-modal__header">
             <div class="ui-modal__heading">
@@ -97,7 +97,7 @@ const emit = defineEmits<{
 
 const dialogRef = ref<HTMLElement | null>(null)
 const isActive = toRef(props, 'visible')
-useFocusTrap(dialogRef, isActive)
+useFocusTrap(dialogRef, isActive, { onEscape: onClose })
 
 function onClose() {
   emit('update:visible', false)

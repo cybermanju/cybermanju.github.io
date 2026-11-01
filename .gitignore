@@ -41,6 +41,13 @@ graphify-out/
 # Download artifacts
 download/
 
+# Ren'Py generated bundles and local WebAssembly deployment artifacts
+/integrations/renpy-technosutra/build/
+/integrations/renpy-technosutra/game/
+/integrations/renpy-technosutra/chapters.json
+/public/technosutra-vn/
+/integrations/renpy-technosutra/*.zip
+
 # Temp
 *.b64
 download-app/

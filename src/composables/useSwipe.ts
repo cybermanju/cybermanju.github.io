@@ -46,6 +46,8 @@ export interface SwipeOptions {
   onEdgeSwipe?: (e: EdgeSwipeEvent) => void
 }
 
+export type SwipeOptionsSource = SwipeOptions | (() => SwipeOptions)
+
 function getEdge(x: number, y: number, w: number, h: number, zoneSize: number): EdgeZone {
   if (x <= zoneSize) return 'left'
   if (x >= w - zoneSize) return 'right'
@@ -78,11 +80,12 @@ interface Tracked {
  * spread change → pinch, parallel travel → swipe. Extracted from the
  * composable so the whole recognizer is unit-testable without DOM.
  */
-export function createSwipeMachine(options: SwipeOptions = {}) {
-  const threshold = options.threshold ?? 50
-  const longPressThreshold = options.longPressThreshold ?? 600
-  const edgeZoneSize = options.edgeZoneSize ?? 30
-  const doubleTapTimeout = options.doubleTapTimeout ?? 300
+export function createSwipeMachine(options: SwipeOptionsSource = {}) {
+  const currentOptions = () => typeof options === 'function' ? options() : options
+  const threshold = () => currentOptions().threshold ?? 50
+  const longPressThreshold = () => currentOptions().longPressThreshold ?? 600
+  const edgeZoneSize = () => currentOptions().edgeZoneSize ?? 30
+  const doubleTapTimeout = () => currentOptions().doubleTapTimeout ?? 300
 
   /** Two-finger spread change (px) that counts as a pinch, not a swipe. */
   const PINCH_DEADZONE = 20
@@ -154,15 +157,16 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
     peakCount = Math.max(peakCount, tracked.size)
     if (first) {
       startTime = Date.now()
-      edgeAtStart = getEdge(e.clientX, e.clientY, viewBox.w, viewBox.h, edgeZoneSize)
+      edgeAtStart = getEdge(e.clientX, e.clientY, viewBox.w, viewBox.h, edgeZoneSize())
       tracking = true
       pinchFired = false
       lifted.length = 0
+      const longPressDelay = longPressThreshold()
       longPressTimer = setTimeout(() => {
         if (tracking && tracked.size === 1) {
-          options.onLongPress?.({ x: e.clientX, y: e.clientY, duration: longPressThreshold })
+          currentOptions().onLongPress?.({ x: e.clientX, y: e.clientY, duration: longPressDelay })
         }
-      }, longPressThreshold)
+      }, longPressDelay)
     } else {
       // A second (or third…) finger joined: long-press is off the table,
       // but the gesture continues — peakCount remembers the widest chord.
@@ -184,7 +188,7 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
         t.lastY = e.clientY
         const cur = spread()
         lastPinchDist = cur
-        options.onPinchMove?.({ scale: cur / initialPinchDist, initialDistance: initialPinchDist, currentDistance: cur })
+        currentOptions().onPinchMove?.({ scale: cur / initialPinchDist, initialDistance: initialPinchDist, currentDistance: cur })
       }
       return
     }
@@ -203,8 +207,8 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
         pinchFired = true
         tracking = false
         clearTimer()
-        options.onPinchStart?.({ scale: 1, initialDistance: initialPinchDist, currentDistance: initialPinchDist })
-        options.onPinchMove?.({ scale: cur / initialPinchDist, initialDistance: initialPinchDist, currentDistance: cur })
+        currentOptions().onPinchStart?.({ scale: 1, initialDistance: initialPinchDist, currentDistance: initialPinchDist })
+        currentOptions().onPinchMove?.({ scale: cur / initialPinchDist, initialDistance: initialPinchDist, currentDistance: cur })
         return
       }
       return
@@ -223,18 +227,18 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
       const elapsed = Date.now() - startTime
       if (absDx < 10 && absDy < 10 && elapsed < 300) {
         const now = Date.now()
-        if (now - lastTapTime < doubleTapTimeout && Math.abs(endX - lastTapX) < 30 && Math.abs(endY - lastTapY) < 30) {
-          options.onTap?.('double', endX, endY)
+        if (now - lastTapTime < doubleTapTimeout() && Math.abs(endX - lastTapX) < 30 && Math.abs(endY - lastTapY) < 30) {
+          currentOptions().onTap?.('double', endX, endY)
           lastTapTime = 0
         } else {
-          options.onTap?.('single', endX, endY)
+          currentOptions().onTap?.('single', endX, endY)
           lastTapTime = now
           lastTapX = endX
           lastTapY = endY
         }
         return
       }
-      if (Math.max(absDx, absDy) < threshold) return
+      if (Math.max(absDx, absDy) < threshold()) return
       emitDirection(1, swipeDirection(dx, dy), Math.max(absDx, absDy))
       return
     }
@@ -244,10 +248,10 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
         endDist: lastPinchDist,
         dx,
         dy,
-        swipeThreshold: threshold,
+        swipeThreshold: threshold(),
       })
       if (cls === 'pinch') {
-        options.onPinchEnd?.({ scale: lastPinchDist / initialPinchDist, initialDistance: initialPinchDist, currentDistance: lastPinchDist })
+        currentOptions().onPinchEnd?.({ scale: lastPinchDist / initialPinchDist, initialDistance: initialPinchDist, currentDistance: lastPinchDist })
         return
       }
       if (cls === 'tap' || cls === 'none') return
@@ -255,7 +259,7 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
       return
     }
     if (count === 3 || count === 4) {
-      if (Math.max(absDx, absDy) < threshold) return
+      if (Math.max(absDx, absDy) < threshold()) return
       emitDirection(count, swipeDirection(dx, dy), Math.max(absDx, absDy))
     }
   }
@@ -265,13 +269,13 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
     // at the bottom edge reach the overview action without also firing the
     // single-finger edge action (for example, toggling the sidebar).
     if (count === 1 && edgeAtStart !== 'none') {
-      options.onEdgeSwipe?.({ direction, edge: edgeAtStart, distance })
+      currentOptions().onEdgeSwipe?.({ direction, edge: edgeAtStart, distance })
     }
     switch (count) {
-      case 4: options.onFourFingerSwipe?.(direction); break
-      case 3: options.onThreeFingerSwipe?.(direction); break
-      case 2: options.onTwoFingerSwipe?.(direction); break
-      default: options.onSwipe?.(direction); break
+      case 4: currentOptions().onFourFingerSwipe?.(direction); break
+      case 3: currentOptions().onThreeFingerSwipe?.(direction); break
+      case 2: currentOptions().onTwoFingerSwipe?.(direction); break
+      default: currentOptions().onSwipe?.(direction); break
     }
   }
 
@@ -289,7 +293,7 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
       if (tracked.size < 2) {
         pinchFired = false
         if (!cancelled) {
-          options.onPinchEnd?.({ scale: lastPinchDist / initialPinchDist, initialDistance: initialPinchDist, currentDistance: lastPinchDist })
+          currentOptions().onPinchEnd?.({ scale: lastPinchDist / initialPinchDist, initialDistance: initialPinchDist, currentDistance: lastPinchDist })
         }
         lifted.length = 0
         if (tracked.size === 0) {
@@ -349,7 +353,7 @@ export function createSwipeMachine(options: SwipeOptions = {}) {
 
 export function useSwipe(
   elementRef: Ref<HTMLElement | null>,
-  options: SwipeOptions = {}
+  options: SwipeOptionsSource = {}
 ) {
   const machine = createSwipeMachine(options)
   const sessionPointers = new Set<number>()

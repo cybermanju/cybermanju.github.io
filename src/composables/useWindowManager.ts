@@ -118,6 +118,9 @@ const TransferGraph = asyncPanel(() => import('@/components/TransferGraph.vue'))
 const InstallPanel = asyncPanel(() => import('@/components/InstallPanel.vue'))
 const ArchivePanel = asyncPanel(() => import('@/components/ArchivePanel.vue'))
 const ShortcutsPanel = asyncPanel(() => import('@/components/ShortcutsHostPanel.vue'))
+const TechnosutraPanel = asyncPanel(() => import('@/components/TechnosutraPanel.vue'))
+const TechnosutraNovelStudio = asyncPanel(() => import('@/components/TechnosutraStudio.vue'))
+const MandarinInstructor = asyncPanel(() => import('@/components/MandarinInstructor.vue'))
 
 export interface WindowState {
   id: string
@@ -186,6 +189,9 @@ const defaultSizes: SizeMap = {
   install: { width: 880, height: 620 },
   archive: { width: 720, height: 580 },
   shortcuts: { width: 1040, height: 740 },
+  technosutra: { width: 1080, height: 740 },
+  'technosutra-novel': { width: 980, height: 720 },
+  mandarin: { width: 1180, height: 820 },
 }
 
 const inlinePanels: PanelType[] = [
@@ -229,6 +235,9 @@ const panelComponentMap: Record<string, Component> = {
   install: InstallPanel,
   archive: ArchivePanel,
   shortcuts: ShortcutsPanel,
+  technosutra: TechnosutraPanel,
+  'technosutra-novel': TechnosutraNovelStudio,
+  mandarin: MandarinInstructor,
 }
 
 function getComponent(panelType: PanelType): Component | null {

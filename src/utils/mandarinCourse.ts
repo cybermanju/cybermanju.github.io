@@ -1,0 +1,286 @@
+// CyberManju OS — Mandarin course data (src/utils/mandarinCourse.ts).
+// Role: source-attributed Mandarin curriculum, page audit metadata and progress types.
+// Contracts: source PDFs and full OCR text stay outside the app; course examples are original.
+import lessonData from '@/data/mandarinLessons.json'
+import corpusData from '@/data/mandarinCorpus.json'
+
+export type LessonId = string
+export type CourseStage = 'learn' | 'write' | 'quiz' | 'voice' | 'sources'
+export type VoiceLanguage = 'zh-CN' | 'pt-BR'
+
+export interface CourseStrokePoint { x: number; y: number }
+export interface CourseStroke { points: CourseStrokePoint[] }
+export interface CourseChatLine {
+  id: string
+  role: 'student' | 'tutor'
+  text: string
+  createdAt: number
+  mode: 'text' | 'voice'
+}
+export interface KeyboardBinding { code: string; alt: boolean; ctrl: boolean; meta: boolean; shift: boolean }
+export interface MandarinProgress {
+  schemaVersion: 1
+  activeLessonId: LessonId
+  completedLessons: LessonId[]
+  bestQuizScores: Partial<Record<LessonId, number>>
+  writing: Partial<Record<LessonId, string>>
+  drawings: Partial<Record<LessonId, CourseStroke[]>>
+  chatSessionIds: Record<string, string>
+  chat: CourseChatLine[]
+  voiceLanguage: VoiceLanguage
+  shortcuts: { toggleVoice: KeyboardBinding; replayPhrase: KeyboardBinding }
+  updatedAt: string
+}
+
+export interface QuizQuestion {
+  id: string
+  type: 'multiple-choice'
+  prompt: string
+  options: Array<{ id: string; label: string }>
+  answerId: string
+  explanation: string
+  sourcePages: string
+}
+export interface LessonTerm { hanzi: string; pinyin: string; meaning: string; kind?: string; note?: string }
+export interface LessonExample { text: string; kind: string; pinyin: string; translation: string; origin: string; sourcePage: number | null }
+export interface CourseExercise { id: string; prompt: string; origin: string }
+export interface CourseSourceRef {
+  sourceId: 'shangrila' | 'reader'
+  printedPages: [number, number] | null
+  pdfPages: [number, number]
+  basis: string
+  note?: string
+}
+type RawCourseSourceRef = Omit<CourseSourceRef, 'printedPages' | 'pdfPages'> & {
+  printedPages: number[] | null
+  pdfPages: number[]
+}
+export interface LessonWriting {
+  prompt: string
+  characters: string[]
+  strokeOrderIncluded: boolean
+  strokeNotes: string
+  sampledCharacterPages?: { pdfPages: number[]; exhaustive: boolean }
+  coverageNote?: string
+}
+export interface MandarinLesson {
+  id: LessonId
+  sequence: number
+  moduleId: string
+  moduleTitle: string
+  title: string
+  subtitle: string
+  objective: string
+  sourcePages: string
+  sourceRefs: CourseSourceRef[]
+  vocabulary: LessonTerm[]
+  examples: LessonExample[]
+  writing: LessonWriting
+  practicePrompt: string
+  exercises: CourseExercise[]
+  questions: QuizQuestion[]
+  agentGuidance: string
+  /** Compatibility aliases used by the current lesson-card component. */
+  concepts: LessonTerm[]
+  writingPrompt: string
+}
+export interface CorpusPage {
+  sourceId: 'shangrila' | 'reader'
+  pdfPage: number
+  printedPage: number | null
+  sectionId: string
+  lessonId: string | null
+  pageTitle: string | null
+  pageType: string
+  textLayerChars: number
+  ocr: {
+    engine: string
+    languages: string
+    renderDpi: number
+    pageSegmentationMode: number
+    recognizedWordCount: number
+    meanWordConfidence: number | null
+    status: string
+  }
+  evidence: string
+  visualReview: string | null
+  reviewNote: string | null
+}
+export interface CorpusChapter {
+  id: string
+  sourceId: string
+  lessonId: string | null
+  title: string
+  type: string
+  printedPages: [number, number] | null
+  pdfPages: [number, number]
+  basis: string
+  objective: string | null
+}
+export interface MandarinCorpus {
+  schemaVersion: number
+  language: string
+  corpusTitle: string
+  pageMapping: Record<string, string>
+  sources: Array<Record<string, unknown> & { id: string; fileName: string; pdfPageCount: number; sha256: string }>
+  chapters: CorpusChapter[]
+  pages: CorpusPage[]
+  coverage: {
+    physicalPdfPages: number
+    sourcePageCounts: Record<string, number>
+    lessonRecords: number
+    coreLessons: number
+    supportingUnits: number
+    readerCoreChapters: string
+    allPhysicalPagesHaveRecords: boolean
+    completeTextTranscription: boolean
+    missingPageRecords: number[]
+    lowConfidencePages: Record<string, number[]>
+    noOcrTextPages: Record<string, number[]>
+    sparseOcrPages: Record<string, number[]>
+  }
+  ocrMethod: { software: string; commandProfile: string; textPolicy: string }
+  limitations: string[]
+}
+
+type LessonRecord = Omit<MandarinLesson, 'concepts' | 'writingPrompt' | 'sourceRefs'> & {
+  sourceRefs: RawCourseSourceRef[]
+}
+const lessonRecords = lessonData.lessons as LessonRecord[]
+function normalizePageRange(value: number[], context: string): [number, number] {
+  if (value.length !== 2 || value.some(page => !Number.isInteger(page) || page < 1)) {
+    throw new Error(`Invalid two-page range for ${context}`)
+  }
+  return [value[0], value[1]]
+}
+export const MANDARIN_LESSONS: MandarinLesson[] = lessonRecords.map(lesson => ({
+  ...lesson,
+  sourceRefs: lesson.sourceRefs.map((ref, index) => ({
+    ...ref,
+    printedPages: ref.printedPages === null ? null : normalizePageRange(ref.printedPages, `${lesson.id}.sourceRefs[${index}].printedPages`),
+    pdfPages: normalizePageRange(ref.pdfPages, `${lesson.id}.sourceRefs[${index}].pdfPages`),
+  })),
+  concepts: lesson.vocabulary,
+  writingPrompt: lesson.writing.prompt,
+}))
+export const MANDARIN_QUIZ: Record<LessonId, QuizQuestion[]> = Object.fromEntries(
+  MANDARIN_LESSONS.map(lesson => [lesson.id, lesson.questions]),
+)
+export const MANDARIN_CORPUS = corpusData as unknown as MandarinCorpus
+
+export const MANDARIN_SOURCES = {
+  course: {
+    title: 'Curso de Língua Chinesa 汉语 — Módulo 1',
+    publisher: 'Shangrila Cursos',
+    note: 'PDF enviado pelo proprietário; não há licença de redistribuição indicada. O app incorpora resumos, vocabulário breve, exemplos próprios e referências — não o PDF nem suas páginas digitalizadas.',
+  },
+  reader: {
+    title: '当代中文 · Chinês Contemporâneo · versão portuguesa do livro do aluno',
+    publisher: '華語教學出版社 / Sinolingua; Hanban / Confucius Institute Headquarters',
+    note: 'A ficha CIP na página PDF 209 registra edição portuguesa, 2010, ISBN 978-7-80200-719-2 e © da editora. Nenhuma licença aberta foi identificada; o app usa apenas síntese pedagógica, exemplos originais e referências de página.',
+  },
+  voice: {
+    title: 'Remix ChatterBots voice-loop sample',
+    publisher: 'Google LLC, 2024',
+    license: 'Apache-2.0',
+    note: 'ZIP de referência licenciado Apache-2.0; seus arquivos não são copiados para este app. O loop Gemini do ZIP exige um proxy server-side em /api/live-ws; o instrutor usa o ciclo VozPonte já existente no OS e o Agent configurado pelo usuário.',
+  },
+} as const
+
+/** Voice transports considered for adapters; only the OS-agent/browser loop is enabled here. */
+export const VOICE_PROVIDER_CATALOG = [
+  {
+    id: 'os-agent',
+    name: 'Agent configurado no CyberManju',
+    state: 'available',
+    transport: 'VozPonte do OS: Web Speech API no browser + chat do Agent escolhido + síntese do dispositivo.',
+    needs: 'Configure um Agent em Apps → Agents; a chave continua sob o armazenamento seguro já usado pelo OS.',
+  },
+  {
+    id: 'gemini-live',
+    name: 'Gemini Live',
+    state: 'needs-host-adapter',
+    transport: 'WebSocket WSS em tempo real; o ZIP de referência espera um proxy same-origin /api/live-ws.',
+    needs: 'Para produção, prefira broker do host e token efêmero; nunca embuta GEMINI_API_KEY no bundle estático.',
+    url: 'https://ai.google.dev/gemini-api/docs/live-api',
+  },
+  {
+    id: 'openai-realtime',
+    name: 'OpenAI Realtime',
+    state: 'needs-host-adapter',
+    transport: 'WebRTC recomendado para browser; WebSocket é opção server-side.',
+    needs: 'Servidor emite client secret efêmero; segredo permanente fica no host.',
+    url: 'https://developers.openai.com/api/docs/guides/realtime',
+  },
+  {
+    id: 'elevenlabs-agents',
+    name: 'ElevenLabs Conversational AI',
+    state: 'needs-host-adapter',
+    transport: 'SDK JavaScript: WebRTC para voz e WebSocket para texto.',
+    needs: 'Agente público pode usar ID; agentes privados exigem token temporário/URL assinada emitidos no servidor.',
+    url: 'https://elevenlabs.io/docs/eleven-agents/libraries/java-script',
+  },
+  {
+    id: 'hosted-voice-studio',
+    name: 'Voice Studio / Colab do usuário',
+    state: 'needs-host-adapter',
+    transport: 'Adaptador host para endpoint WSS/HTTPS autenticado, configurável sem acoplar o curso a um fornecedor.',
+    needs: 'Runtime de notebook pode expirar; endpoint deve ser exposto com autenticação curta e TLS.',
+    url: '',
+  },
+] as const
+
+export const COURSE_PROGRESS_KEY = 'config:language-instructor.mandarin.v1'
+
+export function defaultMandarinProgress(): MandarinProgress {
+  return {
+    schemaVersion: 1,
+    activeLessonId: 'context',
+    completedLessons: [],
+    bestQuizScores: {},
+    writing: {},
+    drawings: {},
+    chatSessionIds: {},
+    chat: [],
+    voiceLanguage: 'zh-CN',
+    shortcuts: {
+      toggleVoice: { code: 'KeyV', alt: true, ctrl: false, meta: false, shift: true },
+      replayPhrase: { code: 'KeyR', alt: true, ctrl: false, meta: false, shift: true },
+    },
+    updatedAt: new Date(0).toISOString(),
+  }
+}
+
+export function isLessonId(value: unknown): value is LessonId {
+  return typeof value === 'string' && MANDARIN_LESSONS.some(lesson => lesson.id === value)
+}
+
+export function isQuizCorrect(question: QuizQuestion, selectedId: string): boolean {
+  return question.answerId === selectedId
+}
+
+export function getQuizPassingScore(questionCount: number): number {
+  const count = Math.max(0, Math.floor(questionCount))
+  return count === 0 ? 0 : Math.ceil((count * 2) / 3)
+}
+
+export function updateBestScore(
+  current: Partial<Record<LessonId, number>>,
+  lessonId: LessonId,
+  score: number,
+  maximum: number,
+): Partial<Record<LessonId, number>> {
+  const safeMaximum = Math.max(0, Math.floor(maximum))
+  const bounded = Math.max(0, Math.min(safeMaximum, Math.floor(score)))
+  return { ...current, [lessonId]: Math.max(current[lessonId] ?? 0, bounded) }
+}
+
+export function canFinishLesson(
+  lessonId: LessonId,
+  completed: LessonId[],
+  bestScores: Partial<Record<LessonId, number>>,
+): boolean {
+  const questionCount = MANDARIN_QUIZ[lessonId]?.length ?? 0
+  const passingScore = getQuizPassingScore(questionCount)
+  return questionCount > 0 && completed.includes(lessonId) && (bestScores[lessonId] ?? 0) >= passingScore
+}

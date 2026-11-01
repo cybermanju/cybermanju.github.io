@@ -3061,6 +3061,28 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
+function handleDialogEscape(e: KeyboardEvent) {
+  if (e.key !== 'Escape' || e.defaultPrevented || !panelVisible.value) return
+  const target = e.target as Node | null
+  if (!target || !dialogsRef.value?.contains(target)) return
+  if (hostEditor.value) void closeHostEditor()
+  else if (providerEditor.value) void closeLocalProviderEditor()
+  else if (dlgMove.value) dlgMove.value = null
+  else if (dlgProvMove.value) dlgProvMove.value = null
+  else if (dlgSync.value) {
+    dlgSync.value = null
+    dlgSyncIds.value = []
+  } else if (dlgDelete.value || dlgDeleteMany.value > 0) {
+    dlgDelete.value = null
+    dlgDeleteMany.value = 0
+  } else if (dlgRename.value) dlgRename.value = null
+  else if (dlgFolder.value) dlgFolder.value = false
+  else return
+
+  e.preventDefault()
+  e.stopImmediatePropagation()
+}
+
 onMounted(() => {
   mobileViewport = window.matchMedia?.('(max-width: 900px)') ?? null
   if (mobileViewport) {
@@ -3069,6 +3091,7 @@ onMounted(() => {
   }
   window.addEventListener('cybermanju:mobile-back', handleMobileBack)
   window.addEventListener('cybermanju:file-manager-action', onShellAction)
+  window.addEventListener('keydown', handleDialogEscape)
   void Promise.all([store.fetchOsDf(), store.fetchSyncConfigs(), store.fetchDisks(), store.fetchCollections()])
     .then(async () => {
       // Every connected Google Drive / GitHub / GitLab repo is browsable
@@ -3090,6 +3113,7 @@ onBeforeUnmount(() => {
   mobileViewport?.removeEventListener?.('change', onMobileViewportChange)
   window.removeEventListener('cybermanju:mobile-back', handleMobileBack)
   window.removeEventListener('cybermanju:file-manager-action', onShellAction)
+  window.removeEventListener('keydown', handleDialogEscape)
 })
 </script>
 
