@@ -95,7 +95,7 @@ const commands = computed<CommandGroup[]>(() => [
       { id: 'nav-files', label: 'Go to Files', icon: 'solar:folder-bold', shortcut: '', action: () => { wm.open('files') } },
       { id: 'nav-search', label: 'Go to Search (apps, collections, people, files)', icon: 'solar:magnifier-bold', action: () => { wm.open('search') } },
       { id: 'nav-map', label: 'Go to Map', icon: 'solar:map-bold', action: () => { wm.open('map'); store.fetchGeoFiles() } },
-      { id: 'nav-technosutra-novel', label: 'Open Technosutra VN — Ren’Py source and Street View bridge', icon: 'solar:library-bold', action: () => { wm.open('technosutra-novel') } },
+      { id: 'nav-technosutra-novel', label: 'Play The Stem Array — Ren’Py visual novel', icon: 'solar:library-bold', action: () => { wm.open('technosutra-novel') } },
       { id: 'nav-code', label: 'Open Code Studio', icon: 'solar:code-bold', action: () => { wm.open('editor') } },
       { id: 'nav-sync', label: 'Go to Sync (providers + OAuth)', icon: 'solar:refresh-bold', action: () => { wm.open('sync') } },
       { id: 'nav-transfer', label: 'Open Transfer Board (mv/cp between providers)', icon: 'solar:share-bold', action: () => { wm.open('transfer') } },

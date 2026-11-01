@@ -5,6 +5,7 @@
 // Contracts: each embedded route stays on the official origin; technosutra is a canonical, auth-free panel.
 import { describe, expect, it } from 'vitest'
 import { TECHNOSUTRA_BASE_URL, TECHNOSUTRA_ROUTES, technosutraFrameAllow, technosutraRouteUrl } from '@/data/technosutra'
+import { TECHNOSUTRA_VN_BUILD } from '@/data/technosutra-vn'
 import { MODULE_METADATA } from '@/types'
 import { resolvePanel } from '@/utils/panels'
 
@@ -16,6 +17,21 @@ describe('Techno Sutra app integration', () => {
       requiresAuth: false,
     })
     expect(resolvePanel('technosutra')).toBe('technosutra')
+  })
+
+  it('registers The Stem Array as a playable local Ren’Py app panel', () => {
+    expect(MODULE_METADATA['technosutra-novel']).toMatchObject({
+      id: 'technosutra-novel',
+      label: 'THE STEM ARRAY',
+      requiresAuth: false,
+    })
+    expect(resolvePanel('technosutra-novel')).toBe('technosutra-novel')
+    expect(TECHNOSUTRA_VN_BUILD).toMatchObject({
+      assetBasePath: 'technosutra-vn/',
+      validationCommit: '8a61887',
+      optimizedBackgroundCount: 56,
+      runtimeSpriteCount: 54,
+    })
   })
 
   it('exposes the upstream home, gallery, map, and AR routes', () => {

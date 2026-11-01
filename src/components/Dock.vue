@@ -354,7 +354,7 @@ const dockApps = computed<DockApp[]>(() => [
   { panelType: 'faces', label: 'People', icon: 'solar:face-scan-circle-bold', category: 'organize' },
   { panelType: 'archive', label: 'Archive', icon: 'solar:notebook-bold', category: 'organize' },
   { panelType: 'map', label: 'Map', icon: 'solar:map-bold', category: 'tools' },
-  { panelType: 'technosutra-novel', label: 'Technosutra VN', icon: 'solar:library-bold', category: 'tools' },
+  { panelType: 'technosutra-novel', label: 'The Stem Array', icon: 'solar:library-bold', category: 'tools' },
   { panelType: 'editor', label: 'Code Studio', icon: 'solar:file-code-bold', category: 'tools' },
   { panelType: 'agent', label: 'Agent', icon: 'solar:bot-bold', category: 'tools' },
   { panelType: 'sync', label: 'Sync', icon: 'solar:refresh-bold', category: 'tools' },

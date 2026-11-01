@@ -264,7 +264,7 @@ const apps = computed<LauncherApp[]>(() => [
   { panel: 'sync', label: 'Sync', icon: 'solar:refresh-bold', tint: '#159ba0', hint: 'Provider sync jobs' },
   { panel: 'map', label: 'Map', icon: 'solar:map-bold', tint: '#4b9a5a', hint: 'GPS-tagged files' },
   { panel: 'technosutra', label: 'Techno Sutra', icon: 'solar:library-bold', tint: '#7652c8', hint: 'Avatamsaka Sutra gallery, map and AR experience' },
-  { panel: 'technosutra-novel', label: 'Technosutra VN', icon: 'solar:library-bold', tint: '#8c9fff', hint: 'Local Ren’Py handoff for source texts and Street View route points' },
+  { panel: 'technosutra-novel', label: 'The Stem Array', icon: 'solar:library-bold', tint: '#8c9fff', hint: 'Play The Stem Array, the Ren’Py visual novel inside CyberManju OS; source and route tools included' },
   { panel: 'collections', label: 'Library', icon: 'solar:library-bold', tint: '#d45d96', hint: 'Collections and favorites' },
   { panel: 'settings', label: 'Settings', icon: 'solar:settings-bold', tint: '#65758c', hint: 'Theme and transport' },
   { panel: 'trash', label: 'Trash', icon: 'solar:trash-bin-trash-bold', tint: '#d74a61', badge: count(store.trashItems.length), hint: 'Deleted files' },

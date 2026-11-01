@@ -24,8 +24,7 @@
     :tabindex="isOverview ? 0 : undefined"
     :aria-label="isOverview ? `${win.title}${win.minimized ? ', minimized' : ''} screen` : undefined"
     @pointerdown="onFocus"
-    @keydown.enter.stop.prevent="isOverview && onFocus()"
-    @keydown.space.stop.prevent="isOverview && onFocus()"
+    @keydown="onOverviewKeydown"
   >
     <div
       class="window-titlebar"
@@ -437,6 +436,14 @@ function onMinimize() {
 
 function onFocus() {
   emit('focus', props.win.id)
+}
+
+function onOverviewKeydown(event: KeyboardEvent) {
+  // Vue modifiers run even outside overview, blocking keys owned by app content.
+  if (!isOverview.value || (event.key !== 'Enter' && event.key !== ' ')) return
+  event.preventDefault()
+  event.stopPropagation()
+  onFocus()
 }
 
 function getWorkspaceSize(): { w: number; h: number } {

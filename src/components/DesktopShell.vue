@@ -232,7 +232,7 @@ const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'collections', label: 'Collections', icon: 'solar:library-bold' },
   { panel: 'map', label: 'Map', icon: 'solar:map-bold' },
   { panel: 'mandarin', label: 'Mandarin', icon: 'solar:book-bookmark-bold' },
-  { panel: 'technosutra-novel', label: 'Technosutra VN', icon: 'solar:library-bold' },
+  { panel: 'technosutra-novel', label: 'The Stem Array', icon: 'solar:library-bold' },
   { panel: 'editor', label: 'Code Studio', icon: 'solar:code-square-bold' },
   { panel: 'devices', label: 'Devices', icon: 'solar:plug-circle-bold' },
   { panel: 'settings', label: 'Settings', icon: 'solar:settings-bold' },

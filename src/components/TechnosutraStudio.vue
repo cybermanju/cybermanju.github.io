@@ -4,9 +4,9 @@
       <div class="ts-heading">
         <span class="ts-mark" aria-hidden="true"><AppIcon name="solar:library-bold" :size="22" /></span>
         <div>
-          <p class="ts-eyebrow">ISOLATED APP · REN’PY BRIDGE</p>
-          <h1>Technosutra</h1>
-          <p class="ts-subtitle">Play the Ren’Py visual novel here, then manage source materials and route waypoints.</p>
+          <p class="ts-eyebrow">CYBERMANJU OS APP · REN’PY VISUAL NOVEL</p>
+          <h1>The Stem Array</h1>
+          <p class="ts-subtitle">Play the Ren’Py visual novel inside CyberManju OS, then manage source materials and route waypoints.</p>
         </div>
       </div>
       <span class="ts-local-badge">Local to this device</span>
@@ -14,26 +14,25 @@
 
     <section class="ts-notice" aria-label="Project availability">
       <AppIcon name="solar:info-circle-bold" :size="18" />
-      <p>The Ren’Py source has 56 chapters, but its latest web package did not pass a final smoke test and is not included in this deployment. The opening JPEG’s origin is unconfirmed. No Street View imagery or derivatives are included.</p>
+      <p>The compact Ren’Py 8.5.3 WebAssembly build passed CI at {{ TECHNOSUTRA_VN_BUILD.validationCommit }} and is staged locally for this OS app. It includes 56 optimized backgrounds and 54 runtime portraits; deployment remains pending review.</p>
     </section>
 
     <section class="ts-card ts-game-card" aria-labelledby="ts-game-title">
       <header class="ts-card-head">
         <div>
-          <p class="ts-kicker">REN’PY · WEBASSEMBLY</p>
-          <h2 id="ts-game-title">Visual engine — build pending</h2>
+          <p class="ts-kicker">THE STEM ARRAY · REN’PY WASM · {{ TECHNOSUTRA_VN_BUILD.validationCommit }}</p>
+          <h2 id="ts-game-title">The Stem Array — play now</h2>
+          </div>
+          <a class="ts-button ts-button--quiet" :href="gameUrl" target="_blank" rel="noopener noreferrer">Open separately</a>
+        </header>
+        <aside class="ts-sprite-status" aria-label="Status dos sprites dos mestres">
+          <span class="ts-provisional-badge">PROVISÓRIO</span>
+          <p><strong>Sprites dos mestres:</strong> 54 retratos frontais transparentes (600 × 800), ainda provisórios e estáticos; não há variações de boca/postura e os slots 43 e 52 não existem no conjunto upstream. O titular confirmou os direitos de distribuição pública. As capturas PNG brutas permanecem fora do pacote.<br /><small>Manifesto de proveniência: <code>integrations/renpy-technosutra/game/images/masters/sprites/manifest.json</code></small></p>
+        </aside>
+        <div class="ts-game-frame-wrap">
+          <iframe class="ts-game-frame" :src="gameUrl" title="The Stem Array — Ren’Py WebAssembly visual novel" allow="fullscreen" allowfullscreen loading="eager" referrerpolicy="strict-origin-when-cross-origin" />
         </div>
-      </header>
-      <aside class="ts-sprite-status" aria-label="Status dos sprites dos mestres">
-        <span class="ts-provisional-badge">PROVISÓRIO</span>
-        <p><strong>Sprites dos mestres:</strong> 54 renders frontais transparentes (600 × 800) já estão integrados ao source Ren’Py e a um build de validação separado, como retratos estáticos provisórios mapeados no manifesto. Não há variações de boca/postura; os slots 43 e 52 não existem no conjunto upstream. O jogo embutido nesta tela não foi substituído nem publicado; a licença ainda precisa ser esclarecida antes de distribuição pública.<br /><small>Manifesto: <code>integrations/renpy-technosutra/game/images/masters/sprites/manifest.json</code></small></p>
-      </aside>
-      <div class="ts-empty ts-game-frame-wrap" role="status">
-        <AppIcon name="solar:info-circle-bold" :size="21" />
-        <strong>Not ready to play yet</strong>
-        <span>The source project and provisional assets are in the repository. The current WASM archive was not validated in this OS panel, so this release does not load it.</span>
-      </div>
-      <p class="ts-footnote">Next step: reconcile the source manifest, produce a compact build, and smoke-test it inside the Cybermanju OS panel.</p>
+        <p class="ts-footnote">The standalone CI smoke verified the Ren’Py canvas/runtime, all 111 progressive images, and keyboard input. It confirms startup, not a complete chapter playthrough or an authenticated-shell visual check.</p>
     </section>
 
     <div class="ts-grid">
@@ -165,6 +164,7 @@
 // Integrates: app-local model/adapters, openExternalUrl and AppIcon; no backend or media generation.
 // Contracts: Markdown contents stay under the app's localStorage key; PDF bytes are never read; voice stays unavailable until connected.
 import AppIcon from '@/components/AppIcon.vue'
+import { TECHNOSUTRA_VN_BUILD } from '@/data/technosutra-vn'
 import { computed, reactive, ref, watch } from 'vue'
 import { openExternalUrl } from '@/utils/openExternal'
 import {
@@ -183,6 +183,7 @@ import {
 } from '@/integrations/renpy-technosutra/model'
 
 const project = ref<TechnosutraProject>(loadProject())
+const gameUrl = new URL(`${import.meta.env.BASE_URL}${TECHNOSUTRA_VN_BUILD.assetBasePath}index.html`, window.location.origin).href
 const feedback = ref('Ready. Waiting for the owner-provided source material and route points.')
 const storageReady = ref(typeof localStorage !== 'undefined')
 const routeDraft = reactive({ title: '', latitude: '', longitude: '', heading: '' })
