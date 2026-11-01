@@ -4,7 +4,7 @@
 <!-- Integrates: unified search, presentation helpers, and platform external opener. -->
 <!-- Contracts: safe external links, shared filters/paging, accessible bounded results. -->
 <template>
-  <div class="omni" :class="{ 'omni--home': props.home, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0, 'motion-reduced': motion.reduced.value }" @keydown="handleKeydown">
+  <div class="omni" :class="{ 'omni--home': props.home, 'omni--desktop-palette': isWindowPalette, 'omni--flat': isFlatAmoled, 'omni--glass': isModernGlass, 'omni--solid': theme.glass.value === 0, 'motion-reduced': motion.reduced.value }" @keydown="handleKeydown">
     <div class="omni-col">
       <div ref="barRef" class="omni-bar" :class="{ focused: focused || query }">
         <AppIcon name="solar:magnifier-bold" :size="18" class="omni-bar__icon" />
@@ -23,17 +23,18 @@
       <Transition name="omni-drop">
         <div v-if="dropdownOpen" ref="dropRef" class="omni-drop" :style="resultsViewportStyle" role="region" aria-label="Search results">
           <div v-if="store.isSearching" class="omni-loading" role="status" aria-live="polite"><UiSpinner size="sm" show-label label="Searching" /></div>
-          <div v-if="!q && recentSearches.length" class="omni-sec">
+          <div v-if="!q && !isWindowPalette && recentSearches.length" class="omni-sec">
             <div class="omni-sec__head"><span class="omni-tag">RECENT</span><span class="omni-div" aria-hidden="true" />
               <button class="omni-inline__btn omni-inline__btn--ghost omni-recent-clear" type="button" @click="clearRecent">Clear recent</button></div>
             <button v-for="sq in recentSearches" :key="sq" type="button" class="omni-row omni-row--recent" :title="`Search again for ${sq}`" @click="rerun(sq)">
               <span class="omni-row__icon"><AppIcon name="solar:history-bold" :size="14" /></span><span class="omni-row__body"><span class="omni-row__name">{{ sq }}</span></span><span class="omni-row__enter" aria-hidden="true">⏎</span>
             </button>
           </div>
-          <nav v-if="q" class="omni-filters" aria-label="Filter search results">
+          <nav v-if="q || isWindowPalette" class="omni-filters" aria-label="Filter search results">
             <button v-for="filter in SEARCH_CATEGORIES" :key="filter.id" type="button" class="omni-filter" :class="{ 'is-selected': category === filter.id }"
               :aria-pressed="category === filter.id" @click="selectCategory(filter.id)">{{ filter.label }} <span>{{ categoryCounts[filter.id] }}</span></button>
           </nav>
+          <TransitionGroup v-if="q" name="omni-results" tag="div" class="omni-results">
           <div v-for="(sec, si) in sections" :key="sec.id" class="omni-sec">
             <div class="omni-sec__head"><span class="omni-tag">{{ OMNI_SECTION_TAG[sec.id] }} · {{ sectionCounts[sec.id] }}</span><span class="omni-div" aria-hidden="true" /></div>
             <div v-for="(row, ri) in sec.rows" :key="sec.id + ':' + row.key" :id="rowId(si, ri)" :data-nav="sec.id + ':' + row.key"
@@ -63,6 +64,7 @@
               Show more {{ OMNI_SECTION_TAG[sec.id].toLowerCase() }} results ({{ visibleCount(sec.id) }} of {{ sectionCounts[sec.id] }})
             </button>
           </div>
+          </TransitionGroup>
           <section v-if="q && unified.localReadyQuery.value === q && (category === 'all' || category === 'web')" class="omni-web" aria-label="DuckDuckGo web results">
             <div class="omni-sec__head"><span class="omni-tag">DUCKDUCKGO WEB SEARCH</span><span class="omni-div" aria-hidden="true" /></div>
             <p v-if="unified.webLoading.value" class="omni-web__status" role="status" aria-live="polite">Searching DuckDuckGo Instant Answers…</p>
@@ -105,7 +107,7 @@
             <UiButton size="sm" icon="solar:double-alt-arrow-down-bold" :disabled="store.isSearching" @click="store.loadMoreSearchResults()">LOAD MORE CONTENT ({{ store.searchTotalResults - contentRows.length }} MORE)</UiButton>
           </div>
           <p v-if="copyStatus" class="omni-live-status" role="status" aria-live="polite">{{ copyStatus }}</p>
-          <div class="omni-foot"><span class="omni-foot__counts">{{ q ? `${localCount} LOCAL · ${webResultCount} WEB` : `${totalRows} RESULT${totalRows === 1 ? '' : 'S'}` }}</span>
+          <div v-if="q || !isWindowPalette" class="omni-foot"><span class="omni-foot__counts">{{ q ? `${localCount} LOCAL · ${webResultCount} WEB` : `${totalRows} RESULT${totalRows === 1 ? '' : 'S'}` }}</span>
             <span class="omni-foot__keys">↑↓ navigate · ⏎ open · right-click manages · Esc clear</span></div>
         </div>
       </Transition>
@@ -134,7 +136,7 @@ import { handleSearchLink, openSearchLink } from '@/utils/searchExternal'
 import { stageHomeCommand, type HomeCommandTarget } from '@/composables/useHomeCommandHandoff'
 import { SEARCH_CATEGORIES, INITIAL_ROWS_PER_SECTION, MAX_VISIBLE_ROWS_PER_SECTION, countSearchCategories, countSectionRows, filterSearchSections, nextVisibleRowCount, sharedSearchCategory, sharedSearchVisibleRows, resetSearchVisibleRows, type SearchCategory } from '@/utils/searchPresentation'
 
-const props = withDefaults(defineProps<{ home?: boolean; menuOpen?: boolean; autoFocus?: boolean; beforeOpen?: () => Promise<boolean> }>(), { home: false, menuOpen: false, autoFocus: true })
+const props = withDefaults(defineProps<{ home?: boolean; menuOpen?: boolean; autoFocus?: boolean; beforeOpen?: () => Promise<boolean>; panelType?: PanelType }>(), { home: false, menuOpen: false, autoFocus: true })
 const store = useAppStore()
 const theme = useTheme()
 const motion = useMotion()
@@ -171,7 +173,11 @@ const renameDraft = ref('')
 const tagTarget = ref<{ key: string; fileId: string } | null>(null)
 const tagDraft = ref('')
 const q = computed(() => query.value.trim())
-const dropdownOpen = computed(() => props.home ? q.value.length > 0 || props.menuOpen : focused.value || q.value.length > 0 || totalRows.value > 0)
+const paletteViewport = typeof window !== 'undefined' ? window.matchMedia?.('(min-width: 769px)') ?? null : null
+const isDesktopPaletteViewport = ref(paletteViewport?.matches ?? false)
+function onPaletteViewportChange(event: MediaQueryListEvent) { isDesktopPaletteViewport.value = event.matches }
+const isWindowPalette = computed(() => props.panelType === 'search' && !props.home && isDesktopPaletteViewport.value)
+const dropdownOpen = computed(() => isWindowPalette.value || (props.home ? q.value.length > 0 || props.menuOpen : focused.value || q.value.length > 0 || totalRows.value > 0))
 
 const recentSearches = ref<string[]>((() => {
   try { return JSON.parse(localStorage.getItem('cybermanju_recent_searches') || '[]') as string[] } catch { return [] }
@@ -273,9 +279,9 @@ const sectionCounts = computed(() => ({
   folders: countSectionRows(q.value, sectionInput.value.folders), files: countSectionRows(q.value, sectionInput.value.files),
   content: countSectionRows(q.value, sectionInput.value.content),
 }))
-const sections = computed(() => filterSearchSections(allSections.value, category.value).map((section) => ({
+const sections = computed(() => q.value ? filterSearchSections(allSections.value, category.value).map((section) => ({
   ...section, rows: section.rows.slice(0, visibleBySection.value[section.id]),
-})))
+})) : [])
 const flatRows = computed(() => sections.value.flatMap((section) => section.rows.map((row) => ({ sec: section.id as OmniSectionId, row }))))
 const totalRows = computed(() => flatRows.value.length)
 const empty = computed(() => localCount.value === 0)
@@ -362,6 +368,13 @@ function retryWeb() { if (q.value.length >= 2) unified.searchWeb(q.value) }
 function openFilesAt(fileId: string) {
   store.selectFile(fileId)
   wm.open('files')
+  if (props.panelType === 'search' && !props.home) closeWindowPalette()
+}
+
+function closeWindowPalette() {
+  if (!isWindowPalette.value) return
+  const palette = wm.windows.value.find((win) => win.panelType === 'search')
+  if (palette) wm.close(palette.id)
 }
 
 async function activate(sec: OmniSectionId, row: OmniRow) {
@@ -387,6 +400,7 @@ async function activate(sec: OmniSectionId, row: OmniRow) {
   } else {
     openFilesAt(row.refId)
   }
+  if (props.panelType === 'search' && !props.home) closeWindowPalette()
 }
 
 function rowId(sectionIndex: number, rowIndex: number): string { return `${instanceId}-${sectionIndex}-${rowIndex}` }
@@ -589,6 +603,7 @@ function handleKeydown(e: KeyboardEvent) {
     const found = flatRows.value.find(({ sec, row }) => `${sec}:${row.key}` === activeKey.value)
     if (found) activate(found.sec, found.row)
   } else if (e.key === 'Escape' && q.value) { e.preventDefault(); clearQuery() }
+  else if (e.key === 'Escape' && isWindowPalette.value) { e.preventDefault(); closeWindowPalette() }
 }
 
 /* ── highlight ── */
@@ -605,6 +620,7 @@ function highlight(name: string): string {
 }
 
 onMounted(() => {
+  paletteViewport?.addEventListener?.('change', onPaletteViewportChange)
   void Promise.allSettled([store.fetchFiles(), store.fetchCollections(), store.fetchFaceGroups(), store.fetchSyncConfigs()])
   // Handoff from another surface (e.g. Code Studio search) may leave a
   // query with stale results — re-fire so content rows match the line.
@@ -612,6 +628,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  paletteViewport?.removeEventListener?.('change', onPaletteViewportChange)
   ctx.unregisterContext('omni_result')
 })
 
@@ -656,6 +673,75 @@ defineExpose({ focus: () => inputRef.value?.focus() })
   padding: 14px; display: flex; flex-direction: column; gap: 12px; max-height: min(68vh, 720px); overflow-y: auto; overscroll-behavior: contain; transform-origin: top center;
 }
 .omni--glass .omni-drop { background-color: var(--ui-glass); background-image: var(--ui-glass-sheen); border-color: var(--ui-border-strong); box-shadow: var(--ui-glass-shadow), var(--ui-glass-edge); }
+.omni-results { display: flex; flex-direction: column; gap: 12px; }
+.omni-results-enter-active, .omni-results-leave-active { transition: opacity 220ms ease, transform 260ms var(--ui-ease-out); }
+.omni-results-enter-from, .omni-results-leave-to { opacity: 0; transform: translateY(8px) scale(.99); }
+.omni-results-move { transition: transform 260ms var(--ui-ease-out); }
+
+@media (min-width: 769px) {
+  .omni--desktop-palette {
+    width: 100%; height: auto; min-height: 0; align-items: center;
+    padding: 0; overflow: visible; background: transparent;
+  }
+  .omni--desktop-palette .omni-col { width: 100%; max-width: 760px; align-self: center; }
+  .omni--desktop-palette .omni-bar {
+    position: relative; isolation: isolate; gap: 16px; min-height: 72px; padding: 0 22px;
+    border-radius: 24px;
+    border-color: color-mix(in srgb, var(--omni-accent) 44%, var(--ui-border-strong));
+    background-color: color-mix(in srgb, var(--ui-glass-2) 84%, transparent);
+    background-image: radial-gradient(ellipse at 18% 0%, color-mix(in srgb, var(--omni-accent) 16%, transparent), transparent 55%), var(--ui-glass-sheen);
+    backdrop-filter: blur(34px) saturate(1.5); -webkit-backdrop-filter: blur(34px) saturate(1.5);
+    box-shadow: 0 18px 55px rgba(0, 0, 0, .25), 0 0 0 1px color-mix(in srgb, var(--omni-accent) 16%, transparent), inset 0 1px 0 var(--ui-glass-highlight);
+    transition: border-color 240ms ease, box-shadow 300ms ease, background-color 240ms ease;
+  }
+  .omni--desktop-palette .omni-bar.focused {
+    border-color: color-mix(in srgb, var(--omni-accent) 76%, white 8%);
+    box-shadow: 0 22px 68px rgba(0, 0, 0, .31), 0 0 0 1px color-mix(in srgb, var(--omni-accent) 38%, transparent), 0 0 34px color-mix(in srgb, var(--omni-accent) 20%, transparent), inset 0 1px 0 var(--ui-glass-highlight);
+  }
+  .omni--desktop-palette .omni-bar__icon { width: 20px; height: 20px; transition: color 220ms ease, transform 220ms ease; }
+  .omni--desktop-palette .omni-bar.focused .omni-bar__icon { transform: scale(1.06); }
+  .omni--desktop-palette .omni-bar__input { font-size: 20px; font-weight: 560; }
+  .omni--desktop-palette .omni-bar__hint { letter-spacing: .1em; }
+  .omni--desktop-palette .omni-drop {
+    margin-top: 12px; gap: 14px; padding: 16px;
+    max-height: min(66dvh, 680px);
+    border-radius: 22px;
+    border-color: color-mix(in srgb, var(--omni-accent) 24%, var(--ui-border-strong));
+    background-color: color-mix(in srgb, var(--ui-glass-2) 90%, transparent);
+    background-image: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--omni-accent) 10%, transparent), transparent 46%), var(--ui-glass-sheen);
+    backdrop-filter: blur(38px) saturate(1.42); -webkit-backdrop-filter: blur(38px) saturate(1.42);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, .34), 0 0 0 1px color-mix(in srgb, var(--omni-accent) 9%, transparent), inset 0 1px 0 var(--ui-glass-highlight);
+  }
+  .omni--desktop-palette .omni-filters { flex-wrap: wrap; min-height: 0; gap: 8px; overflow: visible; padding: 0 1px 2px; }
+  .omni--desktop-palette .omni-filter {
+    min-height: 38px; padding-inline: 13px; gap: 8px;
+    background: color-mix(in srgb, var(--ui-glass-reading, var(--ui-surface)) 82%, transparent);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+  }
+  .omni--desktop-palette .omni-filter:hover { transform: translateY(-1px); box-shadow: 0 6px 18px color-mix(in srgb, var(--omni-accent) 12%, transparent); }
+  .omni--desktop-palette .omni-filter.is-selected { box-shadow: inset 0 1px 0 color-mix(in srgb, white 18%, transparent), 0 0 18px color-mix(in srgb, var(--omni-accent) 12%, transparent); }
+  .omni--desktop-palette .omni-row {
+    min-height: 58px; padding: 13px 14px; border-radius: 16px;
+    background: color-mix(in srgb, var(--ui-glass-reading, var(--ui-surface)) 78%, transparent);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    animation: omni-row-arrive 320ms cubic-bezier(.2, .8, .2, 1) both;
+  }
+  .omni--desktop-palette .omni-row:nth-child(3) { animation-delay: 24ms; }
+  .omni--desktop-palette .omni-row:nth-child(4) { animation-delay: 48ms; }
+  .omni--desktop-palette .omni-row:nth-child(5) { animation-delay: 72ms; }
+  .omni--desktop-palette .omni-row:nth-child(6) { animation-delay: 96ms; }
+  .omni--desktop-palette .omni-row:nth-child(7) { animation-delay: 120ms; }
+  .omni--desktop-palette .omni-row:hover,
+  .omni--desktop-palette .omni-row.active { box-shadow: 0 8px 24px color-mix(in srgb, var(--omni-accent) 10%, transparent); }
+  .omni--desktop-palette .omni-empty-state,
+  .omni--desktop-palette .omni-web { animation: omni-row-arrive 320ms cubic-bezier(.2, .8, .2, 1) both; }
+}
+
+@keyframes omni-row-arrive {
+  from { opacity: 0; transform: translateY(7px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 .omni-drop-enter-active { animation: omni-in var(--ui-dur) var(--ui-ease-spring) both; }
 .omni-drop-leave-active { animation: omni-out 120ms ease-in both; }
 .omni.motion-reduced .omni-drop-enter-active,.omni.motion-reduced .omni-drop-leave-active { animation: none !important; }
@@ -723,8 +809,9 @@ defineExpose({ focus: () => inputRef.value?.focus() })
 .omni-foot__counts { font: 800 9px var(--ui-font-mono); letter-spacing: .1em; color: var(--omni-accent); }
 .omni-foot__keys { margin-left: auto; color: var(--ui-text-3); font: 9px var(--ui-font-mono); }
 .omni--glass.omni--solid .omni-bar,
-.omni--glass.omni--solid .omni-drop { backdrop-filter: none; -webkit-backdrop-filter: none; }
-@media (prefers-reduced-transparency: reduce) { .omni-bar, .omni-drop { backdrop-filter: none; -webkit-backdrop-filter: none; } }
+.omni--glass.omni--solid .omni-drop,
+.omni--solid .omni-bar, .omni--solid .omni-drop, .omni--solid .omni-filter, .omni--solid .omni-row { backdrop-filter: none; -webkit-backdrop-filter: none; }
+@media (prefers-reduced-transparency: reduce) { .omni-bar, .omni-drop, .omni-filter, .omni-row { backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (prefers-contrast: more) { .omni-bar, .omni-drop, .omni-row, .omni-web__answer, .omni-web__result-card, .omni-filter { border-width: 2px; } }
 @media (max-width: 768px) {
   .omni:not(.omni--home) { min-width: 0; padding: max(14px, env(safe-area-inset-top, 0px)) 12px calc(16px + env(safe-area-inset-bottom, 0px)); }
@@ -750,4 +837,6 @@ defineExpose({ focus: () => inputRef.value?.focus() })
 }
 @media (max-width: 380px) { .omni { padding-inline: 8px; } .omni-drop { padding: 8px; } .omni-row { gap: 8px; padding: 10px; } .omni-row__actions { padding-left: 0; } }
 .omni.motion-reduced *, .omni.motion-reduced *::before, .omni.motion-reduced *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+.omni.motion-reduced .omni-results-enter-active, .omni.motion-reduced .omni-results-leave-active, .omni.motion-reduced .omni-results-move,
+.omni.motion-reduced .omni-row, .omni.motion-reduced .omni-web, .omni.motion-reduced .omni-empty-state { animation: none !important; transition: none !important; }
 </style>

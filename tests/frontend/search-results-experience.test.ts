@@ -85,6 +85,22 @@ describe('OmniSearchPanel compiled template and behavior contracts', () => {
     expect(source).not.toContain('role="option"')
   })
 
+  it('starts the desktop window as a centered glass palette with filters and no result list until typing', () => {
+    const appWindow = readFileSync(new URL('../../src/components/AppWindow.vue', import.meta.url), 'utf8')
+    expect(source).toContain("'omni--desktop-palette': isWindowPalette")
+    expect(source).toContain('v-if="q || isWindowPalette" class="omni-filters"')
+    expect(source).toContain('v-if="q" name="omni-results"')
+    expect(source).toContain("const sections = computed(() => q.value ? filterSearchSections")
+    expect(appWindow).toContain("'app-window--search-palette': isSearchPalette")
+    expect(appWindow).toContain('inset: 50% auto auto 50% !important')
+    expect(appWindow).toContain('class="search-palette-backdrop"')
+    expect(appWindow).toContain('var(--ui-accent)')
+    expect(appWindow).toContain('var(--ui-bg) 35%, #000 65%')
+    expect(appWindow).toContain('search-palette-backdrop--solid')
+    expect(appWindow).toContain('search-palette-backdrop--motion-reduced')
+    expect(source).toContain('.omni--solid .omni-filter')
+  })
+
   it('keeps local navigation separate from native web anchors and presents actionable, honest result content', () => {
     expect(source).toContain('handleSearchLink(event, url)')
     expect(source).toContain('openSearchLink(url)')

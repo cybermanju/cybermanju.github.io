@@ -13,6 +13,8 @@
       blurred: !isFocused,
       maximized: isMaximized,
       'app-window--overview': isOverview,
+      'app-window--search-palette': isSearchPalette,
+      'app-window--motion-reduced': theme.settings.motion === 'reduced',
       'app-window--narrow': isNarrow,
       'app-window--managed-content': win.panelType === 'terminal' || win.panelType === 'editor',
       'app-window--mobile-native': isMobileApp && ['settings', 'storage', 'disks', 'accounts', 'providers'].includes(String(win.panelType)),
@@ -20,9 +22,10 @@
       'app-window--flat-amoled': isFlatAmoled,
     }"
     :style="windowStyle"
-    :role="isOverview ? 'button' : undefined"
+    :role="isOverview ? 'button' : isSearchPalette && !isMobileApp ? 'dialog' : undefined"
     :tabindex="isOverview ? 0 : undefined"
-    :aria-label="isOverview ? `${win.title}${win.minimized ? ', minimized' : ''} screen` : undefined"
+    :aria-label="isOverview ? `${win.title}${win.minimized ? ', minimized' : ''} screen` : isSearchPalette && !isMobileApp ? 'Search' : undefined"
+    :aria-modal="isSearchPalette && !isMobileApp && !isOverview ? 'true' : undefined"
     @pointerdown="onFocus"
     @keydown="onOverviewKeydown"
   >
@@ -99,6 +102,15 @@
     <div class="resize-handle se" @pointerdown.prevent.stop="startResize('se', $event)"></div>
     <div class="resize-handle sw" @pointerdown.prevent.stop="startResize('sw', $event)"></div>
   </div>
+  <Teleport to="body">
+    <div
+      v-if="isSearchPalette && !isMobileApp && !isOverview && !win.minimized"
+      class="search-palette-backdrop"
+      :class="{ 'search-palette-backdrop--solid': theme.glass.value === 0, 'search-palette-backdrop--motion-reduced': theme.settings.motion === 'reduced' }"
+      aria-hidden="true"
+      @pointerdown.self="onClose"
+    />
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -127,7 +139,8 @@ const contentRef = ref<HTMLElement | null>(null)
 const rootRef = ref<HTMLElement | null>(null)
 const isFocused = computed(() => props.focused)
 const theme = useTheme()
-const isMobileApp = ref(false)
+const isMobileApp = ref(typeof window !== 'undefined' && (window.matchMedia?.('(max-width: 768px)')?.matches ?? false))
+const isSearchPalette = computed(() => props.win.panelType === 'search')
 let mobileWindowQuery: MediaQueryList | null = null
 function onMobileWindowChange(event: MediaQueryListEvent) { isMobileApp.value = event.matches }
 const isPlasma = computed(() => !isMobileApp.value && theme.shellStyle.value === 'plasma')
@@ -843,6 +856,83 @@ onUnmounted(() => {
 .resize-handle.nw { top: -4px; left: -4px; width: 10px; height: 10px; cursor: nw-resize; }
 .resize-handle.se { bottom: -4px; right: -4px; width: 10px; height: 10px; cursor: se-resize; }
 .resize-handle.sw { bottom: -4px; left: -4px; width: 10px; height: 10px; cursor: sw-resize; }
+
+/* Desktop Search is a focused palette, not another draggable app window. */
+@media (min-width: 769px) {
+  .app-window--search-palette:not(.app-window--overview) {
+    position: fixed !important;
+    inset: 50% auto auto 50% !important;
+    width: min(760px, calc(100vw - 40px)) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 56px) !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    transform: translate3d(-50%, -50%, 0) !important;
+    z-index: 12000 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    will-change: opacity, filter;
+    animation: search-palette-arrive 360ms cubic-bezier(.2, .8, .2, 1) both;
+  }
+  .app-window--search-palette.focused,
+  .app-window--search-palette.blurred {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+  .app-window--search-palette .window-titlebar,
+  .app-window--search-palette .resize-handle { display: none !important; }
+  .app-window--search-palette .window-content {
+    flex: 0 1 auto;
+    width: 100%;
+    min-height: 0;
+    max-height: inherit;
+    overflow: auto;
+    background: transparent;
+    border-radius: 26px;
+    scrollbar-gutter: auto;
+  }
+  .app-window--search-palette .window-content > :deep(*) {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+}
+
+.search-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 11999;
+  background:
+    radial-gradient(ellipse 48% 42% at 50% 46%, color-mix(in srgb, var(--ui-accent) 9%, transparent), transparent 100%),
+    color-mix(in srgb, var(--ui-bg) 35%, #000 65%);
+  backdrop-filter: blur(8px) saturate(.82);
+  -webkit-backdrop-filter: blur(8px) saturate(.82);
+  animation: search-palette-backdrop-in 260ms ease-out both;
+}
+.search-palette-backdrop--solid { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.search-palette-backdrop--motion-reduced { animation: none !important; }
+.app-window--search-palette.app-window--motion-reduced { animation: none !important; }
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .search-palette-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+@keyframes search-palette-arrive {
+  from { opacity: 0; filter: blur(10px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@keyframes search-palette-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-window--search-palette,
+  .search-palette-backdrop { animation: none !important; }
+}
 </style>
 
 <style>
