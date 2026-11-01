@@ -2,7 +2,7 @@
 
 ## Resultado em uma frase
 
-**O índice de páginas está completo (267/267 páginas físicas têm um registro), mas a transcrição textual não está completa.** O corpus incorpora a sequência didática e referências rastreáveis; não afirma ter convertido cada palavra e quadro dos PDFs em texto. Páginas com OCR fraco, folhas de escrita e conteúdo protegido são identificados abaixo.
+**As 267 páginas físicas estão indexadas; todas as 232 páginas didáticas substantivas têm agora um registro específico de conteúdo (232/232). Isso não é transcrição integral.** Há quatro grupos de campos/valores explicitamente marcados com baixa confiança, e o texto completo dos PDFs não foi convertido nem publicado.
 
 ## Obras e paginação
 
@@ -47,35 +47,76 @@ A sequência tem **29 registros didáticos**: 6 grupos do material Shangrila, 21
 
 ## O que cada registro contém
 
-Em `src/data/mandarinLessons.json`, todas as aulas usam o mesmo esquema: `id` e `sequence`; módulo e objetivo; `sourcePages` legível e `sourceRefs` com página impressa + página física; `vocabulary`; `examples` (`text`, pinyin, tradução, tipo e origem); orientação de escrita/traços; prática guiada; `exercises`; questões de revisão e `agentGuidance`. Os exemplos e exercícios são sínteses ou redações próprias do app, não passagens longas copiadas dos livros.
+Em `src/data/mandarinLessons.json`, todas as aulas usam o mesmo esquema: `id` e `sequence`; módulo e objetivo; `sourcePages` legível e `sourceRefs` com página impressa + página física; `vocabulary`; `examples` (`text`, pinyin, tradução, tipo e origem); orientação de escrita/traços; prática guiada; `exercises`; questões de revisão e `agentGuidance`. O objeto `pedagogy` também já expõe `overview`, `languagePoints`, `communicativeFunctions`, `explanations`, `listeningPractice`, `pronunciationPractice`, `writingTasks`, `characterSamples`, `exerciseBank`, `readingSummaries`, `referenceIndexes`, `sourceContextNotes` e `pageSummaries`, além de IDs de proveniência e mínimos de completude. Esses campos estão prontos para a interface consumir; esta frente não altera o componente visual.
 
-Em `src/data/mandarinCorpus.json`, cada página física tem um registro com obra, número PDF, página impressa (quando existe), seção/aula, tipo de página, camada textual detectada, contagem/confiança OCR, método, notas de revisão e referência de capítulo. Os hashes SHA-256 identificam os dois arquivos recebidos. O texto OCR bruto não é incluído no corpus nem no build.
+Em `src/data/mandarinCorpus.json`, cada página física tem um registro com obra, número PDF, página impressa (quando existe), seção/aula, tipo de página, camada textual detectada, contagem/confiança OCR, método, notas de revisão e referência de capítulo. Os hashes SHA-256 identificam os dois arquivos recebidos. `pageContent.didacticSummary` e `coverageByDimension` registram evidência específica por página; `pedagogy.pageSummaries` mantém as observações ligadas às lições. O OCR bruto não é incluído no corpus nem no build. Os valores OCR originais continuam separados dos resumos e não são tratados como transcrição verificada.
 
-O Agent recebe objetivo, páginas de referência, vocabulário, exemplos próprios, exercícios, desafio de escrita, perguntas de recuperação e orientação da aula selecionada. Ele é instruído a não revelar o gabarito antes da tentativa, inventar citações ou reconstruir trechos quando o resumo não é suficiente.
+O tutor recebe objetivo, páginas de referência, vocabulário, exemplos próprios, exercícios, desafio de escrita, perguntas de recuperação e orientação da aula selecionada. Nas 29 unidades, a orientação agora proíbe o tutor de receber ou revelar gabarito, respostas corretas ou explicações antes de pelo menos 2/3 de acertos na unidade; antes disso, deve oferecer somente dicas que não entreguem a resposta. A camada que monta o contexto deve continuar usando o contexto de quiz filtrado, e não despejar campos de resposta do JSON. O tutor também não deve inventar citações nem reconstruir trechos quando o resumo não é suficiente.
 
 ## Auditoria página a página
 
 - **Páginas físicas registradas:** 267; Shangrila 57, livro do aluno 210.
 - **Registros ausentes ou duplicados:** nenhum. O verificador confirma páginas PDF contínuas e únicas: `allPhysicalPagesHaveRecords = true`; `missingPageRecords = []`.
-- **Transcrição completa:** não (`completeTextTranscription = false`). Um registro de página prova que a página está indexada, não que todo o seu texto foi reconhecido.
-- **OCR:** tesseract 5.3.4; idiomas `por+chi_sim`, renderização a 95 dpi, `--psm 6`. A confiança do Tesseract é uma medida de reconhecimento automático, não percentual de acerto verificado.
+- **Páginas substantivas:** 232. As páginas PDF 9 e 21 de Shangrila foram conferidas visualmente como divisórias (“Tons” e “Regra Ortográfica”) e classificadas fora do denominador didático.
+- **Cobertura de resumo página-específico:** 232/232 substantivas (**100%**); `pagesWithoutPageSpecificSummary = []`. A métrica significa observação/resumo específico por página, não conversão integral do material.
+- **Transcrição completa:** não (`completeTextTranscription = false`). Diálogos, tabelas e listas não foram reproduzidos integralmente, e o OCR bruto não é publicado.
+- **OCR de base:** Tesseract 5.3.4; idiomas `por+chi_sim`, renderização a 95 dpi, `--psm 6`. Para as 21 páginas antes vinculadas somente por faixa, houve processamento suplementar a 300 dpi para identificar conteúdo específico. Confiança OCR continua sendo medida automática, não percentual de acerto verificado.
 
 ### Páginas que exigem cautela
 
-- **Sem palavras reconhecidas no OCR:** livro do aluno, PDF p. 2. A página está registrada, mas não foi transcrita; o OCR sozinho não permite concluir se está vazia ou se o conteúdo não foi reconhecido.
-- **Baixa confiança:** Shangrila, PDF pp. 46–56 (grades de caligrafia; a revisão visual foi amostral nas pp. 46, 50 e 54); livro do aluno, PDF p. 171 (nota cultural, conferida visualmente). A relação completa de caracteres das folhas de caligrafia não foi catalogada.
-- **OCR esparso:** Shangrila, PDF pp. 9, 21, 27, 41, 57; livro do aluno, PDF pp. 109, 165. As pp. 109 e 165 do segundo PDF foram visualmente conferidas como páginas legíveis e diagramadas; a contagem reduzida de tokens não deve ser tratada como ausência de conteúdo.
+- **Sem palavras reconhecidas no OCR:** livro do aluno, PDF p. 2. Continua indexada; a baixa contagem não prova que a página esteja vazia.
+- **Detalhes com baixa confiança:** Shangrila, PDF p. 23 — células do quadro de discriminação de sons; livro do aluno, PDF p. 49 — células individuais do quadro de numerais; PDF p. 97 — entradas e ordem da lista de vocabulário; PDF p. 141 — rótulos e valores da tabela de temperatura/precipitação. O resumo de cada página registra somente o tema/estrutura; esses detalhes não são afirmados como corretos.
+- **Baixa confiança em OCR de outras páginas:** Shangrila, PDF pp. 46–56 (grades de caligrafia; revisão visual amostral nas pp. 46, 50 e 54); livro do aluno, PDF p. 171 (nota cultural, conferida visualmente). A relação completa de caracteres das grades não foi catalogada.
+- **OCR esparso:** Shangrila, PDF pp. 9, 21, 27, 41, 57; livro do aluno, PDF pp. 109, 165. As páginas 9 e 21 de Shangrila foram visualmente identificadas como divisórias. As pp. 109 e 165 do livro do aluno foram conferidas como páginas legíveis; o baixo número de tokens não significa ausência de conteúdo.
 
-A revisão visual cobriu ainda o sumário do livro do aluno (PDF pp. 8–10), o Apêndice II (p. 26), folhas de escrita selecionadas (Shangrila pp. 46, 50 e 54), páginas de OCR esparso selecionadas (livro do aluno pp. 109, 165 e 171), ficha de direitos (p. 209) e contracapa (p. 210). As demais páginas foram processadas pelo OCR e receberam registro, mas não passaram por transcrição humana palavra a palavra.
+### Páginas revisadas nesta atualização
+
+As 21 páginas antes associadas apenas à faixa receberam registros específicos com base no conteúdo reconhecido nos PDFs: Shangrila — PDF pp. 23, 36 e 38; livro do aluno — PDF pp. 24, 25, 42, 49, 68, 76, 77, 87, 88, 97, 102, 125, 141, 148, 156, 164, 167 e 178. Os resumos foram adicionados à lição correspondente e ao registro de página no corpus.
+
+- As 15 páginas anteriormente incertas receberam revisão visual e notas de confiança: Shangrila — PDF pp. 9 e 21; livro do aluno — PDF pp. 26, 28, 64, 83, 92, 122, 129, 130, 137, 143, 144, 169 e 188. As páginas 9 e 21 de Shangrila são divisórias, não conteúdo substantivo; as outras 13 têm resumo visual específico.
+
+**Pendências de página:** nenhuma página substantiva sem resumo específico (`pagesWithoutPageSpecificSummary = []`). Permanecem quatro grupos de detalhes em baixa confiança, listados acima; por isso, 100% de resumo página-específico não significa 100% de leitura ou transcrição. O corpus mantém `fullCourseCoverageClaim = false` e `completeTextTranscription = false`.
+
+A revisão visual anterior cobriu ainda o sumário do livro do aluno (PDF pp. 8–10), folhas de escrita selecionadas (Shangrila pp. 46, 50 e 54), páginas de OCR esparso selecionadas (livro do aluno pp. 109, 165 e 171), ficha de direitos (p. 209) e contracapa (p. 210). Nenhuma etapa desta atualização converteu os PDFs em transcrição palavra a palavra.
+
+## Language Teacher: voz e providers — estado comprovado
+
+**Não há base para afirmar que tudo esteja 100% funcional.** O “100%” deste relatório mede somente a presença de evidência ou resumo específico em 232/232 páginas substantivas; não é uma certificação ponta a ponta do Language Teacher nem das conexões de voz.
+
+O checkout mostra o tutor ligado à ponte de voz já existente do OS: captura/reconhecimento do browser ou serviço nativo, resposta do Agent selecionado e síntese de voz do dispositivo, em turnos. A tela lista as configurações de Agent salvas, inclusive as customizadas, e a lógica associa a sessão à configuração escolhida. Os testes atuais exercitam esse fluxo com doubles/mocks e verificações de código/UI; não fazem chamadas autenticadas a providers externos, não validam áudio real e não comprovam compatibilidade de cada provider customizado.
+
+A aplicação tem suporte geral ao arquivo local `.cybermanju`, mas não foi comprovado neste checkout que credenciais específicas de voz possam ser guardadas temporariamente **somente** nesse arquivo pelo Language Teacher. O código/teste do instrutor ainda informa que rotas remotas são definidas pelo host confiável e que a tela não aceita URL arbitrária nem chaves do cliente. Gemini Live, ElevenLabs, VoiceStudio TTS e serviço remoto/Colab permanecem `needs-host-adapter`; não há endpoint Colab operacional confirmado. Assim, a configuração do URL/parâmetros de uma instância VoiceStudio hospedada, seu armazenamento de credenciais e sua execução real continuam pendentes de validação pela frente de providers e de um endpoint acessível.
+
+### Contratos oficiais consultados
+
+- **Gemini Live:** SDK JavaScript `@google/genai` sobre WebSocket Live. Para browser, o acesso deve usar token efêmero de curta duração emitido por backend autenticado; não expor a chave permanente da API. O caminho de áudio documentado é PCM16, 16 kHz de entrada e 24 kHz de saída. Consulte [SDK JavaScript](https://ai.google.dev/gemini-api/docs/live-api/get-started-sdk) e [tokens efêmeros](https://ai.google.dev/gemini-api/docs/ephemeral-tokens).
+- **ElevenLabs Conversational AI:** o SDK `@elevenlabs/client` usa WebRTC para voz. Agentes públicos podem ser iniciados com `agentId`; agentes privados precisam de token WebRTC ou URL assinada emitidos por backend. A API key permanente não deve ir para o cliente. Consulte [SDK JavaScript](https://elevenlabs.io/docs/eleven-agents/libraries/java-script), [autenticação](https://elevenlabs.io/docs/eleven-agents/customization/authentication) e [token WebRTC](https://elevenlabs.io/docs/eleven-agents/api-reference/conversations/get-webrtc-token).
+- **VoiceStudio:** a documentação descreve a API local de desktop v0.5.0 em `localhost:3900`; `POST /v1/audio/speech` compatível com OpenAI devolve bytes de áudio. Acesso remoto requer bearer key por HTTPS/Tailscale; serviço Cloud não está disponível. Consulte [API local](https://voicestudio.sh/docs/local-api), [text-to-speech](https://voicestudio.sh/docs/text-to-speech), [autenticação](https://voicestudio.sh/docs/authentication) e a [documentação do repositório VoiceStudio](https://github.com/debpalash/VoiceStudio/blob/main/docs/speech-platform.md).
 
 ## Direitos autorais e limites de publicação
 
-Os PDFs não identificam uma licença aberta; a segunda obra registra edição de 2010, ISBN 978-7-80200-719-2 e aviso de copyright da editora na PDF p. 209. Em 2026-11-01, o dono confirmou diretamente autorização do titular para uso e reprodução pedagógica das duas cópias fornecidas neste curso, com atribuição e referências. O escopo fica limitado a esses dois PDFs e não é licença geral para outras obras. O conteúdo já estruturado é parcial: o índice cobre 267/267 páginas físicas, mas a última métrica validada apontou síntese específica em 198/234 páginas substantivas (84,62%). As outras 36 permanecem fora dessa métrica; veja a lista exata em `src/data/mandarinCorpus.json`. Isso não equivale a transcrição integral.
+Os PDFs não identificam uma licença aberta; a segunda obra registra edição de 2010, ISBN 978-7-80200-719-2 e aviso de copyright da editora na PDF p. 209. Em 2026-11-01, o dono confirmou diretamente autorização do titular para uso e reprodução pedagógica das duas cópias fornecidas neste curso, com atribuição e referências. O escopo fica limitado a esses dois PDFs e não é licença geral para outras obras. O conteúdo continua parcial: o índice cobre 267/267 páginas físicas e há resumo página-específico em 232/232 páginas substantivas, mas isso não é transcrição integral. Quatro conjuntos de detalhes estão explicitamente em baixa confiança; ver a seção de cautela e `coverage.pedagogicalCoverage.pageCoverage.pagesWithLowConfidenceDetails`.
 
 A prática de escrita oferece modelos selecionados e desenho livre, mas não inclui diagrama completo da ordem dos traços. Para os caracteres das folhas de caligrafia e para instruções ou diálogo omitidos por OCR, consulte a cópia da fonte que o proprietário tem direito de usar.
 
-## Testes executados
+## Rodada inicial de cobertura do corpus (registro histórico)
 
-- `npx vitest run tests/frontend/mandarin-course.test.ts` — **13 testes passaram** antes da correção contra vazamento do gabarito; rode novamente após esse patch.
-- `npm run typecheck` — passou às 13:55 no estado anterior ao patch contra vazamento; rode novamente.
-- `npm run build` — passou às 13:17 no estado anterior às últimas alterações de corpus; confirme novamente antes de integrar.
+- `npx vitest run tests/frontend/mandarin-course.test.ts` — **14 testes passaram** após os registros página-específicos e a atualização do denominador naquela rodada.
+- Typecheck e build não faziam parte daquele patch focado em dados/corpus; veja a validação final abaixo.
+
+
+## Handoff da rodada anterior (registro histórico)
+
+Os três pontos antes encaminhados à frente de interface/sessão — cancelar envios pendentes ao encerrar voz, identificar a limpeza como somente local e apresentar os campos pedagógicos estruturados — já aparecem no checkout e têm cobertura automatizada no teste de ciclo de vida do instrutor. Isso não confirma conexão com provider remoto nem armazenamento temporário de credenciais de voz no `.cybermanju`.
+
+- `npx vitest run tests/frontend/mandarin-course.test.ts` — **14 testes passaram** às 14:41; inclui o limiar de 2/3, os campos didáticos, as observações fonte-específicas, as quatro marcações de baixa confiança e o denominador 232/232.
+- `npm run typecheck` e `npm run build` não foram executados neste patch focado; nenhuma tela foi alterada.
+
+
+## Validação final desta consolidação (2026-11-01)
+
+- `npx vitest run tests/frontend/mandarin-course.test.ts tests/frontend/mandarin-instructor-lifecycle.test.ts tests/frontend/mandarin-voice-provider-integration.test.ts` — **passou: 3 arquivos, 23/23 testes** (curso 14/14; ciclo de vida/UI do instrutor 5/5; integração de providers 4/4). Os testes de providers e de roteamento de Agent usam doubles/mocks ou verificações estáticas; não são smoke tests de endpoints reais.
+- `npm run --ignore-scripts typecheck` — **passou** (`vue-tsc --noEmit`).
+- `npm run --ignore-scripts build` — **passou** (`vue-tsc --noEmit` + Vite 6.4.5; 566 módulos transformados; build concluído). O Vite emitiu warnings não fatais sobre módulos importados de forma estática e dinâmica e chunks maiores que 500 kB.
+
+Os hooks `pretypecheck`/`prebuild` foram omitidos para não executar a regeneração automática de ícones; typecheck e build propriamente ditos foram executados. Nenhuma conexão real com Gemini Live, ElevenLabs, VoiceStudio ou Colab foi exercitada nesta validação.

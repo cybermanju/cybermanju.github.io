@@ -7,13 +7,16 @@
      (the page list is read as a square-ish row-major grid shared with the studio via
      homeGridCols/homeGridNeighbors, so both sides agree on the same screen map). -->
 <template>
-  <div class="orb-navigator">
+  <div class="orb-navigator" :class="{ 'orb-navigator--teacher': teacherMode, 'motion-reduced': motionReduced }" :role="teacherMode ? 'img' : undefined" :aria-label="teacherMode ? teacherLabel : undefined">
     <button
       ref="coreRef"
       class="orb-core"
       type="button"
-      :disabled="disabled"
-      :aria-label="ariaLabel"
+      :disabled="disabled || teacherMode"
+      :aria-label="teacherMode ? teacherLabel : ariaLabel"
+      :aria-hidden="teacherMode || undefined"
+      :tabindex="teacherMode ? -1 : undefined"
+      :data-activity="teacherMode ? activity : undefined"
       :data-state="dynamicState"
       data-testid="orb-navigator"
       @pointerenter="pointerEnter"
@@ -29,7 +32,8 @@
            / dragged direction). No frames or rings — the button is just the sphere. -->
       <canvas ref="canvasRef" class="orb-canvas" aria-hidden="true" />
     </button>
-    <span class="orb-caption" aria-hidden="true">HOVER · DRAG ANY DIRECTION · TAP NEXT · DOUBLE-TAP ALL APPS</span>
+    <span v-if="!teacherMode" class="orb-caption" aria-hidden="true">HOVER · DRAG ANY DIRECTION · TAP NEXT · DOUBLE-TAP ALL APPS</span>
+    <span v-else class="orb-teacher-caption" aria-hidden="true">{{ caption || activityLabel }}</span>
   </div>
 </template>
 
@@ -49,9 +53,29 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { homeGridCols, homeGridNeighbors, homeHueForScreen, type HomeGridDelta } from '@/utils/homeWorkspaces'
 
-const props = defineProps<{ screenIndex: number; screenCount: number; disabled?: boolean; motionReduced?: boolean }>()
+type OrbActivity = 'idle' | 'listening' | 'thinking' | 'speaking' | 'muted' | 'error'
+const props = defineProps<{
+  screenIndex: number
+  screenCount: number
+  disabled?: boolean
+  motionReduced?: boolean
+  teacherMode?: boolean
+  activity?: OrbActivity
+  caption?: string
+}>()
 const emit = defineEmits<{ navigate: [delta: HomeGridDelta]; openApps: [] }>()
 
+const teacherMode = computed(() => props.teacherMode === true)
+const activity = computed<OrbActivity>(() => props.activity ?? 'idle')
+const activityLabel = computed(() => ({
+  idle: 'Pronta para praticar; microfone desligado.',
+  listening: 'Ouvindo, modo Voz ativo.',
+  thinking: 'Preparando uma resposta.',
+  speaking: 'Falando a resposta do tutor.',
+  muted: 'Microfone mutado.',
+  error: 'Voz indisponível.',
+}[activity.value]))
+const teacherLabel = computed(() => `Orb professora de mandarim. ${props.caption || activityLabel.value}`)
 const active = ref(false)
 const clicked = ref(false)
 const dynamicState = computed(() => (clicked.value ? 'clicked' : active.value ? 'pressed' : 'idle'))
@@ -100,7 +124,7 @@ function aim(event: PointerEvent) {
   hoverY = Math.max(-1, Math.min(1, (event.clientY - rect.top - rect.height / 2) / (rect.height / 2)))
 }
 function pointerDown(event: PointerEvent) {
-  if (props.disabled || !event.isPrimary || event.button !== 0) return
+  if (props.disabled || props.teacherMode || !event.isPrimary || event.button !== 0) return
   if (navigationTimer) { clearTimeout(navigationTimer); navigationTimer = null }
   pressLevel = 1
   hoverLive = true
@@ -183,7 +207,7 @@ function step(delta: HomeGridDelta) {
 }
 function activate(event: MouseEvent) {
   if (suppressClick) { suppressClick = false; return }
-  if (props.disabled) return
+  if (props.disabled || props.teacherMode) return
   aim(event as unknown as PointerEvent)
   clickPulse = 1
   flashClicked()
@@ -553,4 +577,17 @@ onUnmounted(() => {
 .orb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 /* pressed feedback stays CSS so it reads even when the render loop is frozen */
 .orb-caption { color: var(--ui-text-3, #9a9a9a); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
+.orb-navigator--teacher { gap: 6px; }
+.orb-navigator--teacher .orb-core { cursor: default; }
+.orb-navigator--teacher .orb-core[data-activity='listening'] { filter: drop-shadow(0 0 13px rgba(86, 202, 160, .46)); animation: orb-teacher-listen 1.35s ease-in-out infinite alternate; }
+.orb-navigator--teacher .orb-core[data-activity='thinking'] { filter: drop-shadow(0 0 11px rgba(222, 175, 92, .42)); animation: orb-teacher-think 1.9s ease-in-out infinite alternate; }
+.orb-navigator--teacher .orb-core[data-activity='speaking'] { filter: drop-shadow(0 0 16px rgba(104, 176, 238, .58)); animation: orb-teacher-speak .52s ease-in-out infinite alternate; }
+.orb-navigator--teacher .orb-core[data-activity='muted'] { filter: drop-shadow(0 0 7px rgba(220, 174, 97, .2)); }
+.orb-navigator--teacher .orb-core[data-activity='error'] { filter: drop-shadow(0 0 8px rgba(230, 95, 95, .35)); }
+.orb-teacher-caption { max-width: 230px; color: var(--ui-text-2, #bac1ca); font: 600 10px/1.4 var(--ui-font, Inter, ui-sans-serif, system-ui, sans-serif); text-align: center; }
+@keyframes orb-teacher-listen { from { transform: scale(.98); } to { transform: scale(1.035); } }
+@keyframes orb-teacher-think { from { transform: scale(1); } to { transform: scale(1.025); } }
+@keyframes orb-teacher-speak { from { transform: scale(.985); } to { transform: scale(1.055); } }
+.orb-navigator--teacher.motion-reduced .orb-core[data-activity] { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .orb-navigator--teacher .orb-core[data-activity] { animation: none !important; } }
 </style>

@@ -85,6 +85,7 @@ describe('Mandarin curriculum data', () => {
       expect(pedagogy.exerciseBank.every((exercise: Record<string, any>) => exercise.type && exercise.expectedAnswer && exercise.explanation), lesson.id).toBe(true)
       expect(new Set(pedagogy.contentRecordIds).size, lesson.id).toBe(pedagogy.contentRecordIds.length)
       expect(pedagogy.provenance.literalTranscription, lesson.id).toBe(false)
+      expect(lesson.agentGuidance, lesson.id).toMatch(/não deve receber nem revelar gabarito.*pelo menos 2\/3 de acertos na unidade/i)
     }
   })
 
@@ -136,11 +137,15 @@ describe('Mandarin curriculum data', () => {
       options: [{ id: 'a', label: 'distrator A' }, { id: 'b', label: 'resposta secreta' }, { id: 'c', label: 'distrator C' }],
       answerId: 'b', explanation: 'explicação secreta', sourcePages: 'PDF p. 1',
     }
-    const beforePass = buildTutorQuizContext([guardedQuestion], false)
+    const belowTwoThirds = canFinishLesson('context', ['context'], { context: 1 })
+    const atTwoThirds = canFinishLesson('context', ['context'], { context: 2 })
+    expect(belowTwoThirds).toBe(false)
+    expect(atTwoThirds).toBe(true)
+    const beforePass = buildTutorQuizContext([guardedQuestion], belowTwoThirds)
     expect(beforePass).toContain(guardedQuestion.prompt)
     expect(beforePass).not.toContain('resposta secreta')
     expect(beforePass).not.toContain('explicação secreta')
-    const afterPass = buildTutorQuizContext([guardedQuestion], true)
+    const afterPass = buildTutorQuizContext([guardedQuestion], atTwoThirds)
     expect(afterPass).toContain('resposta secreta')
     expect(afterPass).toContain('explicação secreta')
   })
@@ -183,22 +188,26 @@ describe('page-level corpus audit', () => {
     expect(audit.unitCoverage.communicativeFunctions).toBeGreaterThanOrEqual(58)
     expect(audit.unitCoverage.exerciseTypeKinds).toBeGreaterThanOrEqual(5)
     expect(audit.unitCoverage.questionsWithAnswerAndExplanation).toBeGreaterThanOrEqual(87)
-    expect(pageCoverage.substantivePages).toBe(234)
-    expect(pageCoverage.substantivePagesWithPageRecords).toBe(234)
-    expect(pageCoverage.substantivePagesLinkedToTeachingRecords).toBe(234)
+    expect(pageCoverage.substantivePages).toBe(232)
+    expect(pageCoverage.substantivePagesWithPageRecords).toBe(232)
+    expect(pageCoverage.substantivePagesLinkedToTeachingRecords).toBe(232)
     expect(pageCoverage.pagesWithoutAnyTeachingRecord).toEqual([])
-    expect(pageCoverage.pagesWithPageSpecificEvidenceOrVisualSummary).toBe(198)
-    expect(pageCoverage.pagesWithoutPageSpecificSummary).toHaveLength(36)
-    expect(new Set(pageCoverage.pagesWithoutPageSpecificSummary.map((page: Record<string, any>) => `${page.sourceId}:${page.pdfPage}`)).size).toBe(36)
-    expect(pageCoverage.pagesWithoutPageSpecificSummary.filter((page: Record<string, any>) => page.status === 'uncertain-not-counted')).toHaveLength(15)
-    expect(pageCoverage.pagesWithoutPageSpecificSummary.filter((page: Record<string, any>) => page.status === 'unit-scope-only-not-counted')).toHaveLength(21)
-    expect(pageCoverage.pagesUncertainAndNotCounted).toHaveLength(15)
-    expect(pageCoverage.unitRangeOnlyPagesNotCounted).toBe(21)
-    expect(pageCoverage.unresolvedOcrPagesNotCounted).toBe(15)
+    expect(pageCoverage.pagesWithPageSpecificEvidenceOrVisualSummary).toBe(232)
+    expect(pageCoverage.pagesWithoutPageSpecificSummary).toEqual([])
+    expect(pageCoverage.pagesUncertainAndNotCounted).toEqual([])
+    expect(pageCoverage.unitRangeOnlyPagesNotCounted).toBe(0)
+    expect(pageCoverage.unresolvedOcrPagesNotCounted).toBe(0)
     expect(pageCoverage.ocrUncertainPagesTotal).toBe(34)
     expect(pageCoverage.pageMapLinkagePercent).toBe(100)
+    expect(pageCoverage.pageSummaryCoveragePercent).toBe(100)
     expect(pageCoverage.pageSummaryCoveragePercent).toBeGreaterThanOrEqual(audit.coverageThresholds.minimumPageSpecificSummaryCoveragePercent)
     expect(audit.thresholdsMet.pageSpecificSummaryCoverage).toBe(true)
+    expect(pageCoverage.pagesWithLowConfidenceDetails).toEqual([
+      { sourceId: 'shangrila', pdfPage: 23, printedPage: 22, fields: [{ field: 'syllableChartCells', confidence: 'low' }] },
+      { sourceId: 'reader', pdfPage: 49, printedPage: 33, fields: [{ field: 'numeralChartCells', confidence: 'low' }] },
+      { sourceId: 'reader', pdfPage: 97, printedPage: 81, fields: [{ field: 'referenceVocabularyEntries', confidence: 'low' }] },
+      { sourceId: 'reader', pdfPage: 141, printedPage: 125, fields: [{ field: 'climateTableLabelsAndValues', confidence: 'low' }] },
+    ])
     expect(pageCoverage.ocrUncertainPagesTotal).toBeGreaterThan(0)
     expect(audit.fullCourseCoverageClaim).toBe(false)
     expect(audit.completeTextTranscription).toBe(false)
@@ -218,6 +227,49 @@ describe('page-level corpus audit', () => {
         expect((mapping as Record<string, any>).status, `${content.recordId}.${dimension}`).toBeTruthy()
         expect((mapping as Record<string, any>).basis, `${content.recordId}.${dimension}`).toBeTruthy()
         for (const ref of (mapping as Record<string, any>).recordIds) expect(allRecordIds.has(ref), `${content.recordId}.${dimension} -> ${ref}`).toBe(true)
+      }
+    }
+  })
+
+  it('records source-specific page observations and preserves uncertainty for illegible details', () => {
+    const completedPages = [
+      ['shangrila', 9], ['shangrila', 21], ['shangrila', 23], ['shangrila', 36], ['shangrila', 38],
+      ...[24, 25, 26, 28, 42, 49, 64, 68, 76, 77, 83, 87, 88, 92, 97, 102, 122, 125, 129, 130, 137, 141, 143, 144, 148, 156, 164, 167, 169, 178, 188].map(page => ['reader', page]),
+    ] as Array<[string, number]>
+    const visuallyReviewed = new Set(['shangrila:9', 'shangrila:21', ...[26, 28, 64, 83, 92, 122, 129, 130, 137, 143, 144, 169, 188].map(page => `reader:${page}`)])
+    const lessonsById = new Map(richLessons.map(lesson => [lesson.id, lesson]))
+
+    expect(completedPages).toHaveLength(36)
+    for (const [sourceId, pdfPage] of completedPages) {
+      const page = richCorpus.pages.find(item => item.sourceId === sourceId && item.pdfPage === pdfPage)!
+      const summaryId = `${page.lessonId}:page-summary:${sourceId}:${String(pdfPage).padStart(3, '0')}`
+      const lesson = lessonsById.get(page.lessonId)!
+      const summary = lesson.pedagogy.pageSummaries.find((item: Record<string, any>) => item.id === summaryId)
+      expect(summary, summaryId).toBeTruthy()
+      expect(summary.summary, summaryId).toBeTruthy()
+      expect(summary.sourceTextIncluded, summaryId).toBe(false)
+      expect(summary.scope, summaryId).toBe('original-brief-summary-not-transcription')
+      expect(page.pageContent.contentRefs).toContain(summaryId)
+
+      if (page.pageContent.classification.pedagogicallySubstantive) {
+        expect(page.pageContent.countedAsPageSummary, summaryId).toBe(true)
+        expect(page.pageContent.mappingStatus, summaryId).toBe('page-specific-evidence')
+        expect(page.pageContent.coverageByDimension.sourceSummaries.recordIds).toContain(summaryId)
+      } else {
+        expect(page.pageContent.countedAsPageSummary, summaryId).toBe(false)
+        expect(page.pageContent.classification.pageRole, summaryId).toBe('section-divider')
+      }
+
+      if (visuallyReviewed.has(`${sourceId}:${pdfPage}`)) {
+        expect(page.visualReview?.status, summaryId).toBe('completed')
+        expect(page.pageContent.sourceEvidence.visualReviewStatus, summaryId).toBe('human-visual-review-completed')
+      } else {
+        expect(page.pageContent.sourceEvidence.supplementalOcr.renderDpi, summaryId).toBe(300)
+      }
+
+      for (const field of summary.lowConfidenceDetails) {
+        expect(summary.confidenceByField[field], `${summaryId}.${field}`).toBe('low')
+        expect(page.pageContent.sourceEvidence.lowConfidenceDetails, summaryId).toContain(field)
       }
     }
   })

@@ -383,12 +383,15 @@ interface MainDiskState {
 
 let mainDisk: MainDiskState | null = null
 let mainDirty = false
+// The dedicated DB worker owns its own disk handle, so mirror only the
+// session passphrase in this module's memory for local sealed-secret calls.
+let workerVaultPassphrase = ''
 
 /** Session vault passphrase held after `.cybermanju` unlock (never
  *  persisted by this module). Secrets seal/open on WASM pass it as an
  *  argument — empty string means locked, and the ops answer `unsupported:`. */
 export function sessionVaultPassphrase(): string {
-  return mainDisk?.passphrase ?? ''
+  return mainDisk ? mainDisk.passphrase : workerVaultPassphrase
 }
 
 function mainDiskStatus() {
@@ -681,6 +684,7 @@ export async function wasmAttachDisk(req: AttachDiskRequest): Promise<WasmDiskSt
     { handle: req.handle, name: req.name, bytes: req.bytes, passphrase: req.passphrase },
     60000,
   )) as Partial<WasmDiskStatus> | null
+  workerVaultPassphrase = req.passphrase
   return {
     attached: !!raw?.attached,
     name: String(raw?.name ?? req.name),
@@ -719,6 +723,7 @@ export async function wasmExportDisk(
 
 export async function wasmDetachDisk(): Promise<WasmDiskStatus> {
   const raw = (await wasmDbDispatch('_detach', {})) as Partial<WasmDiskStatus> | null
+  workerVaultPassphrase = ''
   return {
     attached: !!raw?.attached,
     name: String(raw?.name ?? ''),

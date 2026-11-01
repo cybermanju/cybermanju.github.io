@@ -2292,8 +2292,8 @@
       "printedPage": 8,
       "sectionId": "context",
       "lessonId": "context",
-      "pageTitle": "Mandarim em perspectiva",
-      "pageType": "lesson",
+      "pageTitle": "Tons",
+      "pageType": "section-divider",
       "textLayerChars": 0,
       "ocr": {
         "engine": "Tesseract 5",
@@ -2305,8 +2305,16 @@
         "status": "ocr-sparse"
       },
       "evidence": "born-digital-text-layer-and-95dpi-bilingual-OCR",
-      "visualReview": null,
-      "reviewNote": "Poucos tokens: página de transição/cabeçalho ou folha gráfica; conteúdo textual não confirmado.",
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Folha divisória visualmente confirmada; sem conteúdo didático legível."
+      },
+      "reviewNote": "Folha divisória visualmente confirmada; sem conteúdo didático legível.",
       "contentRefs": [
         "context:overview",
         "context:function:01",
@@ -2330,27 +2338,28 @@
         "context:exercise:06",
         "context-q1",
         "context-q2",
-        "context-q3"
+        "context-q3",
+        "context:page-summary:shangrila:009"
       ],
       "relatedLessonIds": [
         "context"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Folha divisória visualmente confirmada; sem conteúdo didático legível.",
       "contentQualityFlags": [
-        "ocr-ocr-sparse",
-        "not-counted-ocr-or-visual-uncertain"
+        "visually-reviewed-non-substantive-divider",
+        "ocr-ocr-sparse"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-sparse not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "shangrila:pdf-page:009",
         "classification": {
-          "pageRole": "pedagogical-content",
-          "pedagogicallySubstantive": true
+          "pageRole": "section-divider",
+          "pedagogicallySubstantive": false
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Folha divisória com o título “Tons”; a revisão visual confirma apenas o título e não identifica texto didático substantivo nesta página.",
         "contentRefs": [
           "context:overview",
           "context:function:01",
@@ -2374,112 +2383,82 @@
           "context:exercise:06",
           "context-q1",
           "context-q2",
-          "context-q3"
+          "context-q3",
+          "context:page-summary:shangrila:009"
         ],
         "coverageByDimension": {
           "vocabulary": {
-            "status": "uncertain",
+            "status": "not-substantive",
             "recordIds": [],
-            "basis": "OCR/text-layer token match or visually checked representative character; no raw OCR published."
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "languagePoints": {
-            "status": "uncertain",
+            "status": "not-substantive",
             "recordIds": [],
-            "basis": "Chinese cue match or visual page summary; record is an original explanation."
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "communicativeFunctions": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context:function:01",
-              "context:function:02"
-            ],
-            "basis": "original course-level synthesis, not a claim the function appears on this exact page"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "explanations": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context:explanation:01",
-              "context:explanation:02"
-            ],
-            "basis": "original explanations linked to matched unit point(s)"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "originalExamples": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context:example:01",
-              "context:example:02",
-              "context:example:03"
-            ],
-            "basis": "short original examples, not quotations from the source"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "listeningPractice": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context:listen:01",
-              "context:listen:02"
-            ],
-            "basis": "new TTS/listening prompts; no source recording included"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "pronunciationPractice": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context:pronunciation:01",
-              "context:pronunciation:02"
-            ],
-            "basis": "new pronunciation practice with app-generated TTS"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "writingTasks": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context:writing:01",
-              "context:writing:02"
-            ],
-            "basis": "original practice; visual character samples are representative and stroke order is not validated"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "exercises": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context:exercise:01",
-              "context:exercise:02",
-              "context:exercise:03",
-              "context:exercise:04",
-              "context:exercise:05",
-              "context:exercise:06"
-            ],
-            "basis": "varied original exercises with answer and explanation"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "questionsWithAnswers": {
-            "status": "unit-extension",
-            "recordIds": [
-              "context-q1",
-              "context-q2",
-              "context-q3"
-            ],
-            "basis": "original questions with answer key and explanation"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "visual-summary-non-substantive",
+            "recordIds": [
+              "context:page-summary:shangrila:009"
+            ],
+            "basis": "Inspeção visual direta da página PDF identifica somente a folha divisória; não conta como resumo de conteúdo substantivo."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
+        "mappingStatus": "visually-resolved-non-substantive",
+        "conversionStatus": "visual-summary-not-substantive",
         "countedAsPageSummary": false,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-sparse",
           "meanWordConfidence": 92.4,
           "recognizedWordCount": 9,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
-        "uncertaintyFlags": [
-          "ocr-ocr-sparse",
-          "not-counted-ocr-or-visual-uncertain"
-        ],
+        "uncertaintyFlags": [],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
     },
@@ -4711,8 +4690,8 @@
       "printedPage": 20,
       "sectionId": "sounds",
       "lessonId": "sounds",
-      "pageTitle": "Pinyin, tons e sons",
-      "pageType": "lesson",
+      "pageTitle": "Regra Ortográfica",
+      "pageType": "section-divider",
       "textLayerChars": 0,
       "ocr": {
         "engine": "Tesseract 5",
@@ -4724,8 +4703,16 @@
         "status": "ocr-sparse"
       },
       "evidence": "born-digital-text-layer-and-95dpi-bilingual-OCR",
-      "visualReview": null,
-      "reviewNote": "Poucos tokens: página de transição/cabeçalho ou folha gráfica; conteúdo textual não confirmado.",
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Folha divisória visualmente confirmada; sem conteúdo didático legível."
+      },
+      "reviewNote": "Folha divisória visualmente confirmada; sem conteúdo didático legível.",
       "contentRefs": [
         "sounds:overview",
         "sounds:function:01",
@@ -4750,27 +4737,28 @@
         "sounds:exercise:06",
         "sounds-q1",
         "sounds-q2",
-        "sounds-q3"
+        "sounds-q3",
+        "sounds:page-summary:shangrila:021"
       ],
       "relatedLessonIds": [
         "sounds"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Folha divisória visualmente confirmada; sem conteúdo didático legível.",
       "contentQualityFlags": [
-        "ocr-ocr-sparse",
-        "not-counted-ocr-or-visual-uncertain"
+        "visually-reviewed-non-substantive-divider",
+        "ocr-ocr-sparse"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-sparse not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "shangrila:pdf-page:021",
         "classification": {
-          "pageRole": "pedagogical-content",
-          "pedagogicallySubstantive": true
+          "pageRole": "section-divider",
+          "pedagogicallySubstantive": false
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Folha divisória com o título “Regra Ortográfica”; a revisão visual confirma apenas o título e não identifica texto didático substantivo nesta página.",
         "contentRefs": [
           "sounds:overview",
           "sounds:function:01",
@@ -4795,113 +4783,82 @@
           "sounds:exercise:06",
           "sounds-q1",
           "sounds-q2",
-          "sounds-q3"
+          "sounds-q3",
+          "sounds:page-summary:shangrila:021"
         ],
         "coverageByDimension": {
           "vocabulary": {
-            "status": "uncertain",
+            "status": "not-substantive",
             "recordIds": [],
-            "basis": "OCR/text-layer token match or visually checked representative character; no raw OCR published."
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "languagePoints": {
-            "status": "uncertain",
+            "status": "not-substantive",
             "recordIds": [],
-            "basis": "Chinese cue match or visual page summary; record is an original explanation."
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "communicativeFunctions": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds:function:01",
-              "sounds:function:02"
-            ],
-            "basis": "original course-level synthesis, not a claim the function appears on this exact page"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "explanations": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds:explanation:01",
-              "sounds:explanation:02",
-              "sounds:explanation:03"
-            ],
-            "basis": "original explanations linked to matched unit point(s)"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "originalExamples": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds:example:01",
-              "sounds:example:02",
-              "sounds:example:03"
-            ],
-            "basis": "short original examples, not quotations from the source"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "listeningPractice": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds:listen:01",
-              "sounds:listen:02"
-            ],
-            "basis": "new TTS/listening prompts; no source recording included"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "pronunciationPractice": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds:pronunciation:01",
-              "sounds:pronunciation:02"
-            ],
-            "basis": "new pronunciation practice with app-generated TTS"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "writingTasks": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds:writing:01",
-              "sounds:writing:02"
-            ],
-            "basis": "original practice; visual character samples are representative and stroke order is not validated"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "exercises": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds:exercise:01",
-              "sounds:exercise:02",
-              "sounds:exercise:03",
-              "sounds:exercise:04",
-              "sounds:exercise:05",
-              "sounds:exercise:06"
-            ],
-            "basis": "varied original exercises with answer and explanation"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "questionsWithAnswers": {
-            "status": "unit-extension",
-            "recordIds": [
-              "sounds-q1",
-              "sounds-q2",
-              "sounds-q3"
-            ],
-            "basis": "original questions with answer key and explanation"
+            "status": "not-substantive",
+            "recordIds": [],
+            "basis": "Revisão visual direta confirma página divisória, sem conteúdo didático substantivo."
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "visual-summary-non-substantive",
+            "recordIds": [
+              "sounds:page-summary:shangrila:021"
+            ],
+            "basis": "Inspeção visual direta da página PDF identifica somente a folha divisória; não conta como resumo de conteúdo substantivo."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
+        "mappingStatus": "visually-resolved-non-substantive",
+        "conversionStatus": "visual-summary-not-substantive",
         "countedAsPageSummary": false,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-sparse",
           "meanWordConfidence": 94.6,
           "recognizedWordCount": 11,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
-        "uncertaintyFlags": [
-          "ocr-ocr-sparse",
-          "not-counted-ocr-or-visual-uncertain"
-        ],
+        "uncertaintyFlags": [],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
     },
@@ -5113,7 +5070,7 @@
       "printedPage": 22,
       "sectionId": "sounds",
       "lessonId": "sounds",
-      "pageTitle": "Pinyin, tons e sons",
+      "pageTitle": "Discriminação de sons",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -5152,26 +5109,28 @@
         "sounds:exercise:06",
         "sounds-q1",
         "sounds-q2",
-        "sounds-q3"
+        "sounds-q3",
+        "sounds:page-summary:shangrila:023"
       ],
       "relatedLessonIds": [
         "sounds"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico derivado do OCR suplementar da página PDF; itens não incluídos no resumo não são presumidos.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription",
+        "low-confidence-specific-fields"
       ],
       "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "contentUncertainty": "low-confidence-specific-fields",
       "pageContent": {
         "recordId": "shangrila:pdf-page:023",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Quadro/atividade de discriminação de sons com pares consonantais. O assunto e os rótulos principais são identificáveis, mas as sílabas e células específicas não são confiáveis o bastante para transcrição.",
         "contentRefs": [
           "sounds:overview",
           "sounds:function:01",
@@ -5196,7 +5155,8 @@
           "sounds:exercise:06",
           "sounds-q1",
           "sounds-q2",
-          "sounds-q3"
+          "sounds-q3",
+          "sounds:page-summary:shangrila:023"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -5281,26 +5241,44 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "sounds:page-summary:shangrila:023"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 79.7,
           "recognizedWordCount": 121,
           "visualReviewStatus": "not-human-reviewed",
           "confidenceBand": "medium",
-          "rawTextPublished": false
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          },
+          "lowConfidenceDetails": [
+            "syllableChartCells"
+          ],
+          "confidenceByField": {
+            "pageTopic": "high",
+            "syllableChartCells": "low"
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription",
+          "low-confidence-specific-fields"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -7755,7 +7733,7 @@
       "printedPage": 35,
       "sectionId": "introductions",
       "lessonId": "introductions",
-      "pageTitle": "Apresentações e nomes",
+      "pageTitle": "Diálogo 1 — nomes e sobrenomes",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -7794,26 +7772,27 @@
         "introductions:exercise:06",
         "introductions-q1",
         "introductions-q2",
-        "introductions-q3"
+        "introductions-q3",
+        "introductions:page-summary:shangrila:036"
       ],
       "relatedLessonIds": [
         "introductions"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "shangrila:pdf-page:036",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo de apresentação que pergunta pelo sobrenome e pelo nome e mostra respostas com sobrenomes Zhang e Wang.",
         "contentRefs": [
           "introductions:overview",
           "introductions:function:01",
@@ -7838,7 +7817,8 @@
           "introductions:exercise:06",
           "introductions-q1",
           "introductions-q2",
-          "introductions-q3"
+          "introductions-q3",
+          "introductions:page-summary:shangrila:036"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -7923,26 +7903,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "introductions:page-summary:shangrila:036"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 84.6,
           "recognizedWordCount": 87,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -8164,7 +8154,7 @@
       "printedPage": 37,
       "sectionId": "introductions",
       "lessonId": "introductions",
-      "pageTitle": "Apresentações e nomes",
+      "pageTitle": "Diálogo — identificar uma pessoa",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -8203,26 +8193,27 @@
         "introductions:exercise:06",
         "introductions-q1",
         "introductions-q2",
-        "introductions-q3"
+        "introductions-q3",
+        "introductions:page-summary:shangrila:038"
       ],
       "relatedLessonIds": [
         "introductions"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "shangrila:pdf-page:038",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo com perguntas sobre quem é uma pessoa, se é conhecida e sua relação como professor ou aluno.",
         "contentRefs": [
           "introductions:overview",
           "introductions:function:01",
@@ -8247,7 +8238,8 @@
           "introductions:exercise:06",
           "introductions-q1",
           "introductions-q2",
-          "introductions-q3"
+          "introductions-q3",
+          "introductions:page-summary:shangrila:038"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -8332,26 +8324,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "introductions:page-summary:shangrila:038"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 75.1,
           "recognizedWordCount": 55,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -15512,7 +15514,7 @@
       "printedPage": 9,
       "sectionId": "textbook-00",
       "lessonId": "textbook-00",
-      "pageTitle": "Lição 0 · Fonética",
+      "pageTitle": "Fonética: finais zh/ch/sh/r e er",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -15551,26 +15553,27 @@
         "textbook-00:exercise:06",
         "textbook-00-q1",
         "textbook-00-q2",
-        "textbook-00-q3"
+        "textbook-00-q3",
+        "textbook-00:page-summary:reader:024"
       ],
       "relatedLessonIds": [
         "textbook-00"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:024",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Notas de pronúncia sobre zh, ch, sh e r, a vogal final correspondente e o sufixo er; a página inicia também uma nota cultural sobre a função e a história do Hanyu Pinyin.",
         "contentRefs": [
           "textbook-00:overview",
           "textbook-00:function:01",
@@ -15595,7 +15598,8 @@
           "textbook-00:exercise:06",
           "textbook-00-q1",
           "textbook-00-q2",
-          "textbook-00-q3"
+          "textbook-00-q3",
+          "textbook-00:page-summary:reader:024"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -15680,26 +15684,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-00:page-summary:reader:024"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 83.6,
           "recognizedWordCount": 336,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -15710,7 +15724,7 @@
       "printedPage": 10,
       "sectionId": "textbook-00",
       "lessonId": "textbook-00",
-      "pageTitle": "Lição 0 · Fonética",
+      "pageTitle": "Nota cultural: história e variedades do chinês",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -15749,26 +15763,27 @@
         "textbook-00:exercise:06",
         "textbook-00-q1",
         "textbook-00-q2",
-        "textbook-00-q3"
+        "textbook-00-q3",
+        "textbook-00:page-summary:reader:025"
       ],
       "relatedLessonIds": [
         "textbook-00"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:025",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Continua a nota sobre a história dos caracteres e do nome Hanyu, situa o chinês no grupo sino-tibetano, enumera grupos dialetais e distingue nomes regionais da língua padrão.",
         "contentRefs": [
           "textbook-00:overview",
           "textbook-00:function:01",
@@ -15793,7 +15808,8 @@
           "textbook-00:exercise:06",
           "textbook-00-q1",
           "textbook-00-q2",
-          "textbook-00-q3"
+          "textbook-00-q3",
+          "textbook-00:page-summary:reader:025"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -15878,26 +15894,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-00:page-summary:reader:025"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 87.8,
           "recognizedWordCount": 321,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -15908,7 +15934,7 @@
       "printedPage": null,
       "sectionId": "textbook-00",
       "lessonId": "textbook-00",
-      "pageTitle": "Lição 0 · Fonética",
+      "pageTitle": "Apêndice II — quadro de sílabas",
       "pageType": "unnumbered-appendix",
       "textLayerChars": 0,
       "ocr": {
@@ -15921,8 +15947,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": "Apêndice II visualmente identificado; folha sem número impresso.",
-      "reviewNote": "Apêndice II sem número impresso; quadro de sílabas visualmente confirmado.",
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma o título e a estrutura tabular; não foi feita transcrição integral das células."
+      },
+      "reviewNote": "Revisão visual confirma o título e a estrutura tabular; não foi feita transcrição integral das células.",
       "contentRefs": [
         "textbook-00:overview",
         "textbook-00:function:01",
@@ -15947,28 +15981,30 @@
         "textbook-00:exercise:06",
         "textbook-00-q1",
         "textbook-00-q2",
-        "textbook-00-q3"
+        "textbook-00-q3",
+        "textbook-00:page-summary:reader:026"
       ],
       "relatedLessonIds": [
         "textbook-00"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma o título e a estrutura tabular; não foi feita transcrição integral das células.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain",
-        "source-record-has-visual-review-note"
+        "source-record-has-visual-review-note",
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain source-record-has-visual-review-note",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:026",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Quadro de combinações de iniciais e finais do mandarim; o próprio título informa que os tons não são considerados. O registro descreve o quadro, sem inventariar cada célula.",
         "contentRefs": [
           "textbook-00:overview",
           "textbook-00:function:01",
@@ -15993,7 +16029,8 @@
           "textbook-00:exercise:06",
           "textbook-00-q1",
           "textbook-00-q2",
-          "textbook-00-q3"
+          "textbook-00-q3",
+          "textbook-00:page-summary:reader:026"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -16078,28 +16115,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-00:page-summary:reader:026"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 46.6,
           "recognizedWordCount": 451,
-          "visualReviewStatus": "recorded-review-note",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain",
-          "source-record-has-visual-review-note"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -16308,7 +16345,7 @@
       "printedPage": 12,
       "sectionId": "textbook-01",
       "lessonId": "textbook-01",
-      "pageTitle": "Lição 1 · Como se chama?",
+      "pageTitle": "Vocabulário de referência",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -16321,8 +16358,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma listas de vocabulário e nomes próprios; itens individuais não foram reproduzidos em bloco."
+      },
+      "reviewNote": "Revisão visual confirma listas de vocabulário e nomes próprios; itens individuais não foram reproduzidos em bloco.",
       "contentRefs": [
         "textbook-01:overview",
         "textbook-01:function:01",
@@ -16347,27 +16392,29 @@
         "textbook-01:exercise:06",
         "textbook-01-q1",
         "textbook-01-q2",
-        "textbook-01-q3"
+        "textbook-01-q3",
+        "textbook-01:page-summary:reader:028"
       ],
       "relatedLessonIds": [
         "textbook-01"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma listas de vocabulário e nomes próprios; itens individuais não foram reproduzidos em bloco.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:028",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Página de vocabulário numerado, vocabulário suplementar e nomes próprios, com caracteres, categorias gramaticais, pinyin e equivalentes em português.",
         "contentRefs": [
           "textbook-01:overview",
           "textbook-01:function:01",
@@ -16392,7 +16439,8 @@
           "textbook-01:exercise:06",
           "textbook-01-q1",
           "textbook-01-q2",
-          "textbook-01-q3"
+          "textbook-01-q3",
+          "textbook-01:page-summary:reader:028"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -16477,27 +16525,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-01:page-summary:reader:028"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 54.6,
           "recognizedWordCount": 93,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -19194,7 +19243,7 @@
       "printedPage": 26,
       "sectionId": "textbook-02",
       "lessonId": "textbook-02",
-      "pageTitle": "Lição 2 · Prazer em conhecer",
+      "pageTitle": "Vocabulário e nota sobre bebidas",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -19233,26 +19282,27 @@
         "textbook-02:exercise:06",
         "textbook-02-q1",
         "textbook-02-q2",
-        "textbook-02-q3"
+        "textbook-02-q3",
+        "textbook-02:page-summary:reader:042"
       ],
       "relatedLessonIds": [
         "textbook-02"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:042",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "A página reúne vocabulário de escola, computador, bebidas e continentes; a nota cultural descreve bebidas servidas a visitantes em casas chinesas.",
         "contentRefs": [
           "textbook-02:overview",
           "textbook-02:function:01",
@@ -19277,7 +19327,8 @@
           "textbook-02:exercise:06",
           "textbook-02-q1",
           "textbook-02-q2",
-          "textbook-02-q3"
+          "textbook-02-q3",
+          "textbook-02:page-summary:reader:042"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -19362,26 +19413,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-02:page-summary:reader:042"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 72.7,
           "recognizedWordCount": 182,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -20636,7 +20697,7 @@
       "printedPage": 33,
       "sectionId": "textbook-03",
       "lessonId": "textbook-03",
-      "pageTitle": "Lição 3 · Quantas pessoas há na sua família?",
+      "pageTitle": "Numerais",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -20675,26 +20736,28 @@
         "textbook-03:exercise:06",
         "textbook-03-q1",
         "textbook-03-q2",
-        "textbook-03-q3"
+        "textbook-03-q3",
+        "textbook-03:page-summary:reader:049"
       ],
       "relatedLessonIds": [
         "textbook-03"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico derivado do OCR suplementar da página PDF; itens não incluídos no resumo não são presumidos.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription",
+        "low-confidence-specific-fields"
       ],
       "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "contentUncertainty": "low-confidence-specific-fields",
       "pageContent": {
         "recordId": "reader:pdf-page:049",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Quadro didático de numerais chineses, com algarismos e exemplos de composição de números de diferentes ordens. As células individuais do quadro não foram validadas como transcrição.",
         "contentRefs": [
           "textbook-03:overview",
           "textbook-03:function:01",
@@ -20719,7 +20782,8 @@
           "textbook-03:exercise:06",
           "textbook-03-q1",
           "textbook-03-q2",
-          "textbook-03-q3"
+          "textbook-03-q3",
+          "textbook-03:page-summary:reader:049"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -20804,26 +20868,44 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-03:page-summary:reader:049"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 56.0,
           "recognizedWordCount": 92,
           "visualReviewStatus": "not-human-reviewed",
           "confidenceBand": "medium",
-          "rawTextPublished": false
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          },
+          "lowConfidenceDetails": [
+            "numeralChartCells"
+          ],
+          "confidenceByField": {
+            "pageTopic": "high",
+            "numeralChartCells": "low"
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription",
+          "low-confidence-specific-fields"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -23844,7 +23926,7 @@
       "printedPage": 48,
       "sectionId": "textbook-05",
       "lessonId": "textbook-05",
-      "pageTitle": "Lição 5 · Posso experimentar?",
+      "pageTitle": "Gramática e diálogo em restaurante",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -23857,8 +23939,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma as notas gramaticais e o início de diálogo em restaurante."
+      },
+      "reviewNote": "Revisão visual confirma as notas gramaticais e o início de diálogo em restaurante.",
       "contentRefs": [
         "textbook-05:overview",
         "textbook-05:function:01",
@@ -23883,27 +23973,29 @@
         "textbook-05:exercise:06",
         "textbook-05-q1",
         "textbook-05-q2",
-        "textbook-05-q3"
+        "textbook-05-q3",
+        "textbook-05:page-summary:reader:064"
       ],
       "relatedLessonIds": [
         "textbook-05"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma as notas gramaticais e o início de diálogo em restaurante.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:064",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Notas contrastam usos de 和, 也 e 还 e apresentam a sugestão com 吧; a página inicia um diálogo num restaurante do Bairro Chinês.",
         "contentRefs": [
           "textbook-05:overview",
           "textbook-05:function:01",
@@ -23928,7 +24020,8 @@
           "textbook-05:exercise:06",
           "textbook-05-q1",
           "textbook-05-q2",
-          "textbook-05-q3"
+          "textbook-05-q3",
+          "textbook-05:page-summary:reader:064"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -24013,27 +24106,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-05:page-summary:reader:064"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 52.4,
           "recognizedWordCount": 12,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -24655,7 +24749,7 @@
       "printedPage": 52,
       "sectionId": "textbook-05",
       "lessonId": "textbook-05",
-      "pageTitle": "Lição 5 · Posso experimentar?",
+      "pageTitle": "Vocabulário de comida e nota cultural",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -24694,26 +24788,27 @@
         "textbook-05:exercise:06",
         "textbook-05-q1",
         "textbook-05-q2",
-        "textbook-05-q3"
+        "textbook-05-q3",
+        "textbook-05:page-summary:reader:068"
       ],
       "relatedLessonIds": [
         "textbook-05"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:068",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "A página inclui vocabulário de sabores e bebidas, a expressão para Bairro Chinês e uma nota cultural sobre compras, negociação de preços, pagamento de refeições e gorjetas.",
         "contentRefs": [
           "textbook-05:overview",
           "textbook-05:function:01",
@@ -24738,7 +24833,8 @@
           "textbook-05:exercise:06",
           "textbook-05-q1",
           "textbook-05-q2",
-          "textbook-05-q3"
+          "textbook-05-q3",
+          "textbook-05:page-summary:reader:068"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -24823,26 +24919,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-05:page-summary:reader:068"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 84.3,
           "recognizedWordCount": 210,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -26287,7 +26393,7 @@
       "printedPage": 60,
       "sectionId": "textbook-06",
       "lessonId": "textbook-06",
-      "pageTitle": "Lição 6 · Planos para amanhã",
+      "pageTitle": "Vocabulário e formas de tratamento",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -26326,26 +26432,27 @@
         "textbook-06:exercise:06",
         "textbook-06-q1",
         "textbook-06-q2",
-        "textbook-06-q3"
+        "textbook-06-q3",
+        "textbook-06:page-summary:reader:076"
       ],
       "relatedLessonIds": [
         "textbook-06"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:076",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "A lista inclui esportes e expressões de tempo; a nota cultural descreve formas de tratamento em relações familiares, entre colegas e com pessoas desconhecidas.",
         "contentRefs": [
           "textbook-06:overview",
           "textbook-06:function:01",
@@ -26370,7 +26477,8 @@
           "textbook-06:exercise:06",
           "textbook-06-q1",
           "textbook-06-q2",
-          "textbook-06-q3"
+          "textbook-06-q3",
+          "textbook-06:page-summary:reader:076"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -26455,26 +26563,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-06:page-summary:reader:076"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 79.9,
           "recognizedWordCount": 446,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -26485,7 +26603,7 @@
       "printedPage": 61,
       "sectionId": "textbook-06",
       "lessonId": "textbook-06",
-      "pageTitle": "Lição 6 · Planos para amanhã",
+      "pageTitle": "Nota cultural: telefones públicos",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -26524,26 +26642,27 @@
         "textbook-06:exercise:06",
         "textbook-06-q1",
         "textbook-06-q2",
-        "textbook-06-q3"
+        "textbook-06-q3",
+        "textbook-06:page-summary:reader:077"
       ],
       "relatedLessonIds": [
         "textbook-06"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:077",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Continuação da nota sobre telefones públicos em cidades e vilas, modalidades de chamadas locais e de longa distância e o uso crescente de telemóvel e correio eletrónico.",
         "contentRefs": [
           "textbook-06:overview",
           "textbook-06:function:01",
@@ -26568,7 +26687,8 @@
           "textbook-06:exercise:06",
           "textbook-06-q1",
           "textbook-06-q2",
-          "textbook-06-q3"
+          "textbook-06-q3",
+          "textbook-06:page-summary:reader:077"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -26653,26 +26773,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-06:page-summary:reader:077"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 85.5,
           "recognizedWordCount": 149,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -27722,7 +27852,7 @@
       "printedPage": 67,
       "sectionId": "textbook-07",
       "lessonId": "textbook-07",
-      "pageTitle": "Lição 7 · Quando você volta?",
+      "pageTitle": "Diálogo e notas de localização/tempo",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -27735,8 +27865,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma diálogo, notas sobre localização e início de seção gramatical de tempo."
+      },
+      "reviewNote": "Revisão visual confirma diálogo, notas sobre localização e início de seção gramatical de tempo.",
       "contentRefs": [
         "textbook-07:overview",
         "textbook-07:function:01",
@@ -27761,27 +27899,29 @@
         "textbook-07:exercise:06",
         "textbook-07-q1",
         "textbook-07-q2",
-        "textbook-07-q3"
+        "textbook-07-q3",
+        "textbook-07:page-summary:reader:083"
       ],
       "relatedLessonIds": [
         "textbook-07"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma diálogo, notas sobre localização e início de seção gramatical de tempo.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:083",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Continuação de diálogo sobre retorno de uma pessoa; as notas explicam referências de lugar como “aqui/lá” e a página inicia expressões de tempo.",
         "contentRefs": [
           "textbook-07:overview",
           "textbook-07:function:01",
@@ -27806,7 +27946,8 @@
           "textbook-07:exercise:06",
           "textbook-07-q1",
           "textbook-07-q2",
-          "textbook-07-q3"
+          "textbook-07-q3",
+          "textbook-07:page-summary:reader:083"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -27891,27 +28032,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-07:page-summary:reader:083"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 52.3,
           "recognizedWordCount": 89,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -28529,7 +28671,7 @@
       "printedPage": 71,
       "sectionId": "textbook-07",
       "lessonId": "textbook-07",
-      "pageTitle": "Lição 7 · Quando você volta?",
+      "pageTitle": "Nota cultural: calendários e festivais",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -28568,26 +28710,27 @@
         "textbook-07:exercise:06",
         "textbook-07-q1",
         "textbook-07-q2",
-        "textbook-07-q3"
+        "textbook-07-q3",
+        "textbook-07:page-summary:reader:087"
       ],
       "relatedLessonIds": [
         "textbook-07"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:087",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Nota compara os calendários solar e lunar e lista festivais tradicionais e feriados oficiais. O registro não afirma datas individuais que não sejam necessárias ao resumo.",
         "contentRefs": [
           "textbook-07:overview",
           "textbook-07:function:01",
@@ -28612,7 +28755,8 @@
           "textbook-07:exercise:06",
           "textbook-07-q1",
           "textbook-07-q2",
-          "textbook-07-q3"
+          "textbook-07-q3",
+          "textbook-07:page-summary:reader:087"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -28697,26 +28841,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-07:page-summary:reader:087"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 80.2,
           "recognizedWordCount": 445,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -28727,7 +28881,7 @@
       "printedPage": 72,
       "sectionId": "textbook-07",
       "lessonId": "textbook-07",
-      "pageTitle": "Lição 7 · Quando você volta?",
+      "pageTitle": "Nota cultural: educação e feriados",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -28766,26 +28920,27 @@
         "textbook-07:exercise:06",
         "textbook-07-q1",
         "textbook-07-q2",
-        "textbook-07-q3"
+        "textbook-07-q3",
+        "textbook-07:page-summary:reader:088"
       ],
       "relatedLessonIds": [
         "textbook-07"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:088",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Continua a relação de feriados e descreve o sistema educacional chinês, incluindo escolaridade obrigatória, níveis de ensino, ingresso universitário e organização semestral.",
         "contentRefs": [
           "textbook-07:overview",
           "textbook-07:function:01",
@@ -28810,7 +28965,8 @@
           "textbook-07:exercise:06",
           "textbook-07-q1",
           "textbook-07-q2",
-          "textbook-07-q3"
+          "textbook-07-q3",
+          "textbook-07:page-summary:reader:088"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -28895,26 +29051,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-07:page-summary:reader:088"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 86.8,
           "recognizedWordCount": 383,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -29566,7 +29732,7 @@
       "printedPage": 76,
       "sectionId": "textbook-08",
       "lessonId": "textbook-08",
-      "pageTitle": "Lição 8 · Há um banco perto daqui?",
+      "pageTitle": "Diálogo ilustrado: trajetos na cidade",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -29579,8 +29745,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma o diagrama de trajeto e o diálogo sobre transporte público."
+      },
+      "reviewNote": "Revisão visual confirma o diagrama de trajeto e o diálogo sobre transporte público.",
       "contentRefs": [
         "textbook-08:overview",
         "textbook-08:function:01",
@@ -29605,27 +29779,29 @@
         "textbook-08:exercise:06",
         "textbook-08-q1",
         "textbook-08-q2",
-        "textbook-08-q3"
+        "textbook-08-q3",
+        "textbook-08:page-summary:reader:092"
       ],
       "relatedLessonIds": [
         "textbook-08"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma o diagrama de trajeto e o diálogo sobre transporte público.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:092",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Mapa/diagrama e diálogo sobre como ir da universidade ao centro da cidade, com perguntas a um estudante e instruções que mencionam transporte público e troca de linha.",
         "contentRefs": [
           "textbook-08:overview",
           "textbook-08:function:01",
@@ -29650,7 +29826,8 @@
           "textbook-08:exercise:06",
           "textbook-08-q1",
           "textbook-08-q2",
-          "textbook-08-q3"
+          "textbook-08-q3",
+          "textbook-08:page-summary:reader:092"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -29735,27 +29912,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-08:page-summary:reader:092"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 53.0,
           "recognizedWordCount": 210,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -30610,7 +30788,7 @@
       "printedPage": 81,
       "sectionId": "textbook-09",
       "lessonId": "textbook-09",
-      "pageTitle": "Lição 9 · Antes eu criava pássaros",
+      "pageTitle": "Vocabulário de referência",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -30649,26 +30827,28 @@
         "textbook-09:exercise:06",
         "textbook-09-q1",
         "textbook-09-q2",
-        "textbook-09-q3"
+        "textbook-09-q3",
+        "textbook-09:page-summary:reader:097"
       ],
       "relatedLessonIds": [
         "textbook-09"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico derivado do OCR suplementar da página PDF; itens não incluídos no resumo não são presumidos.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription",
+        "low-confidence-specific-fields"
       ],
       "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "contentUncertainty": "low-confidence-specific-fields",
       "pageContent": {
         "recordId": "reader:pdf-page:097",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Página de vocabulário de referência com itens de cidade, animais, tempo, familiaridade, fotografias e outros tópicos. A ordem e a leitura de entradas individuais estão parcialmente embaralhadas no OCR e não foram reconstruídas.",
         "contentRefs": [
           "textbook-09:overview",
           "textbook-09:function:01",
@@ -30693,7 +30873,8 @@
           "textbook-09:exercise:06",
           "textbook-09-q1",
           "textbook-09-q2",
-          "textbook-09-q3"
+          "textbook-09-q3",
+          "textbook-09:page-summary:reader:097"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -30778,26 +30959,44 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-09:page-summary:reader:097"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 64.7,
           "recognizedWordCount": 229,
           "visualReviewStatus": "not-human-reviewed",
           "confidenceBand": "medium",
-          "rawTextPublished": false
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          },
+          "lowConfidenceDetails": [
+            "referenceVocabularyEntries"
+          ],
+          "confidenceByField": {
+            "pageTopic": "high",
+            "referenceVocabularyEntries": "low"
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription",
+          "low-confidence-specific-fields"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -31658,7 +31857,7 @@
       "printedPage": 86,
       "sectionId": "textbook-09",
       "lessonId": "textbook-09",
-      "pageTitle": "Lição 9 · Antes eu criava pássaros",
+      "pageTitle": "Notas culturais: turismo, exercício e expressões",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -31697,26 +31896,27 @@
         "textbook-09:exercise:06",
         "textbook-09-q1",
         "textbook-09-q2",
-        "textbook-09-q3"
+        "textbook-09-q3",
+        "textbook-09:page-summary:reader:102"
       ],
       "relatedLessonIds": [
         "textbook-09"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:102",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Notas culturais apresentam lugares turísticos, hábitos de exercício matinal e animais de estimação; a fonte também comenta expressões idiomáticas que incluem a palavra “cão”.",
         "contentRefs": [
           "textbook-09:overview",
           "textbook-09:function:01",
@@ -31741,7 +31941,8 @@
           "textbook-09:exercise:06",
           "textbook-09-q1",
           "textbook-09-q2",
-          "textbook-09-q3"
+          "textbook-09-q3",
+          "textbook-09:page-summary:reader:102"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -31826,26 +32027,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-09:page-summary:reader:102"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 80.9,
           "recognizedWordCount": 35,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -35796,7 +36007,7 @@
       "printedPage": 106,
       "sectionId": "textbook-11",
       "lessonId": "textbook-11",
-      "pageTitle": "Lição 11 · Quando chegaram?",
+      "pageTitle": "Diálogo e nota sobre empréstimo de livros",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -35809,8 +36020,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma o diálogo sobre empréstimo de livro e as duas notas de expressão."
+      },
+      "reviewNote": "Revisão visual confirma o diálogo sobre empréstimo de livro e as duas notas de expressão.",
       "contentRefs": [
         "textbook-11:overview",
         "textbook-11:function:01",
@@ -35835,27 +36054,29 @@
         "textbook-11:exercise:06",
         "textbook-11-q1",
         "textbook-11-q2",
-        "textbook-11-q3"
+        "textbook-11-q3",
+        "textbook-11:page-summary:reader:122"
       ],
       "relatedLessonIds": [
         "textbook-11"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma o diálogo sobre empréstimo de livro e as duas notas de expressão.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:122",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo sobre empréstimo e devolução de um livro, com referência ao prazo e a uma eventual multa; as notas esclarecem duas expressões usadas na conversa.",
         "contentRefs": [
           "textbook-11:overview",
           "textbook-11:function:01",
@@ -35880,7 +36101,8 @@
           "textbook-11:exercise:06",
           "textbook-11-q1",
           "textbook-11-q2",
-          "textbook-11-q3"
+          "textbook-11-q3",
+          "textbook-11:page-summary:reader:122"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -35965,27 +36187,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-11:page-summary:reader:122"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 54.7,
           "recognizedWordCount": 262,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -36402,7 +36625,7 @@
       "printedPage": 109,
       "sectionId": "textbook-11",
       "lessonId": "textbook-11",
-      "pageTitle": "Lição 11 · Quando chegaram?",
+      "pageTitle": "Nota cultural: cumprimentos contextualizados",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -36441,26 +36664,27 @@
         "textbook-11:exercise:06",
         "textbook-11-q1",
         "textbook-11-q2",
-        "textbook-11-q3"
+        "textbook-11-q3",
+        "textbook-11:page-summary:reader:125"
       ],
       "relatedLessonIds": [
         "textbook-11"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:125",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Explica que cumprimentos podem variar conforme hora, local e circunstância, com exemplos de perguntas cotidianas, respostas e gestos.",
         "contentRefs": [
           "textbook-11:overview",
           "textbook-11:function:01",
@@ -36485,7 +36709,8 @@
           "textbook-11:exercise:06",
           "textbook-11-q1",
           "textbook-11-q2",
-          "textbook-11-q3"
+          "textbook-11-q3",
+          "textbook-11:page-summary:reader:125"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -36570,26 +36795,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-11:page-summary:reader:125"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 83.5,
           "recognizedWordCount": 220,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -37238,7 +37473,7 @@
       "printedPage": 113,
       "sectionId": "textbook-12",
       "lessonId": "textbook-12",
-      "pageTitle": "Lição 12 · Você está muito bem vestido/a",
+      "pageTitle": "Diálogo: aniversário e presente",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -37251,8 +37486,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma a cena de aniversário, o presente e o bolo; não houve transcrição integral das falas."
+      },
+      "reviewNote": "Revisão visual confirma a cena de aniversário, o presente e o bolo; não houve transcrição integral das falas.",
       "contentRefs": [
         "textbook-12:overview",
         "textbook-12:function:01",
@@ -37277,27 +37520,29 @@
         "textbook-12:exercise:06",
         "textbook-12-q1",
         "textbook-12-q2",
-        "textbook-12-q3"
+        "textbook-12-q3",
+        "textbook-12:page-summary:reader:129"
       ],
       "relatedLessonIds": [
         "textbook-12"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma a cena de aniversário, o presente e o bolo; não houve transcrição integral das falas.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:129",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo de aniversário com felicitações, agradecimento, entrega de presente e convite para comer bolo; as falas também comentam uma inscrição de aniversário no bolo.",
         "contentRefs": [
           "textbook-12:overview",
           "textbook-12:function:01",
@@ -37322,7 +37567,8 @@
           "textbook-12:exercise:06",
           "textbook-12-q1",
           "textbook-12-q2",
-          "textbook-12-q3"
+          "textbook-12-q3",
+          "textbook-12:page-summary:reader:129"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -37407,27 +37653,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-12:page-summary:reader:129"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 49.3,
           "recognizedWordCount": 199,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -37438,7 +37685,7 @@
       "printedPage": 114,
       "sectionId": "textbook-12",
       "lessonId": "textbook-12",
-      "pageTitle": "Lição 12 · Você está muito bem vestido/a",
+      "pageTitle": "Notas e gramática: complemento com 得",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -37451,8 +37698,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma as notas culturais e o título da explicação gramatical."
+      },
+      "reviewNote": "Revisão visual confirma as notas culturais e o título da explicação gramatical.",
       "contentRefs": [
         "textbook-12:overview",
         "textbook-12:function:01",
@@ -37477,27 +37732,29 @@
         "textbook-12:exercise:06",
         "textbook-12-q1",
         "textbook-12-q2",
-        "textbook-12-q3"
+        "textbook-12-q3",
+        "textbook-12:page-summary:reader:130"
       ],
       "relatedLessonIds": [
         "textbook-12"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma as notas culturais e o título da explicação gramatical.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:130",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Continua o diálogo de aniversário e traz notas sobre expressões da conversa, seguidas de uma explicação gramatical sobre verbo/adjetivo com 得 e complemento predicativo.",
         "contentRefs": [
           "textbook-12:overview",
           "textbook-12:function:01",
@@ -37522,7 +37779,8 @@
           "textbook-12:exercise:06",
           "textbook-12-q1",
           "textbook-12-q2",
-          "textbook-12-q3"
+          "textbook-12-q3",
+          "textbook-12:page-summary:reader:130"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -37607,27 +37865,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-12:page-summary:reader:130"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 45.6,
           "recognizedWordCount": 118,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -38925,7 +39184,7 @@
       "printedPage": 121,
       "sectionId": "textbook-13",
       "lessonId": "textbook-13",
-      "pageTitle": "Lição 13 · O clima na minha terra natal",
+      "pageTitle": "Diálogo: estações e clima",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -38938,8 +39197,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma a comparação das estações e as ilustrações de esqui e natação."
+      },
+      "reviewNote": "Revisão visual confirma a comparação das estações e as ilustrações de esqui e natação.",
       "contentRefs": [
         "textbook-13:overview",
         "textbook-13:function:01",
@@ -38964,27 +39231,29 @@
         "textbook-13:exercise:06",
         "textbook-13-q1",
         "textbook-13-q2",
-        "textbook-13-q3"
+        "textbook-13-q3",
+        "textbook-13:page-summary:reader:137"
       ],
       "relatedLessonIds": [
         "textbook-13"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma a comparação das estações e as ilustrações de esqui e natação.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:137",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo compara as estações e o clima das terras natais dos interlocutores, com preferência pelo outono; ilustrações mostram atividades de inverno e verão.",
         "contentRefs": [
           "textbook-13:overview",
           "textbook-13:function:01",
@@ -39009,7 +39278,8 @@
           "textbook-13:exercise:06",
           "textbook-13-q1",
           "textbook-13-q2",
-          "textbook-13-q3"
+          "textbook-13-q3",
+          "textbook-13:page-summary:reader:137"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -39094,27 +39364,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-13:page-summary:reader:137"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 52.5,
           "recognizedWordCount": 170,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -39763,7 +40034,7 @@
       "printedPage": 125,
       "sectionId": "textbook-13",
       "lessonId": "textbook-13",
-      "pageTitle": "Lição 13 · O clima na minha terra natal",
+      "pageTitle": "Quadro de temperatura e precipitação",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -39802,26 +40073,28 @@
         "textbook-13:exercise:06",
         "textbook-13-q1",
         "textbook-13-q2",
-        "textbook-13-q3"
+        "textbook-13-q3",
+        "textbook-13:page-summary:reader:141"
       ],
       "relatedLessonIds": [
         "textbook-13"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico derivado do OCR suplementar da página PDF; itens não incluídos no resumo não são presumidos.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription",
+        "low-confidence-specific-fields"
       ],
       "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "contentUncertainty": "low-confidence-specific-fields",
       "pageContent": {
         "recordId": "reader:pdf-page:141",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Tabela intitulada quadro de temperatura média e número de dias com precipitação em cidades chinesas. A estrutura e o tema são identificáveis, mas rótulos e valores numéricos individuais permanecem com baixa confiança.",
         "contentRefs": [
           "textbook-13:overview",
           "textbook-13:function:01",
@@ -39846,7 +40119,8 @@
           "textbook-13:exercise:06",
           "textbook-13-q1",
           "textbook-13-q2",
-          "textbook-13-q3"
+          "textbook-13-q3",
+          "textbook-13:page-summary:reader:141"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -39931,26 +40205,44 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-13:page-summary:reader:141"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 72.7,
           "recognizedWordCount": 291,
           "visualReviewStatus": "not-human-reviewed",
           "confidenceBand": "medium",
-          "rawTextPublished": false
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          },
+          "lowConfidenceDetails": [
+            "climateTableLabelsAndValues"
+          ],
+          "confidenceByField": {
+            "pageTopic": "high",
+            "climateTableLabelsAndValues": "low"
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription",
+          "low-confidence-specific-fields"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -40166,7 +40458,7 @@
       "printedPage": 127,
       "sectionId": "textbook-14",
       "lessonId": "textbook-14",
-      "pageTitle": "Lição 14 · Minha terra natal fica no Nordeste",
+      "pageTitle": "Vocabulário de referência",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -40179,8 +40471,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma que a página é uma lista de vocabulário principal e suplementar; sem transcrição integral."
+      },
+      "reviewNote": "Revisão visual confirma que a página é uma lista de vocabulário principal e suplementar; sem transcrição integral.",
       "contentRefs": [
         "textbook-14:overview",
         "textbook-14:function:01",
@@ -40205,27 +40505,29 @@
         "textbook-14:exercise:06",
         "textbook-14-q1",
         "textbook-14-q2",
-        "textbook-14-q3"
+        "textbook-14-q3",
+        "textbook-14:page-summary:reader:143"
       ],
       "relatedLessonIds": [
         "textbook-14"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma que a página é uma lista de vocabulário principal e suplementar; sem transcrição integral.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:143",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Lista de vocabulário sobre ar, ambiente, transporte, conveniência, direções e elementos urbanos/naturais, seguida de vocabulário suplementar.",
         "contentRefs": [
           "textbook-14:overview",
           "textbook-14:function:01",
@@ -40250,7 +40552,8 @@
           "textbook-14:exercise:06",
           "textbook-14-q1",
           "textbook-14-q2",
-          "textbook-14-q3"
+          "textbook-14-q3",
+          "textbook-14:page-summary:reader:143"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -40335,27 +40638,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-14:page-summary:reader:143"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 53.2,
           "recognizedWordCount": 146,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -40366,7 +40670,7 @@
       "printedPage": 128,
       "sectionId": "textbook-14",
       "lessonId": "textbook-14",
-      "pageTitle": "Lição 14 · Minha terra natal fica no Nordeste",
+      "pageTitle": "Texto: conversa sobre a terra natal",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -40379,8 +40683,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma a conversa sobre origem rural/urbana e a ilustração residencial."
+      },
+      "reviewNote": "Revisão visual confirma a conversa sobre origem rural/urbana e a ilustração residencial.",
       "contentRefs": [
         "textbook-14:overview",
         "textbook-14:function:01",
@@ -40405,27 +40717,29 @@
         "textbook-14:exercise:06",
         "textbook-14-q1",
         "textbook-14-q2",
-        "textbook-14-q3"
+        "textbook-14-q3",
+        "textbook-14:page-summary:reader:144"
       ],
       "relatedLessonIds": [
         "textbook-14"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma a conversa sobre origem rural/urbana e a ilustração residencial.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:144",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo sobre a terra natal no Nordeste, a vida no campo, localização de moradia, transporte e serviços urbanos; há uma ilustração de residência.",
         "contentRefs": [
           "textbook-14:overview",
           "textbook-14:function:01",
@@ -40450,7 +40764,8 @@
           "textbook-14:exercise:06",
           "textbook-14-q1",
           "textbook-14-q2",
-          "textbook-14-q3"
+          "textbook-14-q3",
+          "textbook-14:page-summary:reader:144"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -40535,27 +40850,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-14:page-summary:reader:144"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 51.6,
           "recognizedWordCount": 238,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -41192,7 +41508,7 @@
       "printedPage": 132,
       "sectionId": "textbook-14",
       "lessonId": "textbook-14",
-      "pageTitle": "Lição 14 · Minha terra natal fica no Nordeste",
+      "pageTitle": "Vocabulário e nota cultural: cidades e chengyu",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -41231,26 +41547,27 @@
         "textbook-14:exercise:06",
         "textbook-14-q1",
         "textbook-14-q2",
-        "textbook-14-q3"
+        "textbook-14-q3",
+        "textbook-14:page-summary:reader:148"
       ],
       "relatedLessonIds": [
         "textbook-14"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:148",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Vocabulário de áreas urbanas e elementos naturais acompanha notas sobre urbanização e sobre expressões idiomáticas chinesas de quatro caracteres, chamadas chengyu.",
         "contentRefs": [
           "textbook-14:overview",
           "textbook-14:function:01",
@@ -41275,7 +41592,8 @@
           "textbook-14:exercise:06",
           "textbook-14-q1",
           "textbook-14-q2",
-          "textbook-14-q3"
+          "textbook-14-q3",
+          "textbook-14:page-summary:reader:148"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -41360,26 +41678,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-14:page-summary:reader:148"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 82.4,
           "recognizedWordCount": 367,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -42863,7 +43191,7 @@
       "printedPage": 140,
       "sectionId": "textbook-15",
       "lessonId": "textbook-15",
-      "pageTitle": "Lição 15 · Estudo chinês há meio ano",
+      "pageTitle": "Nota cultural: elogios e línguas estrangeiras",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -42902,26 +43230,27 @@
         "textbook-15:exercise:06",
         "textbook-15-q1",
         "textbook-15-q2",
-        "textbook-15-q3"
+        "textbook-15-q3",
+        "textbook-15:page-summary:reader:156"
       ],
       "relatedLessonIds": [
         "textbook-15"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:156",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Notas culturais tratam da modéstia ao receber elogios e do estudo de línguas estrangeiras na China, citando inglês e japonês.",
         "contentRefs": [
           "textbook-15:overview",
           "textbook-15:function:01",
@@ -42946,7 +43275,8 @@
           "textbook-15:exercise:06",
           "textbook-15-q1",
           "textbook-15-q2",
-          "textbook-15-q3"
+          "textbook-15-q3",
+          "textbook-15:page-summary:reader:156"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -43031,26 +43361,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-15:page-summary:reader:156"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 82.0,
           "recognizedWordCount": 150,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -44494,7 +44834,7 @@
       "printedPage": 148,
       "sectionId": "textbook-16",
       "lessonId": "textbook-16",
-      "pageTitle": "Lição 16 · As passagens de trem esgotaram",
+      "pageTitle": "Vocabulário e nota cultural: reforma e abertura",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -44533,26 +44873,27 @@
         "textbook-16:exercise:06",
         "textbook-16-q1",
         "textbook-16-q2",
-        "textbook-16-q3"
+        "textbook-16-q3",
+        "textbook-16:page-summary:reader:164"
       ],
       "relatedLessonIds": [
         "textbook-16"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:164",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "A página lista vocabulário ligado a investimento e desenvolvimento e resume objetivos atribuídos à política chinesa de Reforma Económica e Abertura ao Exterior, iniciada em 1978.",
         "contentRefs": [
           "textbook-16:overview",
           "textbook-16:function:01",
@@ -44577,7 +44918,8 @@
           "textbook-16:exercise:06",
           "textbook-16-q1",
           "textbook-16-q2",
-          "textbook-16-q3"
+          "textbook-16-q3",
+          "textbook-16:page-summary:reader:164"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -44662,26 +45004,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-16:page-summary:reader:164"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 80.2,
           "recognizedWordCount": 113,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -45110,7 +45462,7 @@
       "printedPage": 151,
       "sectionId": "textbook-17",
       "lessonId": "textbook-17",
-      "pageTitle": "Lição 17 · Você pode se mudar para cá agora?",
+      "pageTitle": "Diálogo: procura de apartamento",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -45149,26 +45501,27 @@
         "textbook-17:exercise:06",
         "textbook-17-q1",
         "textbook-17-q2",
-        "textbook-17-q3"
+        "textbook-17-q3",
+        "textbook-17:page-summary:reader:167"
       ],
       "relatedLessonIds": [
         "textbook-17"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:167",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo encenado entre duas pessoas e uma senhoria sobre alugar um apartamento; a conversa aborda andar do imóvel, elevador, visita e valor mensal.",
         "contentRefs": [
           "textbook-17:overview",
           "textbook-17:function:01",
@@ -45193,7 +45546,8 @@
           "textbook-17:exercise:06",
           "textbook-17-q1",
           "textbook-17-q2",
-          "textbook-17-q3"
+          "textbook-17-q3",
+          "textbook-17:page-summary:reader:167"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -45279,26 +45633,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-17:page-summary:reader:167"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 57.7,
           "recognizedWordCount": 252,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -45530,7 +45894,7 @@
       "printedPage": 153,
       "sectionId": "textbook-17",
       "lessonId": "textbook-17",
-      "pageTitle": "Lição 17 · Você pode se mudar para cá agora?",
+      "pageTitle": "Diálogo: aparelho de ar-condicionado",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -45543,8 +45907,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma o diálogo sobre reparação e compra de um aparelho novo."
+      },
+      "reviewNote": "Revisão visual confirma o diálogo sobre reparação e compra de um aparelho novo.",
       "contentRefs": [
         "textbook-17:overview",
         "textbook-17:function:01",
@@ -45569,27 +45941,29 @@
         "textbook-17:exercise:06",
         "textbook-17-q1",
         "textbook-17-q2",
-        "textbook-17-q3"
+        "textbook-17-q3",
+        "textbook-17:page-summary:reader:169"
       ],
       "relatedLessonIds": [
         "textbook-17"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma o diálogo sobre reparação e compra de um aparelho novo.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:169",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo sobre um ar-condicionado avariado, a tentativa de reparo e a decisão de procurar um aparelho novo; há uma nota curta de vocabulário/expressão.",
         "contentRefs": [
           "textbook-17:overview",
           "textbook-17:function:01",
@@ -45614,7 +45988,8 @@
           "textbook-17:exercise:06",
           "textbook-17-q1",
           "textbook-17-q2",
-          "textbook-17-q3"
+          "textbook-17-q3",
+          "textbook-17:page-summary:reader:169"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -45700,27 +46075,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-17:page-summary:reader:169"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 54.6,
           "recognizedWordCount": 218,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -47430,7 +47806,7 @@
       "printedPage": 162,
       "sectionId": "textbook-18",
       "lessonId": "textbook-18",
-      "pageTitle": "Lição 18 · Receio não entender",
+      "pageTitle": "Gramática e nota cultural: ópera chinesa",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -47469,26 +47845,27 @@
         "textbook-18:exercise:06",
         "textbook-18-q1",
         "textbook-18-q2",
-        "textbook-18-q3"
+        "textbook-18-q3",
+        "textbook-18:page-summary:reader:178"
       ],
       "relatedLessonIds": [
         "textbook-18"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-ocr-summary",
+      "mappingScope": "page-specific",
+      "mappingNote": "Resumo específico baseado no conteúdo reconhecido da página PDF; não é transcrição literal.",
       "contentQualityFlags": [
-        "unit-range-only-no-page-specific-evidence"
+        "source-summary-not-full-transcription"
       ],
-      "mappingConfidence": "medium",
-      "contentUncertainty": "unit-range-only-no-page-specific-evidence",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:178",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Explica complementos de quantidade e de intensidade, apresenta vocabulário de artes cénicas e termina com uma nota sobre ópera tradicional chinesa e gêneros regionais.",
         "contentRefs": [
           "textbook-18:overview",
           "textbook-18:function:01",
@@ -47513,7 +47890,8 @@
           "textbook-18:exercise:06",
           "textbook-18-q1",
           "textbook-18-q2",
-          "textbook-18-q3"
+          "textbook-18-q3",
+          "textbook-18:page-summary:reader:178"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -47598,26 +47976,36 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-18:page-summary:reader:178"
+            ],
+            "basis": "OCR suplementar Tesseract 5 a 300 dpi aplicado à página PDF fornecida; resumo breve, sem publicação do OCR bruto."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "unit-scope-only-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "ocr-derived-summary",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "supplemental-300dpi-tesseract-page-review",
           "textLayerChars": 0,
           "ocrStatus": "ocr-usable",
           "meanWordConfidence": 78.4,
           "recognizedWordCount": 278,
           "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "medium",
-          "rawTextPublished": false
+          "confidenceBand": "high",
+          "rawTextPublished": false,
+          "supplementalOcr": {
+            "engine": "Tesseract 5",
+            "languages": "por+chi_sim",
+            "renderDpi": 300,
+            "pageSegmentationMode": 6,
+            "status": "used-for-page-specific-observation",
+            "rawTextPublished": false
+          }
         },
         "uncertaintyFlags": [
-          "unit-range-only-no-page-specific-evidence"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -49552,7 +49940,7 @@
       "printedPage": 172,
       "sectionId": "textbook-20",
       "lessonId": "textbook-20",
-      "pageTitle": "Lição 20 · Por pouco não fui atingido por um carro",
+      "pageTitle": "Texto: incidente com bicicleta e carro",
       "pageType": "lesson",
       "textLayerChars": 0,
       "ocr": {
@@ -49565,8 +49953,16 @@
         "status": "ocr-partial"
       },
       "evidence": "95dpi-bilingual-image-OCR-with-TOC-boundaries",
-      "visualReview": null,
-      "reviewNote": null,
+      "visualReview": {
+        "status": "completed",
+        "method": "rendered-authorized-PDF-page-inspected-at-1800px-max-dimension",
+        "confidence": "high",
+        "confidenceByField": {
+          "pageTopic": "high"
+        },
+        "notes": "Revisão visual confirma o relato dialogado e a ilustração da bicicleta; sem transcrição integral."
+      },
+      "reviewNote": "Revisão visual confirma o relato dialogado e a ilustração da bicicleta; sem transcrição integral.",
       "contentRefs": [
         "textbook-20:overview",
         "textbook-20:function:01",
@@ -49591,27 +49987,29 @@
         "textbook-20:exercise:06",
         "textbook-20-q1",
         "textbook-20-q2",
-        "textbook-20-q3"
+        "textbook-20-q3",
+        "textbook-20:page-summary:reader:188"
       ],
       "relatedLessonIds": [
         "textbook-20"
       ],
-      "mappingGranularity": "unit-range-only",
-      "mappingScope": "pedagogical",
-      "mappingNote": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+      "mappingGranularity": "page-specific-visual-review",
+      "mappingScope": "page-specific",
+      "mappingNote": "Revisão visual confirma o relato dialogado e a ilustração da bicicleta; sem transcrição integral.",
       "contentQualityFlags": [
-        "ocr-ocr-partial",
-        "not-counted-ocr-or-visual-uncertain"
+        "source-summary-not-full-transcription",
+        "visual-review-completed",
+        "ocr-ocr-partial"
       ],
-      "mappingConfidence": "low-or-uncertain",
-      "contentUncertainty": "ocr-ocr-partial not-counted-ocr-or-visual-uncertain",
+      "mappingConfidence": "high",
+      "contentUncertainty": "source-summary-not-full-transcription",
       "pageContent": {
         "recordId": "reader:pdf-page:188",
         "classification": {
           "pageRole": "pedagogical-content",
           "pedagogicallySubstantive": true
         },
-        "didacticSummary": "Página ligada à visão geral da unidade; não houve correspondência página-específica segura nos campos legíveis.",
+        "didacticSummary": "Diálogo sobre uma tarde azarada, uma ida ao banco e aos correios, o desaparecimento de uma bicicleta e um quase acidente de trânsito.",
         "contentRefs": [
           "textbook-20:overview",
           "textbook-20:function:01",
@@ -49636,7 +50034,8 @@
           "textbook-20:exercise:06",
           "textbook-20-q1",
           "textbook-20-q2",
-          "textbook-20-q3"
+          "textbook-20-q3",
+          "textbook-20:page-summary:reader:188"
         ],
         "coverageByDimension": {
           "vocabulary": {
@@ -49721,27 +50120,28 @@
             "basis": "original questions with answer key and explanation"
           },
           "sourceSummaries": {
-            "status": "not-identified",
-            "recordIds": [],
-            "basis": "original page summary with source PDF page and OCR/text-layer method recorded; no source paragraph copied"
+            "status": "page-specific-original-summary",
+            "recordIds": [
+              "textbook-20:page-summary:reader:188"
+            ],
+            "basis": "Revisão visual da página PDF fornecida; resumo breve sem transcrição de texto-fonte."
           }
         },
-        "mappingStatus": "unit-range-only",
-        "conversionStatus": "uncertain-not-counted",
-        "countedAsPageSummary": false,
+        "mappingStatus": "page-specific-evidence",
+        "conversionStatus": "visual-summary-limited",
+        "countedAsPageSummary": true,
         "sourceEvidence": {
-          "method": "ocr",
+          "method": "visual-review-of-authorized-pdf-page",
           "textLayerChars": 0,
           "ocrStatus": "ocr-partial",
           "meanWordConfidence": 53.8,
           "recognizedWordCount": 255,
-          "visualReviewStatus": "not-human-reviewed",
-          "confidenceBand": "low-or-uncertain",
+          "visualReviewStatus": "human-visual-review-completed",
+          "confidenceBand": "high",
           "rawTextPublished": false
         },
         "uncertaintyFlags": [
-          "ocr-ocr-partial",
-          "not-counted-ocr-or-visual-uncertain"
+          "source-summary-not-full-transcription"
         ],
         "sourceTextPolicy": "No OCR bruto, diálogo ou tabela integral incluído; apenas sínteses e IDs de registros próprios."
       }
@@ -53620,375 +54020,16 @@
       "pageCoverage": {
         "physicalPdfPages": 267,
         "lessonOrSectionLinkedPages": 249,
-        "substantivePages": 234,
-        "substantivePagesWithPageRecords": 234,
-        "substantivePagesLinkedToTeachingRecords": 234,
-        "pagesWithPageSpecificEvidenceOrVisualSummary": 198,
-        "pagesWithoutPageSpecificSummary": [
-          {
-            "sourceId": "shangrila",
-            "pdfPage": 9,
-            "printedPage": 8,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-sparse"
-          },
-          {
-            "sourceId": "shangrila",
-            "pdfPage": 21,
-            "printedPage": 20,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-sparse"
-          },
-          {
-            "sourceId": "shangrila",
-            "pdfPage": 23,
-            "printedPage": 22,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "shangrila",
-            "pdfPage": 36,
-            "printedPage": 35,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "shangrila",
-            "pdfPage": 38,
-            "printedPage": 37,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 24,
-            "printedPage": 9,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 25,
-            "printedPage": 10,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 26,
-            "printedPage": null,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 28,
-            "printedPage": 12,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 42,
-            "printedPage": 26,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 49,
-            "printedPage": 33,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 64,
-            "printedPage": 48,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 68,
-            "printedPage": 52,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 76,
-            "printedPage": 60,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 77,
-            "printedPage": 61,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 83,
-            "printedPage": 67,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 87,
-            "printedPage": 71,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 88,
-            "printedPage": 72,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 92,
-            "printedPage": 76,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 97,
-            "printedPage": 81,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 102,
-            "printedPage": 86,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 122,
-            "printedPage": 106,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 125,
-            "printedPage": 109,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 129,
-            "printedPage": 113,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 130,
-            "printedPage": 114,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 137,
-            "printedPage": 121,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 141,
-            "printedPage": 125,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 143,
-            "printedPage": 127,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 144,
-            "printedPage": 128,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 148,
-            "printedPage": 132,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 156,
-            "printedPage": 140,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 164,
-            "printedPage": 148,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 167,
-            "printedPage": 151,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 169,
-            "printedPage": 153,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 178,
-            "printedPage": 162,
-            "status": "unit-scope-only-not-counted",
-            "ocrStatus": "ocr-usable"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 188,
-            "printedPage": 172,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          }
-        ],
-        "pagesUncertainAndNotCounted": [
-          {
-            "sourceId": "shangrila",
-            "pdfPage": 9,
-            "printedPage": 8,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-sparse"
-          },
-          {
-            "sourceId": "shangrila",
-            "pdfPage": 21,
-            "printedPage": 20,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-sparse"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 26,
-            "printedPage": null,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 28,
-            "printedPage": 12,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 64,
-            "printedPage": 48,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 83,
-            "printedPage": 67,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 92,
-            "printedPage": 76,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 122,
-            "printedPage": 106,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 129,
-            "printedPage": 113,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 130,
-            "printedPage": 114,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 137,
-            "printedPage": 121,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 143,
-            "printedPage": 127,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 144,
-            "printedPage": 128,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 169,
-            "printedPage": 153,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          },
-          {
-            "sourceId": "reader",
-            "pdfPage": 188,
-            "printedPage": 172,
-            "status": "uncertain-not-counted",
-            "ocrStatus": "ocr-partial"
-          }
-        ],
-        "unitRangeOnlyPagesNotCounted": 21,
-        "unresolvedOcrPagesNotCounted": 15,
+        "substantivePages": 232,
+        "substantivePagesWithPageRecords": 232,
+        "substantivePagesLinkedToTeachingRecords": 232,
+        "pagesWithPageSpecificEvidenceOrVisualSummary": 232,
+        "pagesWithoutPageSpecificSummary": [],
+        "pagesUncertainAndNotCounted": [],
+        "unitRangeOnlyPagesNotCounted": 0,
+        "unresolvedOcrPagesNotCounted": 0,
         "pagesWithoutAnyTeachingRecord": [],
-        "pageSummaryCoveragePercent": 84.62,
+        "pageSummaryCoveragePercent": 100.0,
         "pageMapLinkagePercent": 100.0,
         "ocrUncertainPagesTotal": 34,
         "ocrUncertainPagesBySource": {
@@ -54041,7 +54082,53 @@
               171
             ]
           }
-        }
+        },
+        "pagesWithLowConfidenceDetails": [
+          {
+            "sourceId": "shangrila",
+            "pdfPage": 23,
+            "printedPage": 22,
+            "fields": [
+              {
+                "field": "syllableChartCells",
+                "confidence": "low"
+              }
+            ]
+          },
+          {
+            "sourceId": "reader",
+            "pdfPage": 49,
+            "printedPage": 33,
+            "fields": [
+              {
+                "field": "numeralChartCells",
+                "confidence": "low"
+              }
+            ]
+          },
+          {
+            "sourceId": "reader",
+            "pdfPage": 97,
+            "printedPage": 81,
+            "fields": [
+              {
+                "field": "referenceVocabularyEntries",
+                "confidence": "low"
+              }
+            ]
+          },
+          {
+            "sourceId": "reader",
+            "pdfPage": 141,
+            "printedPage": 125,
+            "fields": [
+              {
+                "field": "climateTableLabelsAndValues",
+                "confidence": "low"
+              }
+            ]
+          }
+        ]
       },
       "fullCourseCoverageClaim": false,
       "completeTextTranscription": false,

@@ -38,12 +38,14 @@ function deferred<T>() {
 }
 
 function createStudio(options: {
+  configId?: string
   loadSession?: () => Promise<void>
   newSession?: () => Promise<any>
 } = {}) {
-  const session = { id: 'remote-session-1', messages: [] as any[] }
+  const configId = options.configId ?? 'agent-1'
+  const session = { id: 'remote-session-1', configId, messages: [] as any[] }
   const studio: any = {
-    chatConfigId: { value: 'agent-1' },
+    chatConfigId: { value: configId },
     jobActive: { value: false },
     viewing: { value: null as any },
     loadSession: vi.fn(async () => {
@@ -61,9 +63,9 @@ function createStudio(options: {
   return { studio, session }
 }
 
-function runTurn(studio: any, progress: any, signal: AbortSignal) {
-  const sendTutorTurn = compileTutorTurn()(studio, progress, () => 'prompt', async () => 'resposta', () => ({}), null, async () => {})
-  return sendTutorTurn('olá', 'voice', signal)
+function runTurn(studio: any, progress: any, signal: AbortSignal, mode: 'voice' | 'text' = 'voice') {
+  const sendTutorTurn = compileTutorTurn()(studio, progress, () => 'prompt', async () => 'resposta', (role, text, mode) => ({ role, text, mode }), null, async () => {})
+  return sendTutorTurn('olá', mode, signal)
 }
 
 describe('Mandarin instructor UI and voice lifecycle', () => {
@@ -88,6 +90,30 @@ describe('Mandarin instructor UI and voice lifecycle', () => {
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     expect(studio.send).not.toHaveBeenCalled()
+  })
+
+  it.each(['text', 'voice'] as const)('routes the turn through the selected custom Agent config in %s mode', async mode => {
+    const configId = 'custom-agent-config'
+    const { studio } = createStudio({ configId })
+    const progress = { value: { chatSessionIds: {} as Record<string, string>, chat: [] as any[] } }
+
+    await runTurn(studio, progress, new AbortController().signal, mode)
+
+    expect(studio.newSession).toHaveBeenCalledOnce()
+    expect(studio.send).toHaveBeenCalledOnce()
+    expect(progress.value.chatSessionIds[configId]).toBe('remote-session-1')
+    expect(progress.value.chat.map((line: any) => line.text)).toEqual(['olá', 'resposta'])
+    expect(progress.value.chat.map((line: any) => line.mode)).toEqual([mode, mode])
+    expect(studio.chatConfigId.value).toBe(configId)
+  })
+
+  it('makes text the default and requires explicit voice mode before a mic start', () => {
+    expect(template).toContain('O modo texto é completo e não pede permissão de microfone.')
+    expect(template).toContain('selecionar Voz não inicia a captura')
+    expect(template).toContain('Iniciar conversa por voz')
+    expect(instructor).toContain("interactionMode: normalizeCourseInteractionMode(input.interactionMode)")
+    expect(instructor).toContain('canStartCourseVoice(progress.value.interactionMode, voice.supported)')
+    expect(instructor).toContain("progress.value.interactionMode !== 'voice'")
   })
 
   it('labels transcript clearing as local-only and leaves remote Agent sessions untouched', () => {

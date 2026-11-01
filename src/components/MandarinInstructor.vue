@@ -177,24 +177,48 @@
         </template>
 
         <template v-else-if="stage === 'voice'">
-          <div class="mi-content-head"><div><p class="mi-kicker">VOICE LAB · AGENTE ESCOLHIDO NO OS</p><h2 :id="`lesson-${activeLesson.id}`">Converse com o tutor</h2><p class="mi-subtitle">O modo voz usa a ponte de voz existente do OS e o Agent configurado por você; o microfone só liga quando você pede.</p></div><span class="mi-voice-state" :data-state="voice.state.value"><i />{{ voiceLabel }}</span></div>
+          <div class="mi-content-head">
+            <div><p class="mi-kicker">TUTOR · AGENTE ESCOLHIDO NO OS</p><h2 :id="`lesson-${activeLesson.id}`">Escolha como praticar</h2><p class="mi-subtitle">O modo texto é completo e não pede permissão de microfone. O modo voz é opcional; selecionar Voz não inicia a captura — você ainda precisa tocar em Iniciar.</p></div>
+            <span class="mi-voice-state" :data-state="progress.interactionMode === 'text' ? 'idle' : voice.state.value"><i />{{ progress.interactionMode === 'text' ? 'MODO TEXTO' : voiceLabel }}</span>
+          </div>
+          <section v-if="tutorSourcePage" class="mi-page-context" aria-label="Resumo de página enviado ao Agent">
+            <div><p class="mi-section-label">CONTEXTO DE PÁGINA DO TUTOR</p><strong>{{ sourceLabel(tutorSourcePage.sourceId) }} · PDF p. {{ tutorSourcePage.pdfPage }}<template v-if="tutorSourcePage.printedPage"> · p. impressa {{ tutorSourcePage.printedPage }}</template></strong><p>{{ tutorSourcePage.summary }}</p><small>Resumo, não transcrição integral. As ressalvas e os campos de baixa confiança também seguem no contexto do Agent.</small></div>
+            <UiButton size="xs" variant="outline" icon="solar:document-text-bold" @click="setStage('sources')">Trocar resumo</UiButton>
+          </section>
+          <section class="mi-teacher-stage" aria-label="Professor animado do curso">
+            <OrbNavigator :screen-index="0" :screen-count="1" :motion-reduced="motion.reduced.value" teacher-mode :activity="teacherOrbActivity" :caption="teacherOrbCaption" />
+            <p><strong>Seu professor de mandarim</strong><span>O Orb acompanha a conversa sem ativar o microfone; a captura só começa ao iniciar uma chamada no modo Voz.</span></p>
+          </section>
+          <div class="mi-mode-toggle" role="group" aria-label="Modo de interação com o tutor">
+            <button type="button" class="mi-mode-button" :class="{ selected: progress.interactionMode === 'text' }" :aria-pressed="progress.interactionMode === 'text'" @click="setInteractionMode('text')">Texto · teclado</button>
+            <button type="button" class="mi-mode-button" :class="{ selected: progress.interactionMode === 'voice' }" :aria-pressed="progress.interactionMode === 'voice'" :disabled="!voice.supported" @click="setInteractionMode('voice')">Voz · falar e ouvir</button>
+          </div>
+          <p v-if="progress.interactionMode === 'text'" class="mi-mode-note">Digite suas perguntas e respostas abaixo. O Agent responde por texto; nenhuma captura de voz ou fala automática do tutor é iniciada neste modo.</p>
+          <p v-else class="mi-mode-note">A chamada de voz só começa ao tocar em “Iniciar conversa por voz”. Durante essa chamada, sua fala vira texto para o Agent e as respostas são lidas pela síntese do dispositivo.</p>
           <div class="mi-voice-layout">
             <section class="mi-voice-card">
               <div class="mi-voice-setting-row"><label for="mandarin-agent-select">AGENTE PARA ESTA PRÁTICA</label><select id="mandarin-agent-select" v-model="studio.chatConfigId.value" :disabled="voice.active.value || studio.jobActive.value"><option value="">Selecione um Agent</option><option v-for="config in studio.configs.value" :key="config.id" :value="config.id">{{ config.name }} · {{ config.model }}</option></select></div>
               <div class="mi-voice-setting-row"><label for="voice-language">IDIOMA DA FALA</label><select id="voice-language" v-model="progress.voiceLanguage"><option value="zh-CN">Mandarim · zh-CN</option><option value="pt-BR">Português · pt-BR</option></select></div>
-              <p class="mi-voice-safety"><AppIcon name="solar:shield-check-bold" :size="15" />Não guardamos áudio. O browser ou o sistema reconhece sua fala; a transcrição entra no progresso local e segue como texto ao provider do Agent. A voz da resposta usa a síntese do dispositivo. Verifique as políticas do serviço de reconhecimento que você usa.</p>
-              <p v-if="!voice.supported" class="mi-provider-warning" role="status">Este browser não oferece SpeechRecognition + voz sintetizada. Você ainda pode praticar por texto; o Android pode usar o serviço de voz nativo.</p>
-              <div class="mi-voice-controls"><UiButton v-if="!voice.active.value" size="lg" icon="solar:microphone-3-bold" :disabled="!selectedAgentId || studio.jobActive.value || !voice.supported" @click="startVoice">Iniciar conversa por voz</UiButton><template v-else><UiButton size="md" icon="solar:stop-circle-bold" variant="danger" @click="stopVoice">Encerrar voz</UiButton><UiButton v-if="voice.state.value === 'speaking'" size="md" icon="solar:skip-next-bold" variant="secondary" @click="voice.interrupt">Interromper e falar</UiButton></template><UiButton size="md" variant="ghost" icon="solar:settings-bold" @click="wm.open('agent')">Configurar Agents</UiButton></div>
-              <p v-if="voice.state.value === 'listening'" class="mi-live-caption" role="status">Estou ouvindo. Fale uma frase em mandarim quando estiver pronto.</p>
-              <p v-if="voice.state.value === 'thinking'" class="mi-live-caption" role="status">O tutor está preparando uma resposta…</p>
-              <p v-if="voice.state.value === 'speaking'" class="mi-live-caption" role="status">O tutor está falando. Você pode interromper.</p>
+              <p class="mi-voice-safety"><AppIcon name="solar:shield-check-bold" :size="15" />Não guardamos áudio. Em modo texto, não há captura nem resposta falada. Em modo voz, a fala é reconhecida no browser/sistema, enviada como texto ao Agent e a resposta é sintetizada no dispositivo; confira as políticas do serviço de voz escolhido.</p>
+              <p v-if="progress.interactionMode === 'voice' && !voice.supported" class="mi-provider-warning" role="status">Este dispositivo não oferece o reconhecimento e a síntese exigidos pelo modo voz. O modo texto continua disponível em todas as unidades.</p>
+              <div class="mi-voice-controls">
+                <UiButton v-if="progress.interactionMode === 'voice' && !voice.active.value" size="lg" icon="solar:microphone-3-bold" :disabled="!selectedAgentId || studio.jobActive.value || !voice.supported" @click="startVoice">Iniciar conversa por voz</UiButton>
+                <template v-else-if="progress.interactionMode === 'voice'">
+                  <UiButton size="md" icon="solar:stop-circle-bold" variant="danger" @click="stopVoice">Encerrar voz</UiButton>
+                  <UiButton v-if="voice.state.value === 'speaking'" size="md" icon="solar:skip-next-bold" variant="secondary" @click="voice.interrupt">Interromper e ouvir novamente</UiButton>
+                </template>
+                <UiButton size="md" variant="ghost" icon="solar:settings-bold" @click="wm.open('agent')">Configurar Agents</UiButton>
+              </div>
+              <p v-if="progress.interactionMode === 'voice' && voice.state.value === 'listening'" class="mi-live-caption" role="status">Estou ouvindo. Fale uma frase em mandarim quando estiver pronto.</p>
+              <p v-if="progress.interactionMode === 'voice' && voice.state.value === 'thinking'" class="mi-live-caption" role="status">O tutor está preparando uma resposta…</p>
+              <p v-if="progress.interactionMode === 'voice' && voice.state.value === 'speaking'" class="mi-live-caption" role="status">O tutor está falando. Você pode interromper.</p>
               <p v-if="voice.error.value" class="mi-voice-error" role="alert">{{ voice.error.value }}</p>
-              <div class="mi-shortcut-grid">
-                <div class="mi-shortcut-row"><span><strong>Alternar voz</strong><small>Funciona só nesta aba, com a janela em foco.</small></span><UiButton size="xs" variant="outline" @click="beginShortcutCapture('toggleVoice')">{{ shortcutLabel('toggleVoice') }}</UiButton></div>
+              <div v-if="progress.interactionMode === 'voice'" class="mi-shortcut-grid">
+                <div class="mi-shortcut-row"><span><strong>Alternar voz</strong><small>Funciona só nesta aba, em modo Voz e com a janela em foco.</small></span><UiButton size="xs" variant="outline" @click="beginShortcutCapture('toggleVoice')">{{ shortcutLabel('toggleVoice') }}</UiButton></div>
                 <div class="mi-shortcut-row"><span><strong>Ouvir a frase atual</strong><small>Repete a expressão em foco da aula.</small></span><UiButton size="xs" variant="outline" @click="beginShortcutCapture('replayPhrase')">{{ shortcutLabel('replayPhrase') }}</UiButton></div>
                 <p v-if="capturingShortcut" class="mi-capture-message" role="status">Pressione uma combinação de tecla com pelo menos um modificador. Esc cancela.</p>
               </div>
-              <p class="mi-shortcut-note">Atalhos são opcionais. O navegador ou o sistema operacional pode reservar certas combinações.</p>
+              <p v-if="progress.interactionMode === 'voice'" class="mi-shortcut-note">Atalhos são opcionais. O navegador ou o sistema operacional pode reservar certas combinações.</p>
             </section>
             <section class="mi-chat-card" aria-label="Transcrição do tutor do curso">
               <div class="mi-chat-head"><div><p class="mi-section-label">HISTÓRICO LOCAL DO CURSO</p><strong>{{ progress.chat.length }} mensagens salvas</strong><small class="mi-chat-local-note">Limpar remove apenas o histórico e o vínculo locais; a sessão remota do Agent continua em Agents.</small></div><button type="button" class="mi-icon-button" title="Apagar somente o histórico local do curso" aria-label="Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada" :disabled="!progress.chat.length" @click="clearChat"><AppIcon name="solar:trash-bin-trash-bold" :size="16" /></button></div>
@@ -205,18 +229,61 @@
               <form class="mi-chat-compose" @submit.prevent="sendTextPractice"><label class="sr-only" for="mandarin-chat-input">Sua mensagem para o tutor</label><textarea id="mandarin-chat-input" v-model="chatDraft" rows="2" maxlength="800" placeholder="Escreva uma pergunta ou resposta em mandarim…" :disabled="studio.jobActive.value || voice.active.value" /><UiButton size="sm" type="submit" icon="solar:plain-bold" :disabled="!chatDraft.trim() || studio.jobActive.value || voice.active.value">Enviar</UiButton></form>
             </section>
           </div>
-          <section class="mi-adapter-list"><div><p class="mi-section-label">PORTAS PARA NOVOS PROVIDERS</p><h3>Uma interface, providers trocáveis</h3></div><article v-for="provider in VOICE_PROVIDER_CATALOG.filter(row => row.id !== 'os-agent')" :key="provider.id" class="mi-adapter"><div><strong>{{ provider.name }}</strong><small>{{ provider.transport }}</small><small>{{ provider.needs }}</small></div><span class="mi-adapter-badge">Host adapter necessário</span><a v-if="provider.url" :href="provider.url" target="_blank" rel="noopener noreferrer">Documentação</a></article><p class="mi-adapter-foot" role="status" aria-live="polite">Rota ativa neste dispositivo: <strong>{{ voice.provider?.label ?? 'indisponível; use o chat por texto' }}</strong>. {{ voice.provider?.summary ?? 'A ponte de voz não é suportada neste dispositivo.' }} Os serviços remotos ainda não estão conectados; seu destino precisa ser definido pelo host confiável. Esta tela não aceita URL de rota nem encaminha chaves informadas pelo cliente.</p></section>
+          <LanguageTeacherVoiceProviders />
+          <section class="mi-adapter-list"><div><p class="mi-section-label">PORTAS PARA NOVOS PROVIDERS</p><h3>Uma interface, providers trocáveis</h3></div><article v-for="provider in VOICE_PROVIDER_CATALOG.filter(row => row.id !== 'os-agent')" :key="provider.id" class="mi-adapter"><div><strong>{{ provider.name }}</strong><small>{{ provider.transport }}</small><small>{{ provider.needs }}</small></div><span class="mi-adapter-badge">{{ provider.id === 'voicestudio-local' ? 'Teste TTS configurável' : 'Runtime de conversa pendente' }}</span><a v-if="provider.url" :href="provider.url" target="_blank" rel="noopener noreferrer">Documentação</a></article><p class="mi-adapter-foot" role="status" aria-live="polite">Rota ativa para conversa: <strong>{{ voice.provider?.label ?? 'indisponível; use o modo texto' }}</strong>. {{ voice.provider?.summary ?? 'A ponte de voz não é suportada neste dispositivo.' }} Gemini Live e ElevenLabs Agents ainda exigem broker confiável para tokens efêmeros. VoiceStudio permite apenas teste TTS manual no endpoint HTTPS configurado acima; não é o Agent da conversa e nunca fala automaticamente nas aulas.</p></section>
         </template>
 
         <template v-else>
           <div class="mi-content-head"><div><p class="mi-kicker">FONTES E CRÉDITOS</p><h2 :id="`lesson-${activeLesson.id}`">Material que orienta o curso</h2><p class="mi-subtitle">As fontes foram usadas para montar resumos, objetivos e referências de páginas. PDFs completos e imagens escaneadas não fazem parte do build.</p></div></div>
           <div class="mi-source-list">
+            <section class="mi-page-browser mi-source-card" aria-labelledby="page-summary-title">
+              <div class="mi-page-browser-heading">
+                <p class="mi-source-label">NAVEGAÇÃO UNIFORME · RESUMOS POR PÁGINA</p>
+                <h3 id="page-summary-title">Catálogo de resumos página-específicos</h3>
+                <p class="mi-page-count"><strong>{{ sourcePageSummaryRecords.length }} / {{ substantiveSourcePageCount }}</strong> páginas didáticas com resumo próprio navegável.</p>
+                <p>O catálogo inclui {{ lessonListedSourceSummaryCount }} resumos que também aparecem nas listas das lições e torna navegáveis os outros {{ corpusOnlySourceSummaryCount }}. Cobertura por página não significa cobertura integral do curso nem transcrição integral.</p>
+              </div>
+              <div class="mi-page-browser-controls">
+                <label for="mandarin-page-summary-search">BUSCAR POR FONTE, PÁGINA, TÍTULO OU RESUMO<input id="mandarin-page-summary-search" v-model="sourcePageSearch" type="search" autocomplete="off" placeholder="Ex.: Shangrila, PDF 23, numerais…" /></label>
+                <label for="mandarin-page-summary-select">PÁGINA-FONTE<select id="mandarin-page-summary-select" v-model="selectedSourcePageKey"><option v-for="page in filteredSourcePageSummaries" :key="page.key" :value="page.key">{{ sourceLabel(page.sourceId) }} · PDF p. {{ page.pdfPage }}<template v-if="page.printedPage"> · impressa {{ page.printedPage }}</template> · {{ page.pageTitle || 'Resumo da página' }}</option></select></label>
+                <div class="mi-page-browser-nav" aria-label="Navegação entre resumos">
+                  <UiButton size="xs" variant="outline" icon="solar:alt-arrow-left-bold" :disabled="!filteredSourcePageSummaries.length" @click="moveSourcePage(-1)">Anterior</UiButton>
+                  <span v-if="selectedSourcePage">{{ selectedSourcePageIndex + 1 }} / {{ filteredSourcePageSummaries.length }}</span><span v-else role="status">Nenhum resultado</span>
+                  <UiButton size="xs" variant="outline" icon="solar:alt-arrow-right-bold" :disabled="!filteredSourcePageSummaries.length" @click="moveSourcePage(1)">Próxima</UiButton>
+                </div>
+              </div>
+              <article v-if="selectedSourcePage" class="mi-page-summary" aria-live="polite">
+                <div><p class="mi-source-label">{{ sourceLabel(selectedSourcePage.sourceId) }}<template v-if="selectedSourcePage.printedPage"> · página impressa {{ selectedSourcePage.printedPage }}</template> · PDF p. {{ selectedSourcePage.pdfPage }}</p><h4>{{ selectedSourcePage.pageTitle || 'Resumo da página-fonte' }}</h4></div>
+                <p>{{ selectedSourcePage.summary }}</p>
+                <p class="mi-page-caveat">Síntese breve e específica desta página — não é transcrição literal. Itens não mencionados não devem ser presumidos.</p>
+                <p v-if="selectedSourcePage.mappingNote"><strong>Nota de mapeamento:</strong> {{ selectedSourcePage.mappingNote }}</p>
+                <p v-if="selectedSourcePage.mappingConfidence"><strong>Confiança do mapeamento:</strong> {{ selectedSourcePage.mappingConfidence }}</p>
+                <p v-if="selectedSourcePage.contentUncertainty" class="mi-page-warning"><strong>Ressalva de confiança:</strong> {{ selectedSourcePage.contentUncertainty }}</p>
+                <p v-if="selectedSourcePage.lowConfidenceFields.length" class="mi-page-warning"><strong>Detalhes específicos de baixa confiança:</strong> {{ selectedSourcePage.lowConfidenceFields.join(', ') }}</p>
+                <p v-if="selectedSourcePage.reviewNote"><strong>Nota de revisão:</strong> {{ selectedSourcePage.reviewNote }}</p>
+                <p v-if="selectedSourcePage.visualReview"><strong>Revisão visual:</strong> {{ selectedSourcePage.visualReview }}</p>
+                <UiButton size="sm" icon="solar:chat-round-dots-bold" @click="studySelectedSourcePage">Levar este resumo ao Tutor</UiButton>
+              </article>
+              <p v-else class="mi-page-empty" role="status">Nenhum resumo corresponde à busca. Tente outro termo, fonte ou número de página.</p>
+            </section>
 	            <article class="mi-source-card"><span class="mi-source-label">CURSO DE MANDARIM · FONTE 1</span><h3>{{ MANDARIN_SOURCES.course.title }}</h3><p>Crédito indicado no material: {{ MANDARIN_SOURCES.course.publisher }}. Mapeado do contexto e pronúncia às folhas de escrita: pp. 1–56 impressas; as referências de cada aula também mostram o número físico do PDF.</p><p>{{ MANDARIN_SOURCES.course.note }}</p></article>
 	            <article class="mi-source-card"><span class="mi-source-label">CURSO DE MANDARIM · FONTE 2</span><h3>{{ MANDARIN_SOURCES.reader.title }}</h3><p>{{ MANDARIN_SOURCES.reader.publisher }}. Sequência do sumário: Lições 0–20, leituras de apoio e índices; as páginas são citadas sem copiar as leituras ou exercícios completos.</p><p>{{ MANDARIN_SOURCES.reader.note }}</p></article>
 	            <article class="mi-source-card"><span class="mi-source-label">COBERTURA E LIMITES</span><h3>{{ MANDARIN_CORPUS.coverage.physicalPdfPages }} páginas com registro individual</h3><p>O índice inclui {{ MANDARIN_CORPUS.coverage.sourcePageCounts.shangrila }} páginas do curso Shangrila e {{ MANDARIN_CORPUS.coverage.sourcePageCounts.reader }} do livro do aluno. Isso é cobertura de inventário, não transcrição integral.</p><p v-for="(limitation, index) in MANDARIN_CORPUS.limitations" :key="`limitation-${index}`">{{ limitation }}</p></article>
-            <article class="mi-source-card"><span class="mi-source-label">VOICE LOOP · REFERÊNCIA TÉCNICA</span><h3>{{ MANDARIN_SOURCES.voice.title }}</h3><p>{{ MANDARIN_SOURCES.voice.publisher }} · {{ MANDARIN_SOURCES.voice.license }}. O projeto não copia arquivos do ZIP recebido. O OS usa VozPonte e o driver de Agents existentes.</p><p>{{ MANDARIN_SOURCES.voice.note }}</p></article>
-            <div class="mi-source-links"><a href="https://ai.google.dev/gemini-api/docs/live-api" target="_blank" rel="noopener noreferrer">Gemini Live API · tokens efêmeros e WebSocket ↗</a><a href="https://developers.openai.com/api/docs/guides/realtime" target="_blank" rel="noopener noreferrer">OpenAI Realtime · WebRTC e client secrets ↗</a><a href="https://elevenlabs.io/docs/eleven-agents/libraries/java-script" target="_blank" rel="noopener noreferrer">ElevenLabs Agents · WebRTC e tokens de conversa ↗</a></div>
-          </div>
+	            <article class="mi-source-card"><span class="mi-source-label">VOICE LOOP · REFERÊNCIA TÉCNICA</span><h3>{{ MANDARIN_SOURCES.voice.title }}</h3><p>{{ MANDARIN_SOURCES.voice.publisher }} · {{ MANDARIN_SOURCES.voice.license }}. O projeto não copia arquivos do ZIP recebido. O OS usa VozPonte e o driver de Agents existentes.</p><p>{{ MANDARIN_SOURCES.voice.note }}</p></article>
+	            <div class="mi-source-links">
+	              <a href="https://ai.google.dev/gemini-api/docs/live-api/get-started-sdk" target="_blank" rel="noopener noreferrer">Gemini Live · SDK JavaScript ↗</a>
+	              <a href="https://ai.google.dev/gemini-api/docs/ephemeral-tokens" target="_blank" rel="noopener noreferrer">Gemini · tokens efêmeros ↗</a>
+	              <a href="https://ai.google.dev/gemini-api/docs/live-api/capabilities" target="_blank" rel="noopener noreferrer">Gemini · áudio, VAD e interrupções ↗</a>
+	              <a href="https://developers.openai.com/api/docs/guides/realtime" target="_blank" rel="noopener noreferrer">OpenAI Realtime · WebRTC e client secrets ↗</a>
+	              <a href="https://elevenlabs.io/docs/eleven-agents/libraries/java-script" target="_blank" rel="noopener noreferrer">ElevenLabs · SDK JavaScript ↗</a>
+	              <a href="https://elevenlabs.io/docs/eleven-agents/customization/authentication" target="_blank" rel="noopener noreferrer">ElevenLabs · autenticação de agentes ↗</a>
+	              <a href="https://elevenlabs.io/docs/eleven-agents/api-reference/conversations/get-webrtc-token" target="_blank" rel="noopener noreferrer">ElevenLabs · token WebRTC ↗</a>
+	              <a href="https://voicestudio.sh/docs/text-to-speech" target="_blank" rel="noopener noreferrer">VoiceStudio · TTS local ↗</a>
+	              <a href="https://voicestudio.sh/docs/local-api" target="_blank" rel="noopener noreferrer">VoiceStudio · API local ↗</a>
+	              <a href="https://voicestudio.sh/docs/authentication" target="_blank" rel="noopener noreferrer">VoiceStudio · autenticação ↗</a>
+	              <a href="https://github.com/debpalash/VoiceStudio/blob/main/docs/speech-platform.md" target="_blank" rel="noopener noreferrer">VoiceStudio · docs do repositório ↗</a>
+	            </div>
+	          </div>
         </template>
       </main>
     </div>
@@ -228,15 +295,20 @@
 // Role: integrated Mandarin learning surface with local exercises and the OS voice loop.
 // Exports: window component.
 // Integrates: Panel/window registry, useVault, useStudioAgent, VozPonte, source-attributed course data.
-// Contracts: never persists provider API keys; uploaded PDFs are summarized/cited, not redistributed.
+// Contracts: provider credentials use only the sealed local .cybermanju secret store; uploaded PDFs are summarized/cited, not redistributed.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
+import OrbNavigator from '@/components/OrbNavigator.vue'
 import UiButton from '@/components/ui/UiButton.vue'
+import LanguageTeacherVoiceProviders from '@/components/LanguageTeacherVoiceProviders.vue'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { useWindowUi } from '@/composables/useWindowUi'
 import { useStudioAgent } from '@/composables/useStudioAgent'
 import { useVoiceCall } from '@/composables/useVoiceCall'
+import { useMotion } from '@/composables/useMotion'
 import { vaultGetJson, vaultSetJson, vaultBackend } from '@/composables/useVault'
+import { canStartCourseVoice, normalizeCourseInteractionMode, type CourseInteractionMode } from '@/utils/courseInteraction'
+import type { VoiceCallState } from '@/utils/voiceCall'
 import {
   COURSE_PROGRESS_KEY,
   MANDARIN_LESSONS,
@@ -302,8 +374,78 @@ type LessonPedagogy = {
   sourceContextNotes?: LessonPedagogyItem[]
   pageSummaries?: LessonPedagogyItem[]
 }
+type SourcePageInput = {
+  sourceId: string
+  pdfPage: number
+  printedPage: number | null
+  lessonId: string | null
+  pageTitle: string | null
+  mappingNote?: string | null
+  mappingConfidence?: string
+  contentUncertainty?: string | null
+  reviewNote?: string | null
+  visualReview?: string | null
+  pageContent?: {
+    classification?: { pedagogicallySubstantive?: boolean }
+    didacticSummary?: string | null
+    contentRefs?: string[]
+    sourceEvidence?: { lowConfidenceDetails?: string[] }
+  }
+}
+type SourcePageSummary = SourcePageInput & {
+  key: string
+  summary: string
+  summaryRecordId: string
+  lowConfidenceFields: string[]
+}
+function teacherOrbActivityFor(mode: CourseInteractionMode, voiceState: VoiceCallState): VoiceCallState {
+  return mode === 'voice' ? voiceState : 'idle'
+}
+function buildPageSummaryCatalog(pages: SourcePageInput[]): SourcePageSummary[] {
+  return pages.flatMap(page => {
+    const summary = page.pageContent?.didacticSummary?.trim()
+    if (!page.pageContent?.classification?.pedagogicallySubstantive || !summary) return []
+    return [{
+      ...page,
+      key: `${page.sourceId}:pdf:${page.pdfPage}`,
+      summary,
+      summaryRecordId: page.pageContent.contentRefs?.find(item => item.includes(':page-summary:')) ?? '',
+      lowConfidenceFields: [...(page.pageContent.sourceEvidence?.lowConfidenceDetails ?? [])],
+    }]
+  })
+}
+function filterPageSummaryCatalog(records: SourcePageSummary[], search: string): SourcePageSummary[] {
+  const query = search.trim().toLocaleLowerCase('pt-BR')
+  if (!query) return records
+  return records.filter(page => [
+    page.key,
+    page.sourceId === 'reader' ? 'livro do aluno' : 'shangrila',
+    page.sourceId,
+    page.pdfPage,
+    page.printedPage ?? '',
+    page.pageTitle ?? '',
+    page.summary,
+  ].join(' ').toLocaleLowerCase('pt-BR').includes(query))
+}
+function buildTutorSourcePageContext(page: SourcePageSummary | null): string {
+  if (!page) return 'Nenhum resumo página-específico foi selecionado pelo estudante para esta conversa.'
+  const sourceName = page.sourceId === 'reader' ? 'livro do aluno' : 'curso Shangrila'
+  const location = `${sourceName}, PDF p. ${page.pdfPage}${page.printedPage ? ` (p. impressa ${page.printedPage})` : ''}`
+  return [
+    `Resumo página-específico selecionado pelo estudante — ${location}${page.pageTitle ? ` · ${page.pageTitle}` : ''}.`,
+    `Síntese: ${page.summary}`,
+    'Este é um resumo original, não uma transcrição integral; não invente detalhes ausentes nem trate cobertura por página como cobertura integral do curso.',
+    page.mappingNote ? `Nota de mapeamento: ${page.mappingNote}` : '',
+    page.mappingConfidence ? `Confiança do mapeamento: ${page.mappingConfidence}` : '',
+    page.contentUncertainty ? `Ressalva de confiança: ${page.contentUncertainty}` : '',
+    page.lowConfidenceFields.length ? `Campos específicos de baixa confiança: ${page.lowConfidenceFields.join(', ')}` : '',
+    page.reviewNote ? `Nota de revisão: ${page.reviewNote}` : '',
+    page.visualReview ? `Revisão visual: ${page.visualReview}` : '',
+  ].filter(Boolean).join('\n')
+}
 const wm = useWindowManager()
 const windowUi = useWindowUi()
+const motion = useMotion()
 const studio = useStudioAgent()
 const progress = ref<MandarinProgress>(defaultMandarinProgress())
 const hydrated = ref(false)
@@ -312,6 +454,22 @@ const stage = ref<CourseStage>('learn')
 const activeLessonId = computed(() => progress.value.activeLessonId)
 const activeLesson = computed(() => MANDARIN_LESSONS.find(row => row.id === activeLessonId.value) ?? MANDARIN_LESSONS[0])
 const activePedagogy = computed(() => (activeLesson.value as unknown as { pedagogy?: LessonPedagogy }).pedagogy)
+const corpusPageRecords = MANDARIN_CORPUS.pages as unknown as SourcePageInput[]
+const sourcePageSummaryRecords = buildPageSummaryCatalog(corpusPageRecords)
+const substantiveSourcePageCount = corpusPageRecords.filter(page => page.pageContent?.classification?.pedagogicallySubstantive).length
+const lessonPageSummaryIds = new Set(MANDARIN_LESSONS.flatMap(lesson => {
+  const pedagogy = (lesson as unknown as { pedagogy?: { pageSummaries?: Array<{ id?: string }> } }).pedagogy
+  return (pedagogy?.pageSummaries ?? []).map(item => item.id).filter((id): id is string => !!id)
+}))
+const lessonListedSourceSummaryCount = sourcePageSummaryRecords.filter(page => lessonPageSummaryIds.has(page.summaryRecordId)).length
+const corpusOnlySourceSummaryCount = sourcePageSummaryRecords.length - lessonListedSourceSummaryCount
+const sourcePageSearch = ref('')
+const filteredSourcePageSummaries = computed(() => filterPageSummaryCatalog(sourcePageSummaryRecords, sourcePageSearch.value))
+const selectedSourcePageKey = ref(sourcePageSummaryRecords[0]?.key ?? '')
+const selectedSourcePage = computed(() => filteredSourcePageSummaries.value.find(page => page.key === selectedSourcePageKey.value) ?? null)
+const selectedSourcePageIndex = computed(() => filteredSourcePageSummaries.value.findIndex(page => page.key === selectedSourcePageKey.value))
+const tutorSourcePageKey = ref('')
+const tutorSourcePage = computed(() => sourcePageSummaryRecords.find(page => page.key === tutorSourcePageKey.value) ?? null)
 const lessonGroups = [
   { id: 'shangrila-m1', title: 'SHANGRILA · MÓDULO 1', lessons: MANDARIN_LESSONS.filter(lesson => lesson.moduleId === 'shangrila-m1') },
   { id: 'contemporary', title: 'CHINÊS CONTEMPORÂNEO · LIÇÕES 0–20', lessons: MANDARIN_LESSONS.filter(lesson => lesson.moduleId === 'contemporary') },
@@ -341,7 +499,7 @@ const stages: Array<{ id: CourseStage; label: string; icon: string }> = [
   { id: 'learn', label: 'Aprender', icon: 'solar:book-bold' },
   { id: 'write', label: 'Escrever', icon: 'solar:pen-bold' },
   { id: 'quiz', label: 'Revisar', icon: 'solar:check-read-bold' },
-  { id: 'voice', label: 'Falar', icon: 'solar:microphone-3-bold' },
+  { id: 'voice', label: 'Tutor', icon: 'solar:chat-round-dots-bold' },
   { id: 'sources', label: 'Fontes', icon: 'solar:document-text-bold' },
 ]
 const toneShapes = [
@@ -356,6 +514,18 @@ const writingCharacters = computed(() => {
 })
 const voiceLabel = computed(() => ({ idle: 'PRONTA', listening: 'OUVINDO', thinking: 'PENSANDO', speaking: 'FALANDO', muted: 'MUTADA', error: 'ERRO' }[voice.state.value]))
 const voice = useVoiceCall(sendVoicePrompt, () => progress.value.voiceLanguage)
+const teacherOrbActivity = computed(() => teacherOrbActivityFor(progress.value.interactionMode, voice.state.value))
+const teacherOrbCaption = computed(() => {
+  if (progress.value.interactionMode === 'text') return 'Modo Texto completo · microfone desligado'
+  return ({
+    idle: 'Voz selecionada · o microfone fica desligado até tocar em Iniciar',
+    listening: 'Ouvindo · conversa por voz ativa',
+    thinking: 'Pensando na resposta',
+    speaking: 'Falando a resposta do tutor',
+    muted: 'Microfone mutado',
+    error: 'Voz indisponível · use o modo Texto',
+  } satisfies Record<VoiceCallState, string>)[voice.state.value]
+})
 const capturingShortcut = ref<keyof MandarinProgress['shortcuts'] | ''>('')
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -363,6 +533,7 @@ let drawingObserver: ResizeObserver | null = null
 let liveStroke: { points: Array<{ x: number; y: number }> } | null = null
 let canvasPointer: number | null = null
 let chatSendBusy = false
+let textPracticeController: AbortController | null = null
 
 function isComplete(id: LessonId): boolean {
   return canFinishLesson(id, progress.value.completedLessons, progress.value.bestQuizScores)
@@ -373,6 +544,32 @@ function setStage(next: CourseStage) {
   capturingShortcut.value = ''
   stage.value = next
   if (next === 'write') void nextTick(setupCanvas)
+}
+
+function sourceLabel(sourceId: string) {
+  return sourceId === 'reader' ? 'Livro do aluno' : 'Shangrila'
+}
+function moveSourcePage(direction: number) {
+  const pages = filteredSourcePageSummaries.value
+  if (!pages.length) return
+  const current = pages.findIndex(page => page.key === selectedSourcePageKey.value)
+  const next = current < 0 ? 0 : (current + direction + pages.length) % pages.length
+  selectedSourcePageKey.value = pages[next].key
+}
+function studySelectedSourcePage() {
+  const page = selectedSourcePage.value
+  if (!page) return
+  tutorSourcePageKey.value = page.key
+  if (page.lessonId && isLessonId(page.lessonId) && page.lessonId !== activeLessonId.value) selectLesson(page.lessonId)
+  setStage('voice')
+}
+function setInteractionMode(mode: CourseInteractionMode) {
+  if (mode === 'text' && voice.active.value) stopVoice()
+  capturingShortcut.value = ''
+  progress.value.interactionMode = normalizeCourseInteractionMode(mode)
+  saveState.value = mode === 'text'
+    ? 'Modo texto ativo — nenhuma captura de voz é iniciada'
+    : 'Modo Voz selecionado — o microfone permanece desligado até você iniciar a chamada'
 }
 
 function selectLesson(id: LessonId) {
@@ -607,6 +804,7 @@ function normalizeProgress(input: Partial<MandarinProgress> | null | undefined):
     chatSessionIds,
     chat,
     voiceLanguage: input.voiceLanguage === 'pt-BR' ? 'pt-BR' : 'zh-CN',
+    interactionMode: normalizeCourseInteractionMode(input.interactionMode),
     shortcuts: {
       toggleVoice: safeBinding(input.shortcuts?.toggleVoice, base.shortcuts.toggleVoice),
       replayPhrase: safeBinding(input.shortcuts?.replayPhrase, base.shortcuts.replayPhrase),
@@ -656,6 +854,7 @@ function tutorPrompt(text: string) {
     'Você é o tutor conversacional de um curso estruturado de mandarim, para alguém que estuda em português brasileiro.',
     `Módulo: ${activeLesson.value.moduleTitle}. Lição ${activeLesson.value.sequence}: ${activeLesson.value.title}. Objetivo: ${activeLesson.value.objective}`,
     `Referência consultável: ${activeLesson.value.sourcePages}. Trate-a como localização na fonte, não como texto reproduzido.`,
+    buildTutorSourcePageContext(tutorSourcePage.value),
     `Vocabulário autorizado para esta aula: ${activeLesson.value.vocabulary.map(term => `${term.hanzi} (${term.pinyin}): ${term.meaning}`).join('; ')}.`,
     `Exemplo(s) original(is): ${activeLesson.value.examples.map(example => `${example.text} (${example.pinyin}) = ${example.translation}`).join('; ')}.`,
     `Exercícios propostos: ${activeLesson.value.exercises.map(exercise => exercise.prompt).join(' | ')}.`,
@@ -764,20 +963,30 @@ async function sendTextPractice() {
   const text = chatDraft.value.trim()
   if (!text || chatSendBusy) return
   chatSendBusy = true
+  const controller = new AbortController()
+  textPracticeController = controller
   chatDraft.value = ''
   try {
-    await sendTutorTurn(text, 'text')
+    await sendTutorTurn(text, 'text', controller.signal)
   } catch (cause) {
+    if (controller.signal.aborted) return
     progress.value.chat.push(newChatLine('student', text, 'text'))
     progress.value.chat.push(newChatLine('tutor', cause instanceof Error ? cause.message : String(cause), 'text'))
     if (progress.value.chat.length > 60) progress.value.chat.splice(0, progress.value.chat.length - 60)
     chatDraft.value = text
   } finally {
+    if (textPracticeController === controller) textPracticeController = null
     chatSendBusy = false
   }
 }
 
 async function startVoice() {
+  if (!canStartCourseVoice(progress.value.interactionMode, voice.supported)) {
+    saveState.value = progress.value.interactionMode === 'voice'
+      ? 'Modo voz indisponível neste dispositivo; use o modo texto'
+      : 'Selecione o modo Voz antes de iniciar o microfone'
+    return
+  }
   if (!selectedAgentId.value) {
     saveState.value = 'Selecione um Agent antes de ligar o microfone'
     return
@@ -792,6 +1001,7 @@ function stopVoice() {
 }
 
 function clearChat() {
+  textPracticeController?.abort()
   progress.value.chat = []
   progress.value.chatSessionIds = {}
 }
@@ -842,7 +1052,7 @@ function sameBinding(a: KeyboardBinding, event: KeyboardEvent) {
 }
 
 function onGlobalShortcut(event: KeyboardEvent) {
-  if (stage.value !== 'voice' || !windowUi.focused.value || capturingShortcut.value) return
+  if (stage.value !== 'voice' || progress.value.interactionMode !== 'voice' || !windowUi.focused.value || capturingShortcut.value) return
   const target = event.target as HTMLElement | null
   if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
   const toggle = progress.value.shortcuts.toggleVoice
@@ -1015,6 +1225,11 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-quiz-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 14px; }
 .mi-quiz-result { margin: 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; }
 .mi-voice-state { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--ui-border, rgba(255,255,255,.1)); border-radius: 99px; color: var(--ui-text-3, #949ba7); font-size: 9px; font-weight: 750; letter-spacing: .08em; }
+.mi-mode-toggle { display: flex; flex-wrap: wrap; gap: 7px; margin: 2px 0 8px; }
+.mi-mode-button { min-height: 38px; padding: 8px 13px; border: 1px solid var(--ui-border, rgba(255,255,255,.13)); border-radius: 8px; color: var(--ui-text-2, #bac1ca); background: var(--ui-glass, rgba(255,255,255,.035)); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.mi-mode-button:hover:not(:disabled), .mi-mode-button.selected { border-color: color-mix(in srgb, var(--mi-gold) 65%, transparent); color: var(--ui-text, #f4f5f7); background: color-mix(in srgb, var(--mi-gold) 11%, var(--ui-surface, #111318)); }
+.mi-mode-button:disabled { opacity: .5; cursor: not-allowed; }
+.mi-mode-note { margin: 0 0 10px; color: var(--ui-text-2, #bac1ca); font-size: 10px; line-height: 1.5; }
 .mi-voice-state i { width: 7px; height: 7px; border-radius: 50%; background: #747b86; }
 .mi-voice-state[data-state='listening'] i { background: #64c99a; box-shadow: 0 0 12px rgba(100,201,154,.6); animation: mi-pulse 1.1s ease-in-out infinite alternate; }
 .mi-voice-state[data-state='thinking'] i { background: #d9ab57; animation: mi-pulse .6s ease-in-out infinite alternate; }
@@ -1059,6 +1274,30 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-adapter a, .mi-source-links a { color: var(--mi-gold); font-size: 9px; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .mi-adapter-foot { margin: 1px 0 0; color: var(--ui-text-3, #949ba7); font-size: 9px; line-height: 1.5; }
 .mi-source-list { display: grid; gap: 10px; }
+.mi-teacher-stage { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; padding: 12px; border: 1px solid var(--ui-border, rgba(255,255,255,.1)); border-radius: 12px; background: color-mix(in srgb, var(--ui-glass, rgba(255,255,255,.025)) 70%, transparent); }
+.mi-teacher-stage > :deep(.orb-navigator) { flex: 0 0 150px; }
+.mi-teacher-stage > p { display: grid; gap: 4px; margin: 0; }
+.mi-teacher-stage > p strong { color: var(--ui-text, #f4f5f7); font-size: 12px; }
+.mi-teacher-stage > p span { color: var(--ui-text-2, #bac1ca); font-size: 10px; line-height: 1.5; }
+.mi-page-browser { display: grid; gap: 14px; }
+.mi-page-browser-heading h3 { margin: 6px 0; font-size: 17px; }
+.mi-page-browser-heading > p:not(.mi-source-label) { margin: 6px 0 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; line-height: 1.55; }
+.mi-page-browser-heading .mi-page-count { color: var(--ui-text, #f4f5f7); }
+.mi-page-browser-controls { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 10px; align-items: end; }
+.mi-page-browser-controls label { display: grid; gap: 5px; color: var(--ui-text-3, #949ba7); font-size: 9px; font-weight: 700; letter-spacing: .04em; }
+.mi-page-browser-controls input, .mi-page-browser-controls select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 40px; padding: 8px 10px; border: 1px solid var(--ui-border, rgba(255,255,255,.12)); border-radius: 8px; color: var(--ui-text, #f4f5f7); background: var(--ui-surface, #111318); font: inherit; font-size: 11px; }
+.mi-page-browser-nav { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.mi-page-browser-nav span { color: var(--ui-text-2, #bac1ca); font-size: 10px; font-variant-numeric: tabular-nums; }
+.mi-page-summary { display: grid; gap: 8px; padding: 13px; border: 1px solid var(--ui-border, rgba(255,255,255,.1)); border-radius: 10px; background: color-mix(in srgb, var(--ui-glass, rgba(255,255,255,.025)) 72%, transparent); }
+.mi-page-summary h4 { margin: 4px 0 0; font-size: 14px; }
+.mi-page-summary > p { margin: 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; }
+.mi-page-summary .mi-page-caveat, .mi-page-summary .mi-page-warning { padding: 8px 9px; border-radius: 7px; background: color-mix(in srgb, var(--ui-warning, #e5ad47) 11%, transparent); color: var(--ui-text, #f4f5f7); }
+.mi-page-empty { margin: 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; }
+.mi-page-context { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0 0 16px; padding: 12px; border: 1px solid color-mix(in srgb, var(--mi-gold) 35%, var(--ui-border, transparent)); border-radius: 10px; background: color-mix(in srgb, var(--mi-gold) 7%, transparent); }
+.mi-page-context > div { min-width: 0; }
+.mi-page-context strong { font-size: 11px; }
+.mi-page-context p:not(.mi-section-label) { margin: 5px 0; color: var(--ui-text-2, #bac1ca); font-size: 10px; line-height: 1.5; }
+.mi-page-context small { color: var(--ui-text-3, #949ba7); font-size: 9px; line-height: 1.4; }
 .mi-source-card { padding: 16px; }
 .mi-source-card h3 { margin: 7px 0; font-size: 15px; }
 .mi-source-card p { margin: 6px 0 0; color: var(--ui-text-2, #bac1ca); font-size: 10px; line-height: 1.58; }
@@ -1080,6 +1319,11 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 }
 @media (max-width: 700px) {
   .mi-header { padding: 20px 17px 15px; }
+  .mi-page-browser-controls { grid-template-columns: 1fr; }
+  .mi-page-browser-nav { grid-column: auto; }
+  .mi-page-context { flex-direction: column; }
+  .mi-teacher-stage { align-items: flex-start; flex-direction: column; }
+  .mi-teacher-stage > :deep(.orb-navigator) { flex-basis: auto; align-self: center; }
   .mi-stage-nav { gap: 2px; overflow-x: auto; padding: 7px 12px; }
   .mi-stage-button { flex: 0 0 auto; min-height: 44px; padding: 0 9px; font-size: 10px; }
   .mi-save-state { position: sticky; right: 0; flex: 0 0 98px; padding: 7px 4px 7px 8px; background: var(--ui-surface, #111318); text-align: right; }

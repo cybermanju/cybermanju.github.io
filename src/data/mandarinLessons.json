@@ -310,7 +310,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Padrão e variedade (mandarim padrão ≠ totalidade das variedades chinesas): Uma língua padrão serve à comunicação e ao ensino compartilhados; ela não apaga a diversidade regional.; Pinyin e caracteres (pinyin anota sons; hanzi registra a escrita chinesa): O pinyin apoia pronúncia e consulta, mas não substitui o aprendizado de caracteres simplificados ou tradicionais.. Funções comunicativas: Explicar a diferença entre mandarim padrão e variedades regionais.; Descrever para que servem pinyin, hanzi e os dois padrões de escrita.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Padrão e variedade (mandarim padrão ≠ totalidade das variedades chinesas): Uma língua padrão serve à comunicação e ao ensino compartilhados; ela não apaga a diversidade regional.; Pinyin e caracteres (pinyin anota sons; hanzi registra a escrita chinesa): O pinyin apoia pronúncia e consulta, mas não substitui o aprendizado de caracteres simplificados ou tradicionais.. Funções comunicativas: Explicar a diferença entre mandarim padrão e variedades regionais.; Descrever para que servem pinyin, hanzi e os dois padrões de escrita.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "context:overview",
@@ -587,6 +587,23 @@
             "sourceTextIncluded": false,
             "scope": "original-brief-summary-not-transcription",
             "confidence": "source-summary-with-recorded-OCR-or-text-layer-limits"
+          },
+          {
+            "id": "context:page-summary:shangrila:009",
+            "sourceId": "shangrila",
+            "pdfPage": 9,
+            "title": "Tons",
+            "summary": "Folha divisória com o título “Tons”; a revisão visual confirma apenas o título e não identifica texto didático substantivo nesta página.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 8,
+            "confidenceNote": "Folha divisória visualmente confirmada; sem conteúdo didático legível."
           }
         ],
         "crossReferences": [],
@@ -640,7 +657,8 @@
           "context:page-summary:shangrila:008",
           "context-q1",
           "context-q2",
-          "context-q3"
+          "context-q3",
+          "context:page-summary:shangrila:009"
         ],
         "completenessCheck": {
           "minimums": {
@@ -1001,7 +1019,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Estrutura da sílaba (inicial + final + tom): A sílaba do mandarim combina partes segmentais e um tom lexical; algumas sílabas não têm inicial audível.; Aspiração e contraste tonal (b/p, d/t, g/k, j/q e z/c distinguem-se também pelo ar; tom distingue sílabas): Pares aspirados e não aspirados não são apenas variações de volume; compare a saída de ar com um papel leve.; Mudança tonal contextual (dois terceiros tons consecutivos: o primeiro soa como segundo): A grafia continua com o terceiro tom; a mudança acontece na pronúncia conectada.. Funções comunicativas: Reconhecer um contorno tonal e distingui-lo de volume ou duração.; Pronunciar uma sílaba por inicial, final e tom, e repetir após ouvir.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Estrutura da sílaba (inicial + final + tom): A sílaba do mandarim combina partes segmentais e um tom lexical; algumas sílabas não têm inicial audível.; Aspiração e contraste tonal (b/p, d/t, g/k, j/q e z/c distinguem-se também pelo ar; tom distingue sílabas): Pares aspirados e não aspirados não são apenas variações de volume; compare a saída de ar com um papel leve.; Mudança tonal contextual (dois terceiros tons consecutivos: o primeiro soa como segundo): A grafia continua com o terceiro tom; a mudança acontece na pronúncia conectada.. Funções comunicativas: Reconhecer um contorno tonal e distingui-lo de volume ou duração.; Pronunciar uma sílaba por inicial, final e tom, e repetir após ouvir.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "sounds:overview",
@@ -1386,6 +1404,42 @@
             "sourceTextIncluded": false,
             "scope": "original-brief-summary-not-transcription",
             "confidence": "source-summary-with-recorded-OCR-or-text-layer-limits"
+          },
+          {
+            "id": "sounds:page-summary:shangrila:021",
+            "sourceId": "shangrila",
+            "pdfPage": 21,
+            "title": "Regra Ortográfica",
+            "summary": "Folha divisória com o título “Regra Ortográfica”; a revisão visual confirma apenas o título e não identifica texto didático substantivo nesta página.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 20,
+            "confidenceNote": "Folha divisória visualmente confirmada; sem conteúdo didático legível."
+          },
+          {
+            "id": "sounds:page-summary:shangrila:023",
+            "sourceId": "shangrila",
+            "pdfPage": 23,
+            "title": "Discriminação de sons",
+            "summary": "Quadro/atividade de discriminação de sons com pares consonantais. O assunto e os rótulos principais são identificáveis, mas as sílabas e células específicas não são confiáveis o bastante para transcrição.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "medium",
+            "confidenceByField": {
+              "pageTopic": "high",
+              "syllableChartCells": "low"
+            },
+            "lowConfidenceDetails": [
+              "syllableChartCells"
+            ],
+            "printedPage": 22
           }
         ],
         "crossReferences": [],
@@ -1450,7 +1504,9 @@
           "sounds:page-summary:shangrila:026",
           "sounds-q1",
           "sounds-q2",
-          "sounds-q3"
+          "sounds-q3",
+          "sounds:page-summary:shangrila:021",
+          "sounds:page-summary:shangrila:023"
         ],
         "completenessCheck": {
           "minimums": {
@@ -1902,7 +1958,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Dezenas compostas (número da dezena + unidade: 二十三 = 20 + 3): As unidades vêm depois da dezena; o valor é lido em sequência, sem inserir um sinal de adição.; Uso de 两 e 二 (二 nomeia o número; 两 costuma preceder classificador ou unidade): Escolha a forma pelo contexto: dizer o número e contar objetos não são sempre o mesmo uso.; Perguntar quantidade (几 + classificador para quantidade pequena/esperada; 多少 + nome para quantidade aberta): A escolha da pergunta depende do que se conta e da expectativa de resposta.. Funções comunicativas: Ler e dizer números curtos em voz alta.; Perguntar e responder quantidades de itens sem recitar a tabela inteira.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Dezenas compostas (número da dezena + unidade: 二十三 = 20 + 3): As unidades vêm depois da dezena; o valor é lido em sequência, sem inserir um sinal de adição.; Uso de 两 e 二 (二 nomeia o número; 两 costuma preceder classificador ou unidade): Escolha a forma pelo contexto: dizer o número e contar objetos não são sempre o mesmo uso.; Perguntar quantidade (几 + classificador para quantidade pequena/esperada; 多少 + nome para quantidade aberta): A escolha da pergunta depende do que se conta e da expectativa de resposta.. Funções comunicativas: Ler e dizer números curtos em voz alta.; Perguntar e responder quantidades de itens sem recitar a tabela inteira.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "numbers:overview",
@@ -2592,7 +2648,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Pares de cortesia (agradecimento → resposta; desculpa → aceitação ou reparo): Aprenda expressões como turnos relacionados, observando quem fala e qual resposta acolhe a situação.; Partículas e tom interpessoal (好吧 pode sinalizar aceitação ou concordância relutante conforme entoação): A intenção depende do contexto e da prosódia; não traduza uma partícula isoladamente em todos os casos.. Funções comunicativas: Agradecer e responder a um agradecimento.; Pedir desculpas, aceitar a desculpa e encerrar um encontro com cortesia.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Pares de cortesia (agradecimento → resposta; desculpa → aceitação ou reparo): Aprenda expressões como turnos relacionados, observando quem fala e qual resposta acolhe a situação.; Partículas e tom interpessoal (好吧 pode sinalizar aceitação ou concordância relutante conforme entoação): A intenção depende do contexto e da prosódia; não traduza uma partícula isoladamente em todos os casos.. Funções comunicativas: Agradecer e responder a um agradecimento.; Pedir desculpas, aceitar a desculpa e encerrar um encontro com cortesia.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "courtesy:overview",
@@ -3209,7 +3265,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Sobrenome e nome (姓 + sobrenome; 叫 + nome completo ou nome): 姓 pergunta/declara o sobrenome; 叫 apresenta como a pessoa é chamada.; Identificação e pergunta (sujeito + 是 + nome; pergunta sim/não com 吗): A pergunta com 吗 mantém a ordem declarativa; responda com 是/不是 ou informação nova.; Possessivo (pronome/nome + 的 + substantivo): 的 liga possuidor e nome possuído; com parentesco e relações próximas pode ser omitido em certos usos.. Funções comunicativas: Apresentar-se e perguntar o nome ou sobrenome de alguém.; Cumprimentar alguém com tratamento mais ou menos respeitoso.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Sobrenome e nome (姓 + sobrenome; 叫 + nome completo ou nome): 姓 pergunta/declara o sobrenome; 叫 apresenta como a pessoa é chamada.; Identificação e pergunta (sujeito + 是 + nome; pergunta sim/não com 吗): A pergunta com 吗 mantém a ordem declarativa; responda com 是/不是 ou informação nova.; Possessivo (pronome/nome + 的 + substantivo): 的 liga possuidor e nome possuído; com parentesco e relações próximas pode ser omitido em certos usos.. Funções comunicativas: Apresentar-se e perguntar o nome ou sobrenome de alguém.; Cumprimentar alguém com tratamento mais ou menos respeitoso.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "introductions:overview",
@@ -3429,7 +3485,40 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "introductions:page-summary:shangrila:036",
+            "sourceId": "shangrila",
+            "pdfPage": 36,
+            "title": "Diálogo 1 — nomes e sobrenomes",
+            "summary": "Diálogo de apresentação que pergunta pelo sobrenome e pelo nome e mostra respostas com sobrenomes Zhang e Wang.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 35
+          },
+          {
+            "id": "introductions:page-summary:shangrila:038",
+            "sourceId": "shangrila",
+            "pdfPage": 38,
+            "title": "Diálogo — identificar uma pessoa",
+            "summary": "Diálogo com perguntas sobre quem é uma pessoa, se é conhecida e sua relação como professor ou aluno.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 37
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -3478,7 +3567,9 @@
           "introductions:exercise:06",
           "introductions-q1",
           "introductions-q2",
-          "introductions-q3"
+          "introductions-q3",
+          "introductions:page-summary:shangrila:036",
+          "introductions:page-summary:shangrila:038"
         ],
         "completenessCheck": {
           "minimums": {
@@ -3869,7 +3960,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Forma do caractere (observar contorno, proporção e componentes antes de copiar): A prática abaixo é uma extensão didática original; a OCR das folhas não permite afirmar uma lista completa de caracteres ou de traços da fonte.; Sequência de cópia (observar → localizar componentes → copiar → comparar): Use um modelo confiável do próprio material; o canvas do app registra traço livre, não valida ordem nem caligrafia.. Funções comunicativas: Identificar componentes visuais antes de escrever um caractere.; Planejar, copiar e revisar uma forma escrita com apoio de um modelo.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Forma do caractere (observar contorno, proporção e componentes antes de copiar): A prática abaixo é uma extensão didática original; a OCR das folhas não permite afirmar uma lista completa de caracteres ou de traços da fonte.; Sequência de cópia (observar → localizar componentes → copiar → comparar): Use um modelo confiável do próprio material; o canvas do app registra traço livre, não valida ordem nem caligrafia.. Funções comunicativas: Identificar componentes visuais antes de escrever um caractere.; Planejar, copiar e revisar uma forma escrita com apoio de um modelo.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "writing:overview",
@@ -5053,7 +5144,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Composição de sílaba (inicial + final + tom): Separe primeiro a sequência sonora; marque o tom da sílaba e só então leia a combinação inteira.; Contraste de aspiração (pares não aspirados/aspirados diferem na saída de ar): Teste pares controlados, mantendo a vogal e o tom constantes.; Terceiro tom em sequência (terceiro tom + terceiro tom → primeiro tom com realização ascendente): A regra é contextual e não altera a marca escrita dos tons.. Funções comunicativas: Decompor uma sílaba em inicial, final e tom.; Ler pinyin de forma controlada e corrigir uma distinção de pronúncia.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Composição de sílaba (inicial + final + tom): Separe primeiro a sequência sonora; marque o tom da sílaba e só então leia a combinação inteira.; Contraste de aspiração (pares não aspirados/aspirados diferem na saída de ar): Teste pares controlados, mantendo a vogal e o tom constantes.; Terceiro tom em sequência (terceiro tom + terceiro tom → primeiro tom com realização ascendente): A regra é contextual e não altera a marca escrita dos tons.. Funções comunicativas: Decompor uma sílaba em inicial, final e tom.; Ler pinyin de forma controlada e corrigir uma distinção de pronúncia.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-00:overview",
@@ -5273,7 +5364,56 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-00:page-summary:reader:024",
+            "sourceId": "reader",
+            "pdfPage": 24,
+            "title": "Fonética: finais zh/ch/sh/r e er",
+            "summary": "Notas de pronúncia sobre zh, ch, sh e r, a vogal final correspondente e o sufixo er; a página inicia também uma nota cultural sobre a função e a história do Hanyu Pinyin.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 9
+          },
+          {
+            "id": "textbook-00:page-summary:reader:025",
+            "sourceId": "reader",
+            "pdfPage": 25,
+            "title": "Nota cultural: história e variedades do chinês",
+            "summary": "Continua a nota sobre a história dos caracteres e do nome Hanyu, situa o chinês no grupo sino-tibetano, enumera grupos dialetais e distingue nomes regionais da língua padrão.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 10
+          },
+          {
+            "id": "textbook-00:page-summary:reader:026",
+            "sourceId": "reader",
+            "pdfPage": 26,
+            "title": "Apêndice II — quadro de sílabas",
+            "summary": "Quadro de combinações de iniciais e finais do mandarim; o próprio título informa que os tons não são considerados. O registro descreve o quadro, sem inventariar cada célula.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "confidenceNote": "Revisão visual confirma o título e a estrutura tabular; não foi feita transcrição integral das células."
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -5320,7 +5460,10 @@
           "textbook-00:exercise:06",
           "textbook-00-q1",
           "textbook-00-q2",
-          "textbook-00-q3"
+          "textbook-00-q3",
+          "textbook-00:page-summary:reader:024",
+          "textbook-00:page-summary:reader:025",
+          "textbook-00:page-summary:reader:026"
         ],
         "completenessCheck": {
           "minimums": {
@@ -5680,7 +5823,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Perguntas com palavra interrogativa (pronome interrogativo ocupa a posição da informação pedida): 什么, 谁 e 哪 substituem a informação desconhecida sem deslocar o restante da frase.; Perguntas sim/não (oração declarativa + 吗): 吗 marca a pergunta; a ordem básica da frase permanece.; Negação de 是 (sujeito + 不 + 是 + complemento): 不 precede o verbo/adjetivo negado e costuma mudar para bú antes de um quarto tom na fala.. Funções comunicativas: Perguntar nome, sobrenome, origem ou identidade.; Responder com nome, país ou papel social e devolver uma pergunta.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Perguntas com palavra interrogativa (pronome interrogativo ocupa a posição da informação pedida): 什么, 谁 e 哪 substituem a informação desconhecida sem deslocar o restante da frase.; Perguntas sim/não (oração declarativa + 吗): 吗 marca a pergunta; a ordem básica da frase permanece.; Negação de 是 (sujeito + 不 + 是 + complemento): 不 precede o verbo/adjetivo negado e costuma mudar para bú antes de um quarto tom na fala.. Funções comunicativas: Perguntar nome, sobrenome, origem ou identidade.; Responder com nome, país ou papel social e devolver uma pergunta.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-01:overview",
@@ -5900,7 +6043,25 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-01:page-summary:reader:028",
+            "sourceId": "reader",
+            "pdfPage": 28,
+            "title": "Vocabulário de referência",
+            "summary": "Página de vocabulário numerado, vocabulário suplementar e nomes próprios, com caracteres, categorias gramaticais, pinyin e equivalentes em português.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 12,
+            "confidenceNote": "Revisão visual confirma listas de vocabulário e nomes próprios; itens individuais não foram reproduzidos em bloco."
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -5948,7 +6109,8 @@
           "textbook-01:exercise:06",
           "textbook-01-q1",
           "textbook-01-q2",
-          "textbook-01-q3"
+          "textbook-01-q3",
+          "textbook-01:page-summary:reader:028"
         ],
         "completenessCheck": {
           "minimums": {
@@ -6299,7 +6461,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Adjetivo como predicado (sujeito + 很 + adjetivo): Adjetivos podem predicar sem 是; 很 frequentemente liga sujeito e adjetivo sem expressar intensidade forte.; Também (sujeito + 也 + predicado): 也 aparece antes do predicado que é compartilhado ou acrescentado.; Cumprimento de apresentação (prazer em conhecer + resposta recíproca): Use a expressão como reação social, sem tratar a resposta como tradução palavra por palavra.. Funções comunicativas: Expressar prazer em conhecer alguém e responder com reciprocidade.; Acrescentar que outra pessoa também compartilha um estado ou característica.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Adjetivo como predicado (sujeito + 很 + adjetivo): Adjetivos podem predicar sem 是; 很 frequentemente liga sujeito e adjetivo sem expressar intensidade forte.; Também (sujeito + 也 + predicado): 也 aparece antes do predicado que é compartilhado ou acrescentado.; Cumprimento de apresentação (prazer em conhecer + resposta recíproca): Use a expressão como reação social, sem tratar a resposta como tradução palavra por palavra.. Funções comunicativas: Expressar prazer em conhecer alguém e responder com reciprocidade.; Acrescentar que outra pessoa também compartilha um estado ou característica.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-02:overview",
@@ -6519,7 +6681,24 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-02:page-summary:reader:042",
+            "sourceId": "reader",
+            "pdfPage": 42,
+            "title": "Vocabulário e nota sobre bebidas",
+            "summary": "A página reúne vocabulário de escola, computador, bebidas e continentes; a nota cultural descreve bebidas servidas a visitantes em casas chinesas.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 26
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -6566,7 +6745,8 @@
           "textbook-02:exercise:06",
           "textbook-02-q1",
           "textbook-02-q2",
-          "textbook-02-q3"
+          "textbook-02-q3",
+          "textbook-02:page-summary:reader:042"
         ],
         "completenessCheck": {
           "minimums": {
@@ -6938,7 +7118,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Existência com 有 (lugar/possuidor + 有 + entidade): 有 introduz algo que existe ou que alguém possui; escolha o enquadramento conforme a pergunta.; Quantidade e classificador (número + classificador + nome): O classificador acompanha o nome; para membros de família, 口 é frequente e 个 é mais geral.; Idade (sujeito + número + 岁): 岁 expressa idade; para perguntar uma quantidade pequena, use 几 antes do classificador.. Funções comunicativas: Perguntar quantas pessoas há numa família e responder com uma quantidade.; Perguntar e dizer a idade de uma criança.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Existência com 有 (lugar/possuidor + 有 + entidade): 有 introduz algo que existe ou que alguém possui; escolha o enquadramento conforme a pergunta.; Quantidade e classificador (número + classificador + nome): O classificador acompanha o nome; para membros de família, 口 é frequente e 个 é mais geral.; Idade (sujeito + número + 岁): 岁 expressa idade; para perguntar uma quantidade pequena, use 几 antes do classificador.. Funções comunicativas: Perguntar quantas pessoas há numa família e responder com uma quantidade.; Perguntar e dizer a idade de uma criança.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-03:overview",
@@ -7158,7 +7338,27 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-03:page-summary:reader:049",
+            "sourceId": "reader",
+            "pdfPage": 49,
+            "title": "Numerais",
+            "summary": "Quadro didático de numerais chineses, com algarismos e exemplos de composição de números de diferentes ordens. As células individuais do quadro não foram validadas como transcrição.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "medium",
+            "confidenceByField": {
+              "pageTopic": "high",
+              "numeralChartCells": "low"
+            },
+            "lowConfidenceDetails": [
+              "numeralChartCells"
+            ],
+            "printedPage": 33
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -7207,7 +7407,8 @@
           "textbook-03:exercise:06",
           "textbook-03-q1",
           "textbook-03-q2",
-          "textbook-03-q3"
+          "textbook-03-q3",
+          "textbook-03:page-summary:reader:049"
         ],
         "completenessCheck": {
           "minimums": {
@@ -7567,7 +7768,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Demonstrativo e classificador (这/那 + classificador + nome): O classificador fica entre demonstrativo e nome; escolha-o pelo tipo de objeto.; Possessivo com 的 (possuidor + 的 + nome): 的 marca relação possessiva ou atributiva; use-o para perguntar e dizer de quem é um objeto.; 是 e 有 (是 identifica; 有 apresenta existência/posse): Diferencie identidade (“é um mapa”) de existência (“há um mapa”).. Funções comunicativas: Identificar e comparar objetos ou materiais em duas línguas.; Perguntar a quem pertence um item e pedir permissão para observá-lo.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Demonstrativo e classificador (这/那 + classificador + nome): O classificador fica entre demonstrativo e nome; escolha-o pelo tipo de objeto.; Possessivo com 的 (possuidor + 的 + nome): 的 marca relação possessiva ou atributiva; use-o para perguntar e dizer de quem é um objeto.; 是 e 有 (是 identifica; 有 apresenta existência/posse): Diferencie identidade (“é um mapa”) de existência (“há um mapa”).. Funções comunicativas: Identificar e comparar objetos ou materiais em duas línguas.; Perguntar a quem pertence um item e pedir permissão para observá-lo.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-04:overview",
@@ -8195,7 +8396,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Possibilidade ou permissão (sujeito + 可以/能 + verbo): 可以 frequentemente expressa permissão ou possibilidade; a escolha depende da situação.; Reduplicação verbal (verbo + 一 + verbo): A reduplicação curta transforma pedido/ação em tentativa breve ou tom mais leve.; Grau excessivo (太 + adjetivo + 了): 太…了 marca grau alto e pode expressar surpresa, reclamação ou avaliação conforme o contexto.. Funções comunicativas: Perguntar preço e escolher uma peça de roupa.; Pedir para experimentar e reagir ao tamanho ou ao preço.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Possibilidade ou permissão (sujeito + 可以/能 + verbo): 可以 frequentemente expressa permissão ou possibilidade; a escolha depende da situação.; Reduplicação verbal (verbo + 一 + verbo): A reduplicação curta transforma pedido/ação em tentativa breve ou tom mais leve.; Grau excessivo (太 + adjetivo + 了): 太…了 marca grau alto e pode expressar surpresa, reclamação ou avaliação conforme o contexto.. Funções comunicativas: Perguntar preço e escolher uma peça de roupa.; Pedir para experimentar e reagir ao tamanho ou ao preço.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-05:overview",
@@ -8415,7 +8616,41 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-05:page-summary:reader:064",
+            "sourceId": "reader",
+            "pdfPage": 64,
+            "title": "Gramática e diálogo em restaurante",
+            "summary": "Notas contrastam usos de 和, 也 e 还 e apresentam a sugestão com 吧; a página inicia um diálogo num restaurante do Bairro Chinês.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 48,
+            "confidenceNote": "Revisão visual confirma as notas gramaticais e o início de diálogo em restaurante."
+          },
+          {
+            "id": "textbook-05:page-summary:reader:068",
+            "sourceId": "reader",
+            "pdfPage": 68,
+            "title": "Vocabulário de comida e nota cultural",
+            "summary": "A página inclui vocabulário de sabores e bebidas, a expressão para Bairro Chinês e uma nota cultural sobre compras, negociação de preços, pagamento de refeições e gorjetas.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 52
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -8463,7 +8698,9 @@
           "textbook-05:exercise:06",
           "textbook-05-q1",
           "textbook-05-q2",
-          "textbook-05-q3"
+          "textbook-05-q3",
+          "textbook-05:page-summary:reader:064",
+          "textbook-05:page-summary:reader:068"
         ],
         "completenessCheck": {
           "minimums": {
@@ -8823,7 +9060,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Expressões de tempo (expressão temporal + sujeito + predicado): O tempo costuma aparecer no início ou antes do verbo; mantenha a sequência clara.; Intenção (想/打算 + verbo): 想 e 打算 antecedem a ação planejada, com diferentes graus de intenção/contexto.; Causa e consequência (因为 + causa，(所以) + consequência): Use os conectores para ligar motivo e resultado; 所以 pode ser omitido quando a relação já é clara.. Funções comunicativas: Perguntar o que alguém pretende fazer numa data ou período.; Convidar alguém, aceitar ou recusar com uma justificativa simples.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Expressões de tempo (expressão temporal + sujeito + predicado): O tempo costuma aparecer no início ou antes do verbo; mantenha a sequência clara.; Intenção (想/打算 + verbo): 想 e 打算 antecedem a ação planejada, com diferentes graus de intenção/contexto.; Causa e consequência (因为 + causa，(所以) + consequência): Use os conectores para ligar motivo e resultado; 所以 pode ser omitido quando a relação já é clara.. Funções comunicativas: Perguntar o que alguém pretende fazer numa data ou período.; Convidar alguém, aceitar ou recusar com uma justificativa simples.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-06:overview",
@@ -9043,7 +9280,40 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-06:page-summary:reader:076",
+            "sourceId": "reader",
+            "pdfPage": 76,
+            "title": "Vocabulário e formas de tratamento",
+            "summary": "A lista inclui esportes e expressões de tempo; a nota cultural descreve formas de tratamento em relações familiares, entre colegas e com pessoas desconhecidas.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 60
+          },
+          {
+            "id": "textbook-06:page-summary:reader:077",
+            "sourceId": "reader",
+            "pdfPage": 77,
+            "title": "Nota cultural: telefones públicos",
+            "summary": "Continuação da nota sobre telefones públicos em cidades e vilas, modalidades de chamadas locais e de longa distância e o uso crescente de telemóvel e correio eletrónico.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 61
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -9091,7 +9361,9 @@
           "textbook-06:exercise:06",
           "textbook-06-q1",
           "textbook-06-q2",
-          "textbook-06-q3"
+          "textbook-06-q3",
+          "textbook-06:page-summary:reader:076",
+          "textbook-06:page-summary:reader:077"
         ],
         "completenessCheck": {
           "minimums": {
@@ -9452,7 +9724,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Perguntar quando (什么时候 ocupa a posição temporal desconhecida): A palavra de pergunta fica no lugar da informação temporal; não é necessário inverter a frase.; Origem, destino e direção (从 + origem + 到 + destino; verbo + 来/去): 从 e 到 delimitam percurso; 来/去 orientam o movimento em relação ao ponto de referência.; Adjetivo reduplicado como modo (adjetivo reduplicado + 地 + verbo): A forma reduplicada pode tornar a descrição mais vívida; 地 marca função adverbial.. Funções comunicativas: Perguntar data de partida/retorno e organizar um itinerário.; Descrever como uma pessoa realiza uma ação ou chega a um lugar.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Perguntar quando (什么时候 ocupa a posição temporal desconhecida): A palavra de pergunta fica no lugar da informação temporal; não é necessário inverter a frase.; Origem, destino e direção (从 + origem + 到 + destino; verbo + 来/去): 从 e 到 delimitam percurso; 来/去 orientam o movimento em relação ao ponto de referência.; Adjetivo reduplicado como modo (adjetivo reduplicado + 地 + verbo): A forma reduplicada pode tornar a descrição mais vívida; 地 marca função adverbial.. Funções comunicativas: Perguntar data de partida/retorno e organizar um itinerário.; Descrever como uma pessoa realiza uma ação ou chega a um lugar.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-07:overview",
@@ -9672,7 +9944,57 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-07:page-summary:reader:083",
+            "sourceId": "reader",
+            "pdfPage": 83,
+            "title": "Diálogo e notas de localização/tempo",
+            "summary": "Continuação de diálogo sobre retorno de uma pessoa; as notas explicam referências de lugar como “aqui/lá” e a página inicia expressões de tempo.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 67,
+            "confidenceNote": "Revisão visual confirma diálogo, notas sobre localização e início de seção gramatical de tempo."
+          },
+          {
+            "id": "textbook-07:page-summary:reader:087",
+            "sourceId": "reader",
+            "pdfPage": 87,
+            "title": "Nota cultural: calendários e festivais",
+            "summary": "Nota compara os calendários solar e lunar e lista festivais tradicionais e feriados oficiais. O registro não afirma datas individuais que não sejam necessárias ao resumo.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 71
+          },
+          {
+            "id": "textbook-07:page-summary:reader:088",
+            "sourceId": "reader",
+            "pdfPage": 88,
+            "title": "Nota cultural: educação e feriados",
+            "summary": "Continua a relação de feriados e descreve o sistema educacional chinês, incluindo escolaridade obrigatória, níveis de ensino, ingresso universitário e organização semestral.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 72
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -9720,7 +10042,10 @@
           "textbook-07:exercise:06",
           "textbook-07-q1",
           "textbook-07-q2",
-          "textbook-07-q3"
+          "textbook-07-q3",
+          "textbook-07:page-summary:reader:083",
+          "textbook-07:page-summary:reader:087",
+          "textbook-07:page-summary:reader:088"
         ],
         "completenessCheck": {
           "minimums": {
@@ -10081,7 +10406,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Existência e localização (lugar + 有 + entidade; entidade + 在 + lugar): 有 apresenta o que existe; 在 localiza uma entidade já identificada.; Direções em sequência (从 + ponto + 往 + direção + verbo): Monte instruções em passos curtos e preserve a ordem do trajeto.; Distância e proximidade (A 离 B + 远/近): 离 mede distância entre dois pontos; combine com avaliação e, se útil, duração.. Funções comunicativas: Perguntar se há um serviço perto e avaliar a distância.; Pedir e dar instruções simples de percurso.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Existência e localização (lugar + 有 + entidade; entidade + 在 + lugar): 有 apresenta o que existe; 在 localiza uma entidade já identificada.; Direções em sequência (从 + ponto + 往 + direção + verbo): Monte instruções em passos curtos e preserve a ordem do trajeto.; Distância e proximidade (A 离 B + 远/近): 离 mede distância entre dois pontos; combine com avaliação e, se útil, duração.. Funções comunicativas: Perguntar se há um serviço perto e avaliar a distância.; Pedir e dar instruções simples de percurso.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-08:overview",
@@ -10301,7 +10626,25 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-08:page-summary:reader:092",
+            "sourceId": "reader",
+            "pdfPage": 92,
+            "title": "Diálogo ilustrado: trajetos na cidade",
+            "summary": "Mapa/diagrama e diálogo sobre como ir da universidade ao centro da cidade, com perguntas a um estudante e instruções que mencionam transporte público e troca de linha.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 76,
+            "confidenceNote": "Revisão visual confirma o diagrama de trajeto e o diálogo sobre transporte público."
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -10349,7 +10692,8 @@
           "textbook-08:exercise:06",
           "textbook-08-q1",
           "textbook-08-q2",
-          "textbook-08-q3"
+          "textbook-08-q3",
+          "textbook-08:page-summary:reader:092"
         ],
         "completenessCheck": {
           "minimums": {
@@ -10709,7 +11053,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Experiência com 过 (verbo + 过 + objeto): 过 indica experiência anterior em algum momento, sem destacar quando ocorreu.; Mudança/ação com 了 (verbo/adjetivo + 了): 了 pode marcar ação concluída ou mudança de situação; interprete com o contexto, não como passado automático.; Hábito anterior (以前 + predicado de hábito): 以前 situa o hábito no passado; contraste com 现在 para explicitar a mudança.. Funções comunicativas: Perguntar sobre experiências anteriores com animais e atividades.; Comparar um hábito antigo com a situação atual.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Experiência com 过 (verbo + 过 + objeto): 过 indica experiência anterior em algum momento, sem destacar quando ocorreu.; Mudança/ação com 了 (verbo/adjetivo + 了): 了 pode marcar ação concluída ou mudança de situação; interprete com o contexto, não como passado automático.; Hábito anterior (以前 + predicado de hábito): 以前 situa o hábito no passado; contraste com 现在 para explicitar a mudança.. Funções comunicativas: Perguntar sobre experiências anteriores com animais e atividades.; Comparar um hábito antigo com a situação atual.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-09:overview",
@@ -10929,7 +11273,43 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-09:page-summary:reader:097",
+            "sourceId": "reader",
+            "pdfPage": 97,
+            "title": "Vocabulário de referência",
+            "summary": "Página de vocabulário de referência com itens de cidade, animais, tempo, familiaridade, fotografias e outros tópicos. A ordem e a leitura de entradas individuais estão parcialmente embaralhadas no OCR e não foram reconstruídas.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "medium",
+            "confidenceByField": {
+              "pageTopic": "high",
+              "referenceVocabularyEntries": "low"
+            },
+            "lowConfidenceDetails": [
+              "referenceVocabularyEntries"
+            ],
+            "printedPage": 81
+          },
+          {
+            "id": "textbook-09:page-summary:reader:102",
+            "sourceId": "reader",
+            "pdfPage": 102,
+            "title": "Notas culturais: turismo, exercício e expressões",
+            "summary": "Notas culturais apresentam lugares turísticos, hábitos de exercício matinal e animais de estimação; a fonte também comenta expressões idiomáticas que incluem a palavra “cão”.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 86
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -10977,7 +11357,9 @@
           "textbook-09:exercise:06",
           "textbook-09-q1",
           "textbook-09-q2",
-          "textbook-09-q3"
+          "textbook-09-q3",
+          "textbook-09:page-summary:reader:097",
+          "textbook-09:page-summary:reader:102"
         ],
         "completenessCheck": {
           "minimums": {
@@ -11538,7 +11920,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Ação em curso (在/正在 + verbo): 在 e 正在 apresentam uma ação que está acontecendo; 正在 dá foco mais explícito ao andamento.; Ação realizada (verbo + 了 em contexto de evento concluído): 了 situa uma ocorrência realizada; o tempo pode ser expresso por outra palavra na frase.; Orientação e obrigação (应该/要 + verbo): Use estas formas para conselho ou necessidade, distinguindo-as de mera possibilidade.. Funções comunicativas: Descrever sintomas e explicar por que alguém foi ao hospital.; Perguntar o que aconteceu e entender uma orientação simples.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Ação em curso (在/正在 + verbo): 在 e 正在 apresentam uma ação que está acontecendo; 正在 dá foco mais explícito ao andamento.; Ação realizada (verbo + 了 em contexto de evento concluído): 了 situa uma ocorrência realizada; o tempo pode ser expresso por outra palavra na frase.; Orientação e obrigação (应该/要 + verbo): Use estas formas para conselho ou necessidade, distinguindo-as de mera possibilidade.. Funções comunicativas: Descrever sintomas e explicar por que alguém foi ao hospital.; Perguntar o que aconteceu e entender uma orientação simples.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-10:overview",
@@ -12198,7 +12580,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Revisão por intenção (situação → função → expressão adequada): Use as versões em português como pista de sentido e reconstrua uma resposta própria; não traduza palavra por palavra.; Recuperação espaçada (retomar vocabulário e padrões de várias lições em um novo contexto): Misture assuntos já estudados e explique por que uma forma atende à situação.; Equivalência contextual (mesma intenção pode ser formulada com estruturas diferentes nas duas línguas): Avalie sentido e adequação, não uma correspondência fixa de cada palavra.. Funções comunicativas: Recuperar funções das lições 1–10 a partir de uma situação em português.; Produzir uma resposta curta própria em mandarim e comparar o sentido global.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Revisão por intenção (situação → função → expressão adequada): Use as versões em português como pista de sentido e reconstrua uma resposta própria; não traduza palavra por palavra.; Recuperação espaçada (retomar vocabulário e padrões de várias lições em um novo contexto): Misture assuntos já estudados e explique por que uma forma atende à situação.; Equivalência contextual (mesma intenção pode ser formulada com estruturas diferentes nas duas línguas): Avalie sentido e adequação, não uma correspondência fixa de cada palavra.. Funções comunicativas: Recuperar funções das lições 1–10 a partir de uma situação em português.; Produzir uma resposta curta própria em mandarim e comparar o sentido global.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "supplement-translations:overview",
@@ -12961,7 +13343,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Foco retrospectivo 是……的 (是 + informação focal + verbo + 的): A construção destaca como, quando, onde ou com quem ocorreu uma ação já contextualizada.; Atributo antes do nome (locução/oração + 的 + substantivo): A informação descritiva precede o substantivo e é ligada por 的.; Tópico e comentário (tópico conhecido + comentário novo): A frase pode iniciar pelo assunto sobre o qual se acrescenta informação; mantenha clara a relação com o comentário.. Funções comunicativas: Perguntar quando, como ou com quem alguém chegou.; Relatar a sequência de chegada e acrescentar detalhes de viagem.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Foco retrospectivo 是……的 (是 + informação focal + verbo + 的): A construção destaca como, quando, onde ou com quem ocorreu uma ação já contextualizada.; Atributo antes do nome (locução/oração + 的 + substantivo): A informação descritiva precede o substantivo e é ligada por 的.; Tópico e comentário (tópico conhecido + comentário novo): A frase pode iniciar pelo assunto sobre o qual se acrescenta informação; mantenha clara a relação com o comentário.. Funções comunicativas: Perguntar quando, como ou com quem alguém chegou.; Relatar a sequência de chegada e acrescentar detalhes de viagem.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-11:overview",
@@ -13181,7 +13563,41 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-11:page-summary:reader:122",
+            "sourceId": "reader",
+            "pdfPage": 122,
+            "title": "Diálogo e nota sobre empréstimo de livros",
+            "summary": "Diálogo sobre empréstimo e devolução de um livro, com referência ao prazo e a uma eventual multa; as notas esclarecem duas expressões usadas na conversa.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 106,
+            "confidenceNote": "Revisão visual confirma o diálogo sobre empréstimo de livro e as duas notas de expressão."
+          },
+          {
+            "id": "textbook-11:page-summary:reader:125",
+            "sourceId": "reader",
+            "pdfPage": 125,
+            "title": "Nota cultural: cumprimentos contextualizados",
+            "summary": "Explica que cumprimentos podem variar conforme hora, local e circunstância, com exemplos de perguntas cotidianas, respostas e gestos.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 109
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -13229,7 +13645,9 @@
           "textbook-11:exercise:06",
           "textbook-11-q1",
           "textbook-11-q2",
-          "textbook-11-q3"
+          "textbook-11-q3",
+          "textbook-11:page-summary:reader:122",
+          "textbook-11:page-summary:reader:125"
         ],
         "completenessCheck": {
           "minimums": {
@@ -13589,7 +14007,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento de grau com 得 (verbo + 得 + adjetivo/expressão): 得 introduz informação sobre como a ação é feita; preserve o verbo antes do complemento.; Verbo-objeto repetido (verbo-objeto + verbo + 得 + avaliação): Quando o verbo forma unidade com objeto, ele pode ser retomado para receber o complemento.; Atributo com 的 (adjetivo/descrição + 的 + nome): 的 liga uma descrição ao substantivo; não confundir com 得 após verbo.. Funções comunicativas: Elogiar ou avaliar aparência e desempenho.; Descrever como alguém canta, corre ou realiza outra ação.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento de grau com 得 (verbo + 得 + adjetivo/expressão): 得 introduz informação sobre como a ação é feita; preserve o verbo antes do complemento.; Verbo-objeto repetido (verbo-objeto + verbo + 得 + avaliação): Quando o verbo forma unidade com objeto, ele pode ser retomado para receber o complemento.; Atributo com 的 (adjetivo/descrição + 的 + nome): 的 liga uma descrição ao substantivo; não confundir com 得 após verbo.. Funções comunicativas: Elogiar ou avaliar aparência e desempenho.; Descrever como alguém canta, corre ou realiza outra ação.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-12:overview",
@@ -13809,7 +14227,42 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-12:page-summary:reader:129",
+            "sourceId": "reader",
+            "pdfPage": 129,
+            "title": "Diálogo: aniversário e presente",
+            "summary": "Diálogo de aniversário com felicitações, agradecimento, entrega de presente e convite para comer bolo; as falas também comentam uma inscrição de aniversário no bolo.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 113,
+            "confidenceNote": "Revisão visual confirma a cena de aniversário, o presente e o bolo; não houve transcrição integral das falas."
+          },
+          {
+            "id": "textbook-12:page-summary:reader:130",
+            "sourceId": "reader",
+            "pdfPage": 130,
+            "title": "Notas e gramática: complemento com 得",
+            "summary": "Continua o diálogo de aniversário e traz notas sobre expressões da conversa, seguidas de uma explicação gramatical sobre verbo/adjetivo com 得 e complemento predicativo.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 114,
+            "confidenceNote": "Revisão visual confirma as notas culturais e o título da explicação gramatical."
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -13857,7 +14310,9 @@
           "textbook-12:exercise:06",
           "textbook-12-q1",
           "textbook-12-q2",
-          "textbook-12-q3"
+          "textbook-12-q3",
+          "textbook-12:page-summary:reader:129",
+          "textbook-12:page-summary:reader:130"
         ],
         "completenessCheck": {
           "minimums": {
@@ -14227,7 +14682,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Comparação com 比 (A + 比 + B + adjetivo): 比 introduz o padrão de comparação; a qualidade vem depois do segundo termo.; Semelhança (A + 跟/和 + B + 一样 + adjetivo): 一样 afirma equivalência; a dimensão comparada precisa ficar clara.; Desigualdade e diferença (A + 没有 + B + 这么/那么 + adjetivo; 比…+一点儿/得多): Use 没有 para indicar grau menor e complemento de diferença para marcar distância entre valores.. Funções comunicativas: Comparar o clima da terra natal e de outra cidade.; Descrever estação, temperatura e diferença de intensidade.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Comparação com 比 (A + 比 + B + adjetivo): 比 introduz o padrão de comparação; a qualidade vem depois do segundo termo.; Semelhança (A + 跟/和 + B + 一样 + adjetivo): 一样 afirma equivalência; a dimensão comparada precisa ficar clara.; Desigualdade e diferença (A + 没有 + B + 这么/那么 + adjetivo; 比…+一点儿/得多): Use 没有 para indicar grau menor e complemento de diferença para marcar distância entre valores.. Funções comunicativas: Comparar o clima da terra natal e de outra cidade.; Descrever estação, temperatura e diferença de intensidade.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-13:overview",
@@ -14447,7 +14902,44 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-13:page-summary:reader:137",
+            "sourceId": "reader",
+            "pdfPage": 137,
+            "title": "Diálogo: estações e clima",
+            "summary": "Diálogo compara as estações e o clima das terras natais dos interlocutores, com preferência pelo outono; ilustrações mostram atividades de inverno e verão.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 121,
+            "confidenceNote": "Revisão visual confirma a comparação das estações e as ilustrações de esqui e natação."
+          },
+          {
+            "id": "textbook-13:page-summary:reader:141",
+            "sourceId": "reader",
+            "pdfPage": 141,
+            "title": "Quadro de temperatura e precipitação",
+            "summary": "Tabela intitulada quadro de temperatura média e número de dias com precipitação em cidades chinesas. A estrutura e o tema são identificáveis, mas rótulos e valores numéricos individuais permanecem com baixa confiança.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "medium",
+            "confidenceByField": {
+              "pageTopic": "high",
+              "climateTableLabelsAndValues": "low"
+            },
+            "lowConfidenceDetails": [
+              "climateTableLabelsAndValues"
+            ],
+            "printedPage": 125
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -14496,7 +14988,9 @@
           "textbook-13:exercise:06",
           "textbook-13-q1",
           "textbook-13-q2",
-          "textbook-13-q3"
+          "textbook-13-q3",
+          "textbook-13:page-summary:reader:137",
+          "textbook-13:page-summary:reader:141"
         ],
         "completenessCheck": {
           "minimums": {
@@ -14866,7 +15360,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Distância com 离 (A + 离 + B + distância/avaliação): Use 离 para medir a distância entre dois lugares e acrescente 远/近 ou duração estimada.; Percurso de 从…到… (从 + origem + 到 + destino + verbo/medida): A estrutura delimita um trajeto; duração e destino são informações adicionais.; Locuções como adjunto (在/从/到/离 + lugar antes do predicado): A posição da locução ajuda a situar a ação; negadores e advérbios de escopo precedem o verbo alvo.. Funções comunicativas: Descrever localização, distância e transporte de uma cidade natal.; Comparar conveniência, acesso e ambiente de dois lugares.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Distância com 离 (A + 离 + B + distância/avaliação): Use 离 para medir a distância entre dois lugares e acrescente 远/近 ou duração estimada.; Percurso de 从…到… (从 + origem + 到 + destino + verbo/medida): A estrutura delimita um trajeto; duração e destino são informações adicionais.; Locuções como adjunto (在/从/到/离 + lugar antes do predicado): A posição da locução ajuda a situar a ação; negadores e advérbios de escopo precedem o verbo alvo.. Funções comunicativas: Descrever localização, distância e transporte de uma cidade natal.; Comparar conveniência, acesso e ambiente de dois lugares.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-14:overview",
@@ -15086,7 +15580,58 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-14:page-summary:reader:143",
+            "sourceId": "reader",
+            "pdfPage": 143,
+            "title": "Vocabulário de referência",
+            "summary": "Lista de vocabulário sobre ar, ambiente, transporte, conveniência, direções e elementos urbanos/naturais, seguida de vocabulário suplementar.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 127,
+            "confidenceNote": "Revisão visual confirma que a página é uma lista de vocabulário principal e suplementar; sem transcrição integral."
+          },
+          {
+            "id": "textbook-14:page-summary:reader:144",
+            "sourceId": "reader",
+            "pdfPage": 144,
+            "title": "Texto: conversa sobre a terra natal",
+            "summary": "Diálogo sobre a terra natal no Nordeste, a vida no campo, localização de moradia, transporte e serviços urbanos; há uma ilustração de residência.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 128,
+            "confidenceNote": "Revisão visual confirma a conversa sobre origem rural/urbana e a ilustração residencial."
+          },
+          {
+            "id": "textbook-14:page-summary:reader:148",
+            "sourceId": "reader",
+            "pdfPage": 148,
+            "title": "Vocabulário e nota cultural: cidades e chengyu",
+            "summary": "Vocabulário de áreas urbanas e elementos naturais acompanha notas sobre urbanização e sobre expressões idiomáticas chinesas de quatro caracteres, chamadas chengyu.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 132
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -15135,7 +15680,10 @@
           "textbook-14:exercise:06",
           "textbook-14-q1",
           "textbook-14-q2",
-          "textbook-14-q3"
+          "textbook-14-q3",
+          "textbook-14:page-summary:reader:143",
+          "textbook-14:page-summary:reader:144",
+          "textbook-14:page-summary:reader:148"
         ],
         "completenessCheck": {
           "minimums": {
@@ -15505,7 +16053,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Duração da ação (verbo + duração (+ 了, conforme contexto)): A duração mede quanto tempo a atividade se estendeu; observe a posição do objeto e se a situação continua.; Frequência (número + 次/遍 + verbo ou após o objeto conforme construção): 次 conta ocorrências; 遍 conta uma execução completa do início ao fim.; Experiência e repetição (verbo + 过 para experiência; 再 + verbo para repetir): 过 apresenta experiência prévia; 再 projeta uma ação repetida ou posterior.. Funções comunicativas: Dizer há quanto tempo estuda e com que frequência pratica.; Pedir que alguém repita ou falar de compreensão auditiva.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Duração da ação (verbo + duração (+ 了, conforme contexto)): A duração mede quanto tempo a atividade se estendeu; observe a posição do objeto e se a situação continua.; Frequência (número + 次/遍 + verbo ou após o objeto conforme construção): 次 conta ocorrências; 遍 conta uma execução completa do início ao fim.; Experiência e repetição (verbo + 过 para experiência; 再 + verbo para repetir): 过 apresenta experiência prévia; 再 projeta uma ação repetida ou posterior.. Funções comunicativas: Dizer há quanto tempo estuda e com que frequência pratica.; Pedir que alguém repita ou falar de compreensão auditiva.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-15:overview",
@@ -15725,7 +16273,24 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-15:page-summary:reader:156",
+            "sourceId": "reader",
+            "pdfPage": 156,
+            "title": "Nota cultural: elogios e línguas estrangeiras",
+            "summary": "Notas culturais tratam da modéstia ao receber elogios e do estudo de línguas estrangeiras na China, citando inglês e japonês.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 140
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -15774,7 +16339,8 @@
           "textbook-15:exercise:06",
           "textbook-15-q1",
           "textbook-15-q2",
-          "textbook-15-q3"
+          "textbook-15-q3",
+          "textbook-15:page-summary:reader:156"
         ],
         "completenessCheck": {
           "minimums": {
@@ -16134,7 +16700,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento resultativo (verbo + resultado, como 完/到/见): O complemento mostra que resultado a ação alcançou; negue e pergunte conforme o padrão da construção.; Estado contínuo com 着 (verbo + 着 + estado/objeto): 着 descreve uma condição mantida, não simplesmente uma ação passada.; Ocasionalidade temporal (oração + 的时候): 的时候 ancora uma ação em um momento ou ocasião; pode combinar com informação de sequência.. Funções comunicativas: Explicar que uma passagem acabou ou que algo não foi obtido.; Relatar uma ocorrência e situar ações no momento em que aconteceu.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento resultativo (verbo + resultado, como 完/到/见): O complemento mostra que resultado a ação alcançou; negue e pergunte conforme o padrão da construção.; Estado contínuo com 着 (verbo + 着 + estado/objeto): 着 descreve uma condição mantida, não simplesmente uma ação passada.; Ocasionalidade temporal (oração + 的时候): 的时候 ancora uma ação em um momento ou ocasião; pode combinar com informação de sequência.. Funções comunicativas: Explicar que uma passagem acabou ou que algo não foi obtido.; Relatar uma ocorrência e situar ações no momento em que aconteceu.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-16:overview",
@@ -16354,7 +16920,24 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-16:page-summary:reader:164",
+            "sourceId": "reader",
+            "pdfPage": 164,
+            "title": "Vocabulário e nota cultural: reforma e abertura",
+            "summary": "A página lista vocabulário ligado a investimento e desenvolvimento e resume objetivos atribuídos à política chinesa de Reforma Económica e Abertura ao Exterior, iniciada em 1978.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 148
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -16402,7 +16985,8 @@
           "textbook-16:exercise:06",
           "textbook-16-q1",
           "textbook-16-q2",
-          "textbook-16-q3"
+          "textbook-16-q3",
+          "textbook-16:page-summary:reader:164"
         ],
         "completenessCheck": {
           "minimums": {
@@ -16772,7 +17356,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento direcional (verbo + 来/去 ou composto direcional): O complemento indica trajetória; o lugar e o objeto podem ocupar posições diferentes conforme o tipo de objeto.; Posição do objeto (verbo + direção + lugar ou objeto + verbo + direção): Diferencie objeto que indica lugar de objeto que é coisa; consulte o padrão da unidade quando houver dúvida.; Imediatismo e condição (现在就 + ação; 如果/要是 + condição，(就) + resultado): 就 pode indicar prontidão; a condição antecede o resultado.. Funções comunicativas: Consultar aluguel, comodidades, caução e contrato.; Pedir reparo ou combinar mudança para um apartamento.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento direcional (verbo + 来/去 ou composto direcional): O complemento indica trajetória; o lugar e o objeto podem ocupar posições diferentes conforme o tipo de objeto.; Posição do objeto (verbo + direção + lugar ou objeto + verbo + direção): Diferencie objeto que indica lugar de objeto que é coisa; consulte o padrão da unidade quando houver dúvida.; Imediatismo e condição (现在就 + ação; 如果/要是 + condição，(就) + resultado): 就 pode indicar prontidão; a condição antecede o resultado.. Funções comunicativas: Consultar aluguel, comodidades, caução e contrato.; Pedir reparo ou combinar mudança para um apartamento.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-17:overview",
@@ -17022,6 +17606,39 @@
             "sourceTextIncluded": false,
             "scope": "original-brief-summary-not-transcription",
             "confidence": "visual-summary-with-OCR-and-stroke-order-limits"
+          },
+          {
+            "id": "textbook-17:page-summary:reader:167",
+            "sourceId": "reader",
+            "pdfPage": 167,
+            "title": "Diálogo: procura de apartamento",
+            "summary": "Diálogo encenado entre duas pessoas e uma senhoria sobre alugar um apartamento; a conversa aborda andar do imóvel, elevador, visita e valor mensal.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 151
+          },
+          {
+            "id": "textbook-17:page-summary:reader:169",
+            "sourceId": "reader",
+            "pdfPage": 169,
+            "title": "Diálogo: aparelho de ar-condicionado",
+            "summary": "Diálogo sobre um ar-condicionado avariado, a tentativa de reparo e a decisão de procurar um aparelho novo; há uma nota curta de vocabulário/expressão.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 153,
+            "confidenceNote": "Revisão visual confirma o diálogo sobre reparação e compra de um aparelho novo."
           }
         ],
         "crossReferences": [],
@@ -17075,7 +17692,9 @@
           "textbook-17:page-summary:reader:171",
           "textbook-17-q1",
           "textbook-17-q2",
-          "textbook-17-q3"
+          "textbook-17-q3",
+          "textbook-17:page-summary:reader:167",
+          "textbook-17:page-summary:reader:169"
         ],
         "completenessCheck": {
           "minimums": {
@@ -17436,7 +18055,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento potencial (verbo + 得/不 + complemento): 得 indica possibilidade de alcançar resultado/direção; 不 nega essa possibilidade.; Potencial não é permissão (能/可以 para capacidade ou permissão; V得/不 + complemento para resultado alcançável): Escolha a construção conforme a pergunta: poder ter autorização/capacidade não equivale a conseguir concluir.; Ênfase 连…都/也… (连 + elemento extremo + 都/也 + predicado): A estrutura destaca que até um caso inesperado entra na afirmação ou negação.. Funções comunicativas: Dizer se conseguiu ouvir, entender, enxergar ou concluir uma ação.; Expressar limite físico ou enfatizar que até um caso extremo foi afetado.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Complemento potencial (verbo + 得/不 + complemento): 得 indica possibilidade de alcançar resultado/direção; 不 nega essa possibilidade.; Potencial não é permissão (能/可以 para capacidade ou permissão; V得/不 + complemento para resultado alcançável): Escolha a construção conforme a pergunta: poder ter autorização/capacidade não equivale a conseguir concluir.; Ênfase 连…都/也… (连 + elemento extremo + 都/也 + predicado): A estrutura destaca que até um caso inesperado entra na afirmação ou negação.. Funções comunicativas: Dizer se conseguiu ouvir, entender, enxergar ou concluir uma ação.; Expressar limite físico ou enfatizar que até um caso extremo foi afetado.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-18:overview",
@@ -17656,7 +18275,24 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-18:page-summary:reader:178",
+            "sourceId": "reader",
+            "pdfPage": 178,
+            "title": "Gramática e nota cultural: ópera chinesa",
+            "summary": "Explica complementos de quantidade e de intensidade, apresenta vocabulário de artes cénicas e termina com uma nota sobre ópera tradicional chinesa e gêneros regionais.",
+            "evidenceMethod": "supplemental-tesseract-300dpi-page-specific-summary",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 162
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -17704,7 +18340,8 @@
           "textbook-18:exercise:06",
           "textbook-18-q1",
           "textbook-18-q2",
-          "textbook-18-q3"
+          "textbook-18-q3",
+          "textbook-18:page-summary:reader:178"
         ],
         "completenessCheck": {
           "minimums": {
@@ -18074,7 +18711,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Construção com 把 (sujeito + 把 + objeto definido + verbo + resultado/destino): 把 põe em foco um objeto definido afetado pela ação; normalmente o verbo vem com resultado, destino ou outro complemento.; Complemento após o verbo (把 + objeto + verbo + 在/到/给…): A construção é comum com localização, destino e destinatário; o resultado precisa ficar expresso.; Tempo, negação e modalidade (expressões temporais, 不/没 e verbos modais antes de 把): Não coloque a negação imediatamente depois de 把; posicione-a antes da construção.. Funções comunicativas: Explicar onde um objeto foi deixado e como se perdeu.; Pedir ajuda, recuperar um item e agradecer a quem o devolveu.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Construção com 把 (sujeito + 把 + objeto definido + verbo + resultado/destino): 把 põe em foco um objeto definido afetado pela ação; normalmente o verbo vem com resultado, destino ou outro complemento.; Complemento após o verbo (把 + objeto + verbo + 在/到/给…): A construção é comum com localização, destino e destinatário; o resultado precisa ficar expresso.; Tempo, negação e modalidade (expressões temporais, 不/没 e verbos modais antes de 把): Não coloque a negação imediatamente depois de 把; posicione-a antes da construção.. Funções comunicativas: Explicar onde um objeto foi deixado e como se perdeu.; Pedir ajuda, recuperar um item e agradecer a quem o devolveu.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-19:overview",
@@ -18713,7 +19350,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Passiva com 被 (sujeito afetado + 被 + agente (+ verbo/complemento)): 被 põe em foco quem sofre a ação; frequentemente descreve evento indesejado ou prejudicial, mas o contexto determina a leitura.; Alternativas coloquiais (受事 + 叫/让 + agente + verbo): 叫 e 让 podem funcionar como marcadores coloquiais de passiva quando o agente aparece; não trate os usos como idênticos em todo contexto.; Quase e desaparecimento (差点儿 + evento; verbo + 掉): 差点儿 indica que algo quase ocorreu; 掉 pode marcar remoção ou desaparecimento após ação.. Funções comunicativas: Relatar dano, furto ou acidente de trânsito.; Descrever mudança ambiental e medidas de proteção.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Passiva com 被 (sujeito afetado + 被 + agente (+ verbo/complemento)): 被 põe em foco quem sofre a ação; frequentemente descreve evento indesejado ou prejudicial, mas o contexto determina a leitura.; Alternativas coloquiais (受事 + 叫/让 + agente + verbo): 叫 e 让 podem funcionar como marcadores coloquiais de passiva quando o agente aparece; não trate os usos como idênticos em todo contexto.; Quase e desaparecimento (差点儿 + evento; verbo + 掉): 差点儿 indica que algo quase ocorreu; 掉 pode marcar remoção ou desaparecimento após ação.. Funções comunicativas: Relatar dano, furto ou acidente de trânsito.; Descrever mudança ambiental e medidas de proteção.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "textbook-20:overview",
@@ -18933,7 +19570,25 @@
         "readingSummaries": [],
         "referenceIndexes": [],
         "sourceContextNotes": [],
-        "pageSummaries": [],
+        "pageSummaries": [
+          {
+            "id": "textbook-20:page-summary:reader:188",
+            "sourceId": "reader",
+            "pdfPage": 188,
+            "title": "Texto: incidente com bicicleta e carro",
+            "summary": "Diálogo sobre uma tarde azarada, uma ida ao banco e aos correios, o desaparecimento de uma bicicleta e um quase acidente de trânsito.",
+            "evidenceMethod": "visual-review-1800px-page-render",
+            "sourceTextIncluded": false,
+            "scope": "original-brief-summary-not-transcription",
+            "confidence": "high",
+            "confidenceByField": {
+              "pageTopic": "high"
+            },
+            "lowConfidenceDetails": [],
+            "printedPage": 172,
+            "confidenceNote": "Revisão visual confirma o relato dialogado e a ilustração da bicicleta; sem transcrição integral."
+          }
+        ],
         "crossReferences": [],
         "provenance": {
           "basis": "local source text/OCR and visual checks, plus original pedagogical synthesis",
@@ -18982,7 +19637,8 @@
           "textbook-20:exercise:06",
           "textbook-20-q1",
           "textbook-20-q2",
-          "textbook-20-q3"
+          "textbook-20-q3",
+          "textbook-20:page-summary:reader:188"
         ],
         "completenessCheck": {
           "minimums": {
@@ -19373,7 +20029,7 @@
           "origin": "original-course-assessment"
         }
       ],
-      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Leitura global e evidências (tema → ideia principal → detalhes que a confirmam): Antes de traduzir, identifique participantes, tema e relação entre as partes; volte ao texto para confirmar detalhes.; Inferência com cautela (inferência = pistas do texto + conhecimento contextual): Separe fato explicitamente dito de inferência; não trate estereótipos culturais como explicação universal.; Uso dos índices (termo → número de lição → registro pedagógico correspondente): Os índices ajudam a localizar e revisar vocabulário/gramática; são referências cruzadas, não conteúdo transcrito.. Funções comunicativas: Extrair a ideia principal e fatos de uma leitura breve.; Inferir uma relação ou motivo e justificar a interpretação com uma pista textual.; Usar índices para localizar vocabulário ou padrão da lição correspondente.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. Mostre o gabarito depois da tentativa e explique o raciocínio.",
+      "agentGuidance": "Ensine em português brasileiro e use o bloco pedagogy desta unidade: padrões e explicações: Leitura global e evidências (tema → ideia principal → detalhes que a confirmam): Antes de traduzir, identifique participantes, tema e relação entre as partes; volte ao texto para confirmar detalhes.; Inferência com cautela (inferência = pistas do texto + conhecimento contextual): Separe fato explicitamente dito de inferência; não trate estereótipos culturais como explicação universal.; Uso dos índices (termo → número de lição → registro pedagógico correspondente): Os índices ajudam a localizar e revisar vocabulário/gramática; são referências cruzadas, não conteúdo transcrito.. Funções comunicativas: Extrair a ideia principal e fatos de uma leitura breve.; Inferir uma relação ou motivo e justificar a interpretação com uma pista textual.; Usar índices para localizar vocabulário ou padrão da lição correspondente.. Escuta e pronúncia usam TTS gerado no app, não gravação do livro. Exemplos, exercícios e perguntas são originais e curtos, não citações. Não reconstrua diálogos/tabelas nem prometa cobertura literal. Quando OCR/imagem estiver sinalizado, diga que a página de origem precisa de consulta; não invente detalhe. O tutor não deve receber nem revelar gabarito, respostas corretas ou explicações antes que o aluno atinja pelo menos 2/3 de acertos na unidade; antes disso, ofereça apenas dicas que não revelem a resposta. Depois desse limiar, apresente o gabarito e explique o raciocínio.",
       "pedagogy": {
         "overview": {
           "id": "supplement-readings:overview",

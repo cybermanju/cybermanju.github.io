@@ -262,4 +262,40 @@ mod tests {
         assert!(models_url("https://api.anthropic.com", LlmDialect::Anthropic).is_none());
         assert!(models_url("https://api.groq.com/openai/v1", LlmDialect::OpenAi).is_some());
     }
+
+    #[test]
+    fn custom_provider_resolves_its_saved_endpoint_and_dialect() {
+        let config = cybermanju_types::agent::AgentConfig {
+            id: "language-tutor-custom".into(),
+            name: "Language Tutor Custom".into(),
+            provider_id: "custom".into(),
+            model: "custom-model".into(),
+            base_url_override: Some("https://provider.example".into()),
+            dialect_override: Some(LlmDialect::Anthropic),
+            auth_scheme_override: Some(AuthScheme::Header),
+            auth_name_override: Some("x-provider-key".into()),
+            working_dir: String::new(),
+            agent_kind: cybermanju_types::agent::AgentKind::default(),
+            shell_mode: cybermanju_types::agent::ShellMode::default(),
+            permission: cybermanju_types::agent::PermissionRuleset::default(),
+            auto_approve: false,
+            mcp_servers: std::collections::BTreeMap::new(),
+            max_turns: 25,
+            has_key: true,
+            fallback_ids: Vec::new(),
+            embedding_model: None,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let endpoint = resolve(&config).expect("custom endpoint resolves");
+        assert_eq!(endpoint.base_url, "https://provider.example");
+        assert_eq!(endpoint.dialect, LlmDialect::Anthropic);
+        assert_eq!(endpoint.auth, AuthScheme::Header);
+        assert_eq!(endpoint.auth_name.as_deref(), Some("x-provider-key"));
+        assert_eq!(
+            chat_url(&endpoint.base_url, endpoint.dialect),
+            "https://provider.example/v1/messages"
+        );
+    }
 }

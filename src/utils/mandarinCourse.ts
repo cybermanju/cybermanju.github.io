@@ -3,6 +3,7 @@
 // Contracts: source PDFs and full OCR text stay outside the app; course examples are original.
 import lessonData from '@/data/mandarinLessons.json'
 import corpusData from '@/data/mandarinCorpus.json'
+import type { CourseInteractionMode } from '@/utils/courseInteraction'
 
 export type LessonId = string
 export type CourseStage = 'learn' | 'write' | 'quiz' | 'voice' | 'sources'
@@ -28,6 +29,7 @@ export interface MandarinProgress {
   chatSessionIds: Record<string, string>
   chat: CourseChatLine[]
   voiceLanguage: VoiceLanguage
+  interactionMode: CourseInteractionMode
   shortcuts: { toggleVoice: KeyboardBinding; replayPhrase: KeyboardBinding }
   updatedAt: string
 }
@@ -183,11 +185,11 @@ export const MANDARIN_SOURCES = {
     title: 'Remix ChatterBots voice-loop sample',
     publisher: 'Google LLC, 2024',
     license: 'Apache-2.0',
-    note: 'ZIP de referência licenciado Apache-2.0; seus arquivos não são copiados para este app. O loop Gemini do ZIP exige um proxy server-side em /api/live-ws; o instrutor usa o ciclo VozPonte já existente no OS e o Agent configurado pelo usuário.',
+    note: 'ZIP de referência licenciado Apache-2.0; seus arquivos não são copiados para este app. O exemplo do ZIP usa um relay /api/live-ws; a API atual do Gemini também permite conexão Live direta pelo SDK com token efêmero emitido por servidor autenticado. Esse broker e o adapter ainda não existem neste OS: o tutor usa VozPonte e qualquer Agent configurado pelo usuário nos modos texto/voz.',
   },
 } as const
 
-/** Voice transports considered for adapters; only the OS-agent/browser loop is enabled here. */
+/** Voice transports considered for adapters; the OS Agent loop is active, while VoiceStudio has a separate manual TTS test only. */
 export const VOICE_PROVIDER_CATALOG = [
   {
     id: 'os-agent',
@@ -200,9 +202,9 @@ export const VOICE_PROVIDER_CATALOG = [
     id: 'gemini-live',
     name: 'Gemini Live',
     state: 'needs-host-adapter',
-    transport: 'WebSocket WSS em tempo real; o ZIP de referência espera um proxy same-origin /api/live-ws.',
-    needs: 'Para produção, prefira broker do host e token efêmero; nunca embuta GEMINI_API_KEY no bundle estático.',
-    url: 'https://ai.google.dev/gemini-api/docs/live-api',
+    transport: 'SDK @google/genai e WebSocket Live; PCM16, 16 kHz na entrada e 24 kHz na saída.',
+    needs: 'Um backend autenticado deve emitir token efêmero de uso limitado; não embutir GEMINI_API_KEY no bundle nem enviar áudio sem consentimento.',
+    url: 'https://ai.google.dev/gemini-api/docs/live-api/get-started-sdk',
   },
   {
     id: 'openai-realtime',
@@ -221,12 +223,20 @@ export const VOICE_PROVIDER_CATALOG = [
     url: 'https://elevenlabs.io/docs/eleven-agents/libraries/java-script',
   },
   {
-    id: 'hosted-voice-studio',
-    name: 'Voice Studio / Colab do usuário',
+    id: 'voicestudio-local',
+    name: 'VoiceStudio · teste TTS manual',
+    state: 'manual-test-configurable',
+    transport: 'POST explícito do browser a um endpoint HTTPS /v1/audio/speech configurado pelo usuário; resposta binária de áudio.',
+    needs: 'O painel testa TTS uma vez por clique, exige CORS, recusa redirect e põe token no header Authorization. Não conduz conversas nem usa token permanente automaticamente.',
+    url: 'https://voicestudio.sh/docs/text-to-speech',
+  },
+  {
+    id: 'remote-colab',
+    name: 'Colab / serviço de voz remoto',
     state: 'needs-host-adapter',
-    transport: 'Adaptador host para endpoint WSS/HTTPS autenticado, configurável sem acoplar o curso a um fornecedor.',
-    needs: 'Runtime de notebook pode expirar; endpoint deve ser exposto com autenticação curta e TLS.',
-    url: '',
+    transport: 'Transporte remoto depende de um endpoint gerido pela implantação, não de URL de serviço fornecida pela tela.',
+    needs: 'Exige adapter no host confiável, autenticação curta e TLS; Colab não é tratado como serviço persistente nem está conectado.',
+    url: 'https://github.com/debpalash/VoiceStudio/blob/main/docs/speech-platform.md',
   },
 ] as const
 
@@ -243,6 +253,7 @@ export function defaultMandarinProgress(): MandarinProgress {
     chatSessionIds: {},
     chat: [],
     voiceLanguage: 'zh-CN',
+    interactionMode: 'text',
     shortcuts: {
       toggleVoice: { code: 'KeyV', alt: true, ctrl: false, meta: false, shift: true },
       replayPhrase: { code: 'KeyR', alt: true, ctrl: false, meta: false, shift: true },

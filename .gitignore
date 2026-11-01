@@ -43,7 +43,6 @@ download/
 
 # Ren'Py generated bundles and local WebAssembly deployment artifacts
 /integrations/renpy-technosutra/build/
-/public/technosutra-vn/
 /integrations/renpy-technosutra/*.zip
 
 # Compact Ren'Py inputs are versionable; keep full-resolution working sources
