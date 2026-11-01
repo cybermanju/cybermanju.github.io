@@ -1,4 +1,7 @@
-<!-- CyberManju OS — The Stem Array immersive Ren'Py player. -->
+<!-- CyberManju OS — The Stem Array immersive Ren'Py player.
+ * Role: embeds the local Ren'Py game in a fullscreen-capable shell with theme-aware chrome.
+ * Exports/Integrates: loads public/technosutra-vn and forwards OS theme settings to the game iframe.
+ -->
 <template>
   <main
     ref="stage"
