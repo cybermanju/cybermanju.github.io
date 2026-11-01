@@ -16,7 +16,7 @@ describe('Mandarin instructor voice provider integration', () => {
     expect(instructor).toContain("import { useVoiceCall } from '@/composables/useVoiceCall'")
     expect(instructor).toContain('const voice = useVoiceCall(sendVoicePrompt, () => progress.value.voiceLanguage)')
     expect(instructor).toContain('async function sendVoicePrompt(text: string, signal: AbortSignal)')
-    expect(instructor).toContain("sendTutorTurn(text, 'voice', signal)")
+    expect(instructor).toContain("sendTutorTurn(text, 'voice', signal, turnLessonId)")
   })
 
   it('offers every saved Agent config, including custom providers, through the shared tutor driver', () => {
@@ -24,7 +24,8 @@ describe('Mandarin instructor voice provider integration', () => {
     expect(instructor).toContain(':value="config.id"')
     expect(instructor).toContain('const configId = studio.chatConfigId.value')
     expect(instructor).toContain('progress.value.chatSessionIds[configId]')
-    expect(instructor).toContain('studio.send(tutorPrompt(text.slice(0, 800)))')
+    expect(instructor).toContain('const prompt = tutorPrompt(text.slice(0, 800), turnLessonId)')
+    expect(instructor).toContain('studio.send(prompt)')
   })
 
   it('makes text the default and starts voice only after explicit mode selection and action', () => {

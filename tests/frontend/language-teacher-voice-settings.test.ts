@@ -18,6 +18,7 @@ vi.mock('@/composables/useWasmBackend', () => ({
 import {
   LANGUAGE_TEACHER_VOICE_SECRET_ID,
   defaultLanguageTeacherVoiceSettings,
+  deleteLanguageTeacherVoiceSettings,
   loadLanguageTeacherVoiceSettings,
   normalizeLanguageTeacherVoiceSettings,
   saveLanguageTeacherVoiceSettings,
@@ -85,6 +86,63 @@ describe('Language Teacher provider settings', () => {
     backend.diskStatus.mockResolvedValue({ attached: false })
     await expect(saveLanguageTeacherVoiceSettings(defaultLanguageTeacherVoiceSettings())).rejects.toThrow(/Anexe um arquivo/)
     expect(backend.dbDispatch).not.toHaveBeenCalled()
+  })
+
+  it('deletes only the voice-settings secret and persists the attached vault file', async () => {
+    backend.dbDispatch.mockImplementation(async (op: string) => op === 'secrets.list'
+      ? [
+          { id: 'unrelated-secret', hasValue: true },
+          { id: LANGUAGE_TEACHER_VOICE_SECRET_ID, hasValue: true },
+        ]
+      : null)
+
+    await deleteLanguageTeacherVoiceSettings()
+
+    expect(backend.dbDispatch).toHaveBeenNthCalledWith(1, 'secrets.list', {})
+    expect(backend.dbDispatch).toHaveBeenNthCalledWith(2, 'secrets.delete', {
+      id: LANGUAGE_TEACHER_VOICE_SECRET_ID,
+    })
+    expect(backend.saveDisk).toHaveBeenCalledOnce()
+  })
+
+  it('refuses to delete settings while the vault is locked or not attached', async () => {
+    backend.passphrase.mockReturnValue('')
+    await expect(deleteLanguageTeacherVoiceSettings()).rejects.toThrow(/passphrase/i)
+    expect(backend.dbDispatch).not.toHaveBeenCalled()
+    expect(backend.saveDisk).not.toHaveBeenCalled()
+
+    backend.passphrase.mockReturnValue('test-vault-passphrase')
+    backend.diskStatus.mockResolvedValue({ attached: false })
+    await expect(deleteLanguageTeacherVoiceSettings()).rejects.toThrow(/Anexe um arquivo/)
+    expect(backend.dbDispatch).not.toHaveBeenCalled()
+    expect(backend.saveDisk).not.toHaveBeenCalled()
+  })
+
+  it('does not report deletion as persisted when saving the vault fails', async () => {
+    let voiceSettingsSecretExists = true
+    backend.dbDispatch.mockImplementation(async (op: string) => {
+      if (op === 'secrets.list') {
+        return voiceSettingsSecretExists
+          ? [{ id: LANGUAGE_TEACHER_VOICE_SECRET_ID, hasValue: true }]
+          : []
+      }
+      if (op === 'secrets.delete') voiceSettingsSecretExists = false
+      return null
+    })
+    backend.saveDisk
+      .mockResolvedValueOnce({ attached: false })
+      .mockResolvedValueOnce({ attached: true })
+
+    await expect(deleteLanguageTeacherVoiceSettings()).rejects.toThrow(/não confirmou o salvamento/i)
+    expect(backend.dbDispatch).toHaveBeenCalledWith('secrets.delete', {
+      id: LANGUAGE_TEACHER_VOICE_SECRET_ID,
+    })
+    expect(voiceSettingsSecretExists).toBe(false)
+
+    await expect(deleteLanguageTeacherVoiceSettings()).resolves.toBeUndefined()
+
+    expect(backend.dbDispatch.mock.calls.filter(([op]) => op === 'secrets.delete')).toHaveLength(1)
+    expect(backend.saveDisk).toHaveBeenCalledTimes(2)
   })
 
   it('accepts only a clean HTTPS speech endpoint and rejects URL-borne credentials', () => {

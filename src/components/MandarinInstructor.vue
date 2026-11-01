@@ -1,7 +1,7 @@
 <!-- CyberManju OS — Mandarin course instructor component. -->
 <!-- Role: renders Mandarin lessons and tutor interactions; Integrates: course state and shared voice services. -->
 <template>
-  <div class="mandarin-app" @keydown="onPanelKeydown">
+  <div class="mandarin-app" :class="{ 'motion-reduced': motion.reduced.value }" @keydown="onPanelKeydown">
     <header class="mi-header">
       <div class="mi-heading">
         <p class="mi-eyebrow">CYBERMANJU · CURSO INICIAL DE MANDARIM</p>
@@ -9,11 +9,11 @@
         <p class="mi-lede">Um curso inicial de mandarim, guiado pelo material que você enviou. Comece ouvindo, escreva à mão e pratique sem pressa.</p>
       </div>
       <div class="mi-progress-card" aria-label="Progresso do curso">
-        <div class="mi-progress-top"><span>Seu percurso</span><strong>{{ completedCount }} / {{ MANDARIN_LESSONS.length }}</strong></div>
-        <div class="mi-progress-track" role="progressbar" :aria-valuenow="completedCount" :aria-valuemin="0" :aria-valuemax="MANDARIN_LESSONS.length" aria-label="Aulas concluídas">
+        <div class="mi-progress-top"><span>Seu percurso</span><strong>{{ hydrated ? completedCount : '—' }} / {{ MANDARIN_LESSONS.length }}</strong></div>
+        <div class="mi-progress-track" role="progressbar" :aria-valuenow="hydrated ? completedCount : undefined" :aria-valuemin="0" :aria-valuemax="MANDARIN_LESSONS.length" :aria-valuetext="hydrated ? `${completedCount} de ${MANDARIN_LESSONS.length} aulas concluídas` : 'Carregando progresso do curso'" aria-label="Aulas concluídas">
           <span :style="{ width: `${courseProgress}%` }" />
         </div>
-        <small>{{ courseProgress }}% concluído · guardado no OS</small>
+        <small v-if="hydrated">{{ courseProgress }}% concluído · {{ exploredLessonCount }} aulas exploradas · guardado no OS</small><small v-else>Carregando progresso…</small>
       </div>
     </header>
 
@@ -31,7 +31,7 @@
 	      <p class="mi-section-label">{{ group.title }}</p>
 	      <button v-for="lesson in group.lessons" :key="lesson.id" class="mi-lesson-link" :class="{ active: activeLessonId === lesson.id }" type="button" @click="selectLesson(lesson.id)">
 	        <span class="mi-lesson-index">{{ String(lesson.sequence).padStart(2, '0') }}</span>
-	        <span class="mi-lesson-copy"><strong>{{ lesson.title }}</strong><small>{{ lesson.subtitle }}</small></span>
+              <span class="mi-lesson-copy"><strong>{{ lesson.title }}</strong><small>{{ lesson.subtitle }}</small><span class="mi-lesson-progress" role="img" :aria-label="hydrated ? `${lessonStageCount(lesson.id)} de 4 etapas exploradas` : 'Carregando progresso salvo'" :title="hydrated ? `${lessonStageCount(lesson.id)} de 4 etapas exploradas` : 'Carregando progresso salvo'"><i v-for="milestone in progressStages" :key="milestone.id" :class="{ visited: lessonStageVisited(lesson.id, milestone.id) }" /></span></span>
 	        <AppIcon v-if="isComplete(lesson.id)" name="solar:check-circle-bold" :size="17" class="mi-complete-icon" />
 	      </button>
 	    </section>
@@ -187,9 +187,24 @@
             <div><p class="mi-section-label">CONTEXTO DE PÁGINA DO TUTOR</p><strong>{{ sourceLabel(tutorSourcePage.sourceId) }} · PDF p. {{ tutorSourcePage.pdfPage }}<template v-if="tutorSourcePage.printedPage"> · p. impressa {{ tutorSourcePage.printedPage }}</template></strong><p>{{ tutorSourcePage.summary }}</p><small>Resumo, não transcrição integral. As ressalvas e os campos de baixa confiança também seguem no contexto do Agent.</small></div>
             <UiButton size="xs" variant="outline" icon="solar:document-text-bold" @click="setStage('sources')">Trocar resumo</UiButton>
           </section>
-          <section class="mi-teacher-stage" aria-label="Professor animado do curso">
-            <OrbNavigator :screen-index="0" :screen-count="1" :motion-reduced="motion.reduced.value" teacher-mode :activity="teacherOrbActivity" :caption="teacherOrbCaption" />
-            <p><strong>Seu professor de mandarim</strong><span>O Orb acompanha a conversa sem ativar o microfone; a captura só começa ao iniciar uma chamada no modo Voz.</span></p>
+          <section class="mi-teacher-stage" :class="{ 'motion-reduced': motion.reduced.value }" aria-label="Diálogo com o professor Orb" :data-mode="progress.interactionMode" :data-activity="teacherOrbActivity">
+            <div class="mi-teacher-orb">
+              <OrbNavigator :screen-index="0" :screen-count="1" :motion-reduced="motion.reduced.value" teacher-mode :activity="teacherOrbActivity" :caption="teacherOrbCaption" />
+            </div>
+            <div class="mi-teacher-dialog-column">
+              <Transition name="mi-orb-dialog" mode="out-in">
+                <div :key="teacherOrbMessageKey" class="mi-orb-dialog" role="status" aria-live="polite" aria-atomic="true">
+                  <span class="mi-orb-dialog-label">{{ teacherOrbDialogLabel }}</span>
+                  <p>{{ teacherOrbMessage }}</p>
+                </div>
+              </Transition>
+              <div class="mi-orb-path">
+                <div class="mi-orb-path-top"><span>CAMINHO DESTA AULA</span><strong>{{ hydrated ? lessonStageCount(activeLesson.id) : '—' }} / 4 marcos</strong></div>
+                <div class="mi-orb-path-track" role="progressbar" :aria-valuenow="hydrated ? lessonStageCount(activeLesson.id) : undefined" :aria-valuemin="0" :aria-valuemax="4" :aria-valuetext="hydrated ? `${lessonStageCount(activeLesson.id)} de 4 etapas exploradas nesta aula` : 'Carregando progresso salvo desta aula'"><span :style="{ width: `${lessonStageCount(activeLesson.id) * 25}%` }" /></div>
+                <div class="mi-orb-path-labels"><span v-for="milestone in progressStages" :key="milestone.id" :class="{ visited: lessonStageVisited(activeLesson.id, milestone.id), current: stage === milestone.id }">{{ milestone.label }}</span></div>
+              </div>
+            </div>
+            <p class="mi-teacher-safety"><strong>Seu professor de mandarim</strong><span>O Orb acompanha a conversa sem ativar o microfone; a captura só começa ao iniciar uma chamada no modo Voz.</span></p>
           </section>
           <div class="mi-mode-toggle" role="group" aria-label="Modo de interação com o tutor">
             <button type="button" class="mi-mode-button" :class="{ selected: progress.interactionMode === 'text' }" :aria-pressed="progress.interactionMode === 'text'" @click="setInteractionMode('text')">Texto · teclado</button>
@@ -223,12 +238,14 @@
               <p v-if="progress.interactionMode === 'voice'" class="mi-shortcut-note">Atalhos são opcionais. O navegador ou o sistema operacional pode reservar certas combinações.</p>
             </section>
             <section class="mi-chat-card" aria-label="Transcrição do tutor do curso">
-              <div class="mi-chat-head"><div><p class="mi-section-label">HISTÓRICO LOCAL DO CURSO</p><strong>{{ progress.chat.length }} mensagens salvas</strong><small class="mi-chat-local-note">Limpar remove apenas o histórico e o vínculo locais; a sessão remota do Agent continua em Agents.</small></div><button type="button" class="mi-icon-button" title="Apagar somente o histórico local do curso" aria-label="Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada" :disabled="!progress.chat.length" @click="clearChat"><AppIcon name="solar:trash-bin-trash-bold" :size="16" /></button></div>
+	              <div class="mi-chat-head"><div><p class="mi-section-label">HISTÓRICO LOCAL DO CURSO</p><strong>{{ progress.chat.length }} mensagens salvas</strong><small class="mi-chat-local-note">Limpar remove apenas o histórico e o vínculo locais; a sessão remota do Agent continua em Agents. Uma chamada ativa também termina localmente ao limpar.</small></div><button type="button" class="mi-icon-button" title="Apagar somente o histórico local do curso" aria-label="Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada" :disabled="!progress.chat.length && !pendingStudentText && !voice.active.value" @click="clearChat"><AppIcon name="solar:trash-bin-trash-bold" :size="16" /></button></div>
               <div ref="chatList" class="mi-chat-list" aria-live="polite">
                 <p v-if="!progress.chat.length" class="mi-chat-empty">Comece com “Nǐ hǎo” ou pergunte sobre um dos tópicos da aula.</p>
                 <article v-for="line in progress.chat" :key="line.id" class="mi-chat-line" :class="`mi-chat-line--${line.role}`"><span>{{ line.role === 'student' ? 'VOCÊ' : 'TUTOR' }} · {{ line.mode === 'voice' ? 'voz' : 'texto' }}</span><p>{{ line.text }}</p></article>
+                <article v-if="pendingStudentText" class="mi-chat-line mi-chat-line--student mi-chat-line--pending"><span>VOCÊ · {{ progress.interactionMode === 'voice' ? 'voz' : 'texto' }}</span><p>{{ pendingStudentText }}</p></article>
+                <article v-if="chatSendBusy || (progress.interactionMode === 'voice' && voice.state.value === 'thinking')" class="mi-chat-line mi-chat-line--tutor mi-chat-line--thinking" role="status"><span>ORB · PENSANDO</span><p>{{ progress.interactionMode === 'text' ? 'Estou organizando uma resposta em texto…' : 'Estou organizando uma resposta para sua fala…' }}</p><span class="mi-typing-dots" aria-hidden="true"><i /><i /><i /></span></article>
               </div>
-              <form class="mi-chat-compose" @submit.prevent="sendTextPractice"><label class="sr-only" for="mandarin-chat-input">Sua mensagem para o tutor</label><textarea id="mandarin-chat-input" v-model="chatDraft" rows="2" maxlength="800" placeholder="Escreva uma pergunta ou resposta em mandarim…" :disabled="studio.jobActive.value || voice.active.value" /><UiButton size="sm" type="submit" icon="solar:plain-bold" :disabled="!chatDraft.trim() || studio.jobActive.value || voice.active.value">Enviar</UiButton></form>
+              <form class="mi-chat-compose" @submit.prevent="sendTextPractice"><label class="sr-only" for="mandarin-chat-input">Sua mensagem para o tutor</label><textarea id="mandarin-chat-input" v-model="chatDraft" rows="2" maxlength="800" placeholder="Escreva uma pergunta ou resposta em mandarim…" :disabled="studio.jobActive.value || voice.active.value || chatSendBusy" /><UiButton size="sm" type="submit" icon="solar:plain-bold" :disabled="!chatDraft.trim() || studio.jobActive.value || voice.active.value || chatSendBusy">Enviar</UiButton></form>
             </section>
           </div>
           <LanguageTeacherVoiceProviders />
@@ -400,8 +417,11 @@ type SourcePageSummary = SourcePageInput & {
   summaryRecordId: string
   lowConfidenceFields: string[]
 }
-function teacherOrbActivityFor(mode: CourseInteractionMode, voiceState: VoiceCallState): VoiceCallState {
-  return mode === 'voice' ? voiceState : 'idle'
+function teacherOrbActivityFor(mode: CourseInteractionMode, voiceState: VoiceCallState, textPending = false): VoiceCallState {
+  return mode === 'voice' ? voiceState : textPending ? 'thinking' : 'idle'
+}
+function countExploredCourseStages(visits: Partial<Record<CourseStage, string>> | undefined): number {
+  return (['learn', 'write', 'quiz', 'voice'] as const).filter(stage => !!visits?.[stage]).length
 }
 function buildPageSummaryCatalog(pages: SourcePageInput[]): SourcePageSummary[] {
   return pages.flatMap(page => {
@@ -486,11 +506,20 @@ const quizSolutionsUnlocked = computed(() => quizPassingScore.value > 0 && (prog
 const quizPass = computed(() => quizScored.value && quizScore.value >= quizPassingScore.value)
 const allQuizAnswered = computed(() => quizQuestions.value.every(question => !!quizAnswers.value[question.id]))
 const chatDraft = ref('')
+const chatSendBusy = ref(false)
+const pendingStudentText = ref('')
 const chatList = ref<HTMLElement | null>(null)
 const drawingCanvas = ref<HTMLCanvasElement | null>(null)
 const saveRevision = ref(0)
 const courseProgress = computed(() => Math.round((completedCount.value / MANDARIN_LESSONS.length) * 100))
 const completedCount = computed(() => MANDARIN_LESSONS.filter(lesson => isComplete(lesson.id)).length)
+const progressStages: Array<{ id: Exclude<CourseStage, 'sources'>; label: string }> = [
+  { id: 'learn', label: 'Aprender' },
+  { id: 'write', label: 'Escrever' },
+  { id: 'quiz', label: 'Revisar' },
+  { id: 'voice', label: 'Tutor' },
+]
+const exploredLessonCount = computed(() => MANDARIN_LESSONS.filter(lesson => lessonStageCount(lesson.id) > 0).length)
 const currentWriting = computed({
   get: () => progress.value.writing[activeLessonId.value] ?? '',
   set: (value: string) => { progress.value.writing[activeLessonId.value] = value },
@@ -516,7 +545,7 @@ const writingCharacters = computed(() => {
 })
 const voiceLabel = computed(() => ({ idle: 'PRONTA', listening: 'OUVINDO', thinking: 'PENSANDO', speaking: 'FALANDO', muted: 'MUTADA', error: 'ERRO' }[voice.state.value]))
 const voice = useVoiceCall(sendVoicePrompt, () => progress.value.voiceLanguage)
-const teacherOrbActivity = computed(() => teacherOrbActivityFor(progress.value.interactionMode, voice.state.value))
+const teacherOrbActivity = computed(() => teacherOrbActivityFor(progress.value.interactionMode, voice.state.value, chatSendBusy.value))
 const teacherOrbCaption = computed(() => {
   if (progress.value.interactionMode === 'text') return 'Modo Texto completo · microfone desligado'
   return ({
@@ -528,14 +557,47 @@ const teacherOrbCaption = computed(() => {
     error: 'Voz indisponível · use o modo Texto',
   } satisfies Record<VoiceCallState, string>)[voice.state.value]
 })
+const latestTutorLine = computed(() => [...progress.value.chat].reverse().find(line => line.role === 'tutor' && (!line.lessonId || line.lessonId === activeLessonId.value)))
+const teacherOrbDialogLabel = computed(() => progress.value.interactionMode === 'text'
+  ? chatSendBusy.value ? 'ORB · PENSANDO EM TEXTO' : 'ORB · MICROFONE DESLIGADO'
+  : `ORB · ${voiceLabel.value}`)
+const teacherOrbMessage = computed(() => {
+  if (progress.value.interactionMode === 'text') {
+    if (chatSendBusy.value) return 'Estou lendo sua mensagem e organizando uma resposta. O modo Texto continua sem microfone.'
+    if (latestTutorLine.value) {
+      const answer = latestTutorLine.value.text.replace(/\s+/g, ' ').trim()
+      return answer.length > 190 ? `${answer.slice(0, 187).trimEnd()}…` : answer
+    }
+    return `Vamos avançar em “${activeLesson.value.title}”. Você já explorou ${lessonStageCount(activeLesson.value.id)} de 4 marcos desta aula.`
+  }
+  return ({
+    idle: 'Voz está selecionada, mas o microfone permanece desligado até você tocar em Iniciar conversa por voz.',
+    listening: 'Estou ouvindo. Diga uma frase em mandarim quando estiver pronto.',
+    thinking: 'Estou organizando uma resposta para a sua fala.',
+    speaking: 'Estou falando a resposta do tutor. Você pode interromper quando quiser.',
+    muted: 'O microfone está mutado. Ative-o novamente quando quiser continuar.',
+    error: voice.error.value || 'A voz está indisponível agora. O modo Texto continua completo.',
+  } satisfies Record<VoiceCallState, string>)[voice.state.value]
+})
+const teacherOrbMessageKey = computed(() => `${progress.value.interactionMode}:${teacherOrbActivity.value}:${chatSendBusy.value}:${activeLessonId.value}:${latestTutorLine.value?.id ?? 'welcome'}:${lessonStageCount(activeLessonId.value)}`)
 const capturingShortcut = ref<keyof MandarinProgress['shortcuts'] | ''>('')
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let drawingObserver: ResizeObserver | null = null
 let liveStroke: { points: Array<{ x: number; y: number }> } | null = null
 let canvasPointer: number | null = null
-let chatSendBusy = false
 let textPracticeController: AbortController | null = null
+
+function lessonStageVisited(id: LessonId, milestone: Exclude<CourseStage, 'sources'>): boolean {
+  return !!progress.value.lessonStageVisits[id]?.[milestone]
+}
+function lessonStageCount(id: LessonId): number {
+  return countExploredCourseStages(progress.value.lessonStageVisits[id])
+}
+function recordLessonStage(id: LessonId, next: CourseStage) {
+  const visits = progress.value.lessonStageVisits[id] ??= {}
+  if (!visits[next]) visits[next] = new Date().toISOString()
+}
 
 function isComplete(id: LessonId): boolean {
   return canFinishLesson(id, progress.value.completedLessons, progress.value.bestQuizScores)
@@ -545,6 +607,7 @@ function setStage(next: CourseStage) {
   if (voice.active.value && next !== 'voice') stopVoice()
   capturingShortcut.value = ''
   stage.value = next
+  recordLessonStage(activeLessonId.value, next)
   if (next === 'write') void nextTick(setupCanvas)
 }
 
@@ -577,6 +640,7 @@ function setInteractionMode(mode: CourseInteractionMode) {
 function selectLesson(id: LessonId) {
   if (voice.active.value) stopVoice()
   progress.value.activeLessonId = id
+  recordLessonStage(id, stage.value)
   reviewed.value = progress.value.completedLessons.includes(id)
   quizAnswers.value = {}
   quizScored.value = false
@@ -767,11 +831,22 @@ function normalizeProgress(input: Partial<MandarinProgress> | null | undefined):
   if (!input || typeof input !== 'object') return base
   const rawScores = input.bestQuizScores && typeof input.bestQuizScores === 'object' ? input.bestQuizScores : {}
   const bestQuizScores: MandarinProgress['bestQuizScores'] = {}
+  const rawStageVisits = input.lessonStageVisits && typeof input.lessonStageVisits === 'object' ? input.lessonStageVisits as Record<string, unknown> : {}
+  const lessonStageVisits: MandarinProgress['lessonStageVisits'] = {}
   const rawWriting = input.writing && typeof input.writing === 'object' ? input.writing : {}
   const writing: MandarinProgress['writing'] = {}
   const rawDrawings = input.drawings && typeof input.drawings === 'object' ? input.drawings : {}
   const drawings: MandarinProgress['drawings'] = {}
   for (const lesson of MANDARIN_LESSONS) {
+    const rawVisits = rawStageVisits[lesson.id]
+    if (rawVisits && typeof rawVisits === 'object') {
+      const visits: Partial<Record<CourseStage, string>> = {}
+      for (const stageId of ['learn', 'write', 'quiz', 'voice', 'sources'] as const) {
+        const timestamp = (rawVisits as Record<string, unknown>)[stageId]
+        if (typeof timestamp === 'string' && Number.isFinite(Date.parse(timestamp))) visits[stageId] = timestamp
+      }
+      if (Object.keys(visits).length) lessonStageVisits[lesson.id] = visits
+    }
     const score = rawScores[lesson.id]
     if (typeof score === 'number' && Number.isFinite(score)) bestQuizScores[lesson.id] = Math.max(0, Math.min(MANDARIN_QUIZ[lesson.id].length, Math.floor(score)))
     const writingValue = rawWriting[lesson.id]
@@ -793,13 +868,14 @@ function normalizeProgress(input: Partial<MandarinProgress> | null | undefined):
   const chatSessionIds = Object.fromEntries(Object.entries(rawSessions).filter(([id, value]) => id.length <= 120 && typeof value === 'string' && value.length <= 160))
   const chat = Array.isArray(input.chat) ? input.chat.flatMap((line): CourseChatLine[] => {
     if (!line || typeof line.id !== 'string' || (line.role !== 'student' && line.role !== 'tutor') || typeof line.text !== 'string') return []
-    return [{ id: line.id.slice(0, 80), role: line.role, text: line.text.slice(0, 6000), mode: line.mode === 'text' ? 'text' : 'voice', createdAt: Number.isFinite(line.createdAt) ? line.createdAt : Date.now() }]
+    return [{ id: line.id.slice(0, 80), role: line.role, text: line.text.slice(0, 6000), mode: line.mode === 'text' ? 'text' : 'voice', ...(isLessonId(line.lessonId) ? { lessonId: line.lessonId } : {}), createdAt: Number.isFinite(line.createdAt) ? line.createdAt : Date.now() }]
   }).slice(-60) : []
   return {
     ...base,
     ...input,
     activeLessonId: isLessonId(input.activeLessonId) ? input.activeLessonId : base.activeLessonId,
     completedLessons: Array.isArray(input.completedLessons) ? [...new Set(input.completedLessons.filter(isLessonId))] : [],
+    lessonStageVisits,
     bestQuizScores,
     writing,
     drawings,
@@ -818,6 +894,7 @@ async function hydrateProgress() {
   try {
     const loaded = await vaultGetJson<Partial<MandarinProgress>>(COURSE_PROGRESS_KEY)
     progress.value = normalizeProgress(loaded)
+    recordLessonStage(activeLessonId.value, stage.value)
     reviewed.value = progress.value.completedLessons.includes(activeLessonId.value)
     saveState.value = `${vaultBackend() === 'kv' ? 'Vault' : 'Este dispositivo'} · progresso carregado`
   } catch (cause) {
@@ -847,22 +924,25 @@ function scheduleSave() {
 function ensureTutorTurnActive(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException('Voz interrompida.', 'AbortError')
 }
-function newChatLine(role: CourseChatLine['role'], text: string, mode: CourseChatLine['mode']): CourseChatLine {
-  return { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, role, text: text.slice(0, 6000), mode, createdAt: Date.now() }
+function newChatLine(role: CourseChatLine['role'], text: string, mode: CourseChatLine['mode'], lessonId: LessonId = activeLessonId.value): CourseChatLine {
+  return { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, role, text: text.slice(0, 6000), mode, createdAt: Date.now(), lessonId }
 }
 
-function tutorPrompt(text: string) {
+function tutorPrompt(text: string, lessonId: LessonId = activeLessonId.value) {
+  const lesson = MANDARIN_LESSONS.find(row => row.id === lessonId) ?? activeLesson.value
+  const passingScore = getQuizPassingScore(lesson.questions.length)
+  const solutionsUnlocked = passingScore > 0 && (progress.value.bestQuizScores[lesson.id] ?? 0) >= passingScore
   return [
     'Você é o tutor conversacional de um curso estruturado de mandarim, para alguém que estuda em português brasileiro.',
-    `Módulo: ${activeLesson.value.moduleTitle}. Lição ${activeLesson.value.sequence}: ${activeLesson.value.title}. Objetivo: ${activeLesson.value.objective}`,
-    `Referência consultável: ${activeLesson.value.sourcePages}. Trate-a como localização na fonte, não como texto reproduzido.`,
+    `Módulo: ${lesson.moduleTitle}. Lição ${lesson.sequence}: ${lesson.title}. Objetivo: ${lesson.objective}`,
+    `Referência consultável: ${lesson.sourcePages}. Trate-a como localização na fonte, não como texto reproduzido.`,
     buildTutorSourcePageContext(tutorSourcePage.value),
-    `Vocabulário autorizado para esta aula: ${activeLesson.value.vocabulary.map(term => `${term.hanzi} (${term.pinyin}): ${term.meaning}`).join('; ')}.`,
-    `Exemplo(s) original(is): ${activeLesson.value.examples.map(example => `${example.text} (${example.pinyin}) = ${example.translation}`).join('; ')}.`,
-    `Exercícios propostos: ${activeLesson.value.exercises.map(exercise => exercise.prompt).join(' | ')}.`,
-    `Desafio de escrita: ${activeLesson.value.writing.prompt} Modelos para praticar: ${activeLesson.value.writing.characters.join('、')}. ${activeLesson.value.writing.strokeNotes}`,
-    buildTutorQuizContext(activeLesson.value.questions, quizSolutionsUnlocked.value),
-    activeLesson.value.agentGuidance,
+    `Vocabulário autorizado para esta aula: ${lesson.vocabulary.map(term => `${term.hanzi} (${term.pinyin}): ${term.meaning}`).join('; ')}.`,
+    `Exemplo(s) original(is): ${lesson.examples.map(example => `${example.text} (${example.pinyin}) = ${example.translation}`).join('; ')}.`,
+    `Exercícios propostos: ${lesson.exercises.map(exercise => exercise.prompt).join(' | ')}.`,
+    `Desafio de escrita: ${lesson.writing.prompt} Modelos para praticar: ${lesson.writing.characters.join('、')}. ${lesson.writing.strokeNotes}`,
+    buildTutorQuizContext(lesson.questions, solutionsUnlocked),
+    lesson.agentGuidance,
     'Responda com gentileza e precisão: use caracteres simplificados, pinyin com tons e explicação curta em português. Use as perguntas para recuperação ativa, uma de cada vez, sem revelar o gabarito antes de o estudante tentar; depois explique a resposta correta. Corrija uma coisa por vez. Se a resposta não estiver sustentada pelo resumo, diga que o estudante deve consultar a fonte que pode usar; não invente citação nem reconstrua diálogo ou exercício do livro. Não peça dados pessoais, não acione ferramentas e não altere arquivos.',
     `Mensagem do estudante (${progress.value.voiceLanguage === 'zh-CN' ? 'a fala pode estar em mandarim' : 'a fala pode estar em português'}):`,
     text.trim(),
@@ -907,11 +987,13 @@ function waitForTutorReply(startIndex: number, sessionId: string, signal?: Abort
   })
 }
 
-async function sendTutorTurn(text: string, mode: CourseChatLine['mode'], signal?: AbortSignal): Promise<string> {
+async function sendTutorTurn(text: string, mode: CourseChatLine['mode'], signal?: AbortSignal, lessonId?: LessonId): Promise<string> {
   const configId = studio.chatConfigId.value
   if (!configId) throw new Error('Escolha ou crie um Agent em Apps → Agents antes de iniciar a conversa.')
   if (studio.jobActive.value) throw new Error('O Agent já está ocupado. Aguarde a resposta anterior antes de enviar outra mensagem.')
   ensureTutorTurnActive(signal)
+  const turnLessonId = lessonId ?? progress.value.activeLessonId ?? 'context'
+  const prompt = tutorPrompt(text.slice(0, 800), turnLessonId)
   const previousConfigId = configId
   const previousViewing = studio.viewing.value
   let sessionId: string | undefined = progress.value.chatSessionIds[configId]
@@ -939,7 +1021,7 @@ async function sendTutorTurn(text: string, mode: CourseChatLine['mode'], signal?
     signal?.addEventListener('abort', abortOwnedTurn, { once: true })
     let answer: string
     try {
-      const sent = await studio.send(tutorPrompt(text.slice(0, 800)))
+      const sent = await studio.send(prompt)
       ensureTutorTurnActive(signal)
       if (!sent) throw new Error('O Agent não aceitou a mensagem. Verifique sua configuração e tente de novo.')
       answer = await waitForTutorReply(startIndex, sessionId, signal)
@@ -947,7 +1029,7 @@ async function sendTutorTurn(text: string, mode: CourseChatLine['mode'], signal?
     } finally {
       signal?.removeEventListener('abort', abortOwnedTurn)
     }
-    progress.value.chat.push(newChatLine('student', text, mode), newChatLine('tutor', answer, mode))
+    progress.value.chat.push(newChatLine('student', text, mode, turnLessonId), newChatLine('tutor', answer, mode, turnLessonId))
     if (progress.value.chat.length > 60) progress.value.chat.splice(0, progress.value.chat.length - 60)
     void nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
     return answer
@@ -958,27 +1040,38 @@ async function sendTutorTurn(text: string, mode: CourseChatLine['mode'], signal?
 }
 
 async function sendVoicePrompt(text: string, signal: AbortSignal) {
-  return sendTutorTurn(text, 'voice', signal)
+  const turnLessonId = activeLessonId.value
+  pendingStudentText.value = text
+  void nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
+  try {
+    return await sendTutorTurn(text, 'voice', signal, turnLessonId)
+  } finally {
+    pendingStudentText.value = ''
+  }
 }
 
 async function sendTextPractice() {
   const text = chatDraft.value.trim()
-  if (!text || chatSendBusy) return
-  chatSendBusy = true
+  if (!text || chatSendBusy.value) return
+  const turnLessonId = activeLessonId.value
+  chatSendBusy.value = true
   const controller = new AbortController()
   textPracticeController = controller
   chatDraft.value = ''
+  pendingStudentText.value = text
+  void nextTick(() => { if (chatList.value) chatList.value.scrollTop = chatList.value.scrollHeight })
   try {
-    await sendTutorTurn(text, 'text', controller.signal)
+    await sendTutorTurn(text, 'text', controller.signal, turnLessonId)
   } catch (cause) {
     if (controller.signal.aborted) return
-    progress.value.chat.push(newChatLine('student', text, 'text'))
-    progress.value.chat.push(newChatLine('tutor', cause instanceof Error ? cause.message : String(cause), 'text'))
+    progress.value.chat.push(newChatLine('student', text, 'text', turnLessonId))
+    progress.value.chat.push(newChatLine('tutor', cause instanceof Error ? cause.message : String(cause), 'text', turnLessonId))
     if (progress.value.chat.length > 60) progress.value.chat.splice(0, progress.value.chat.length - 60)
     chatDraft.value = text
   } finally {
     if (textPracticeController === controller) textPracticeController = null
-    chatSendBusy = false
+    pendingStudentText.value = ''
+    chatSendBusy.value = false
   }
 }
 
@@ -1004,6 +1097,8 @@ function stopVoice() {
 
 function clearChat() {
   textPracticeController?.abort()
+  if (voice.active.value) stopVoice()
+  pendingStudentText.value = ''
   progress.value.chat = []
   progress.value.chatSessionIds = {}
 }
@@ -1078,6 +1173,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalShortcut)
+  textPracticeController?.abort()
   drawingObserver?.disconnect()
   if (saveTimer) clearTimeout(saveTimer)
   window.speechSynthesis?.cancel()
@@ -1137,6 +1233,9 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-lesson-copy { display: grid; gap: 3px; min-width: 0; }
 .mi-lesson-copy strong { overflow: hidden; font-size: 11px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
 .mi-lesson-copy small { overflow: hidden; color: var(--ui-text-3, #949ba7); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.mi-lesson-progress { display: flex; gap: 3px; width: min(100%, 76px); height: 3px; margin-top: 2px; }
+.mi-lesson-progress i { flex: 1; border-radius: 99px; background: color-mix(in srgb, var(--ui-text-3, #949ba7) 24%, transparent); }
+.mi-lesson-progress i.visited { background: var(--mi-gold); box-shadow: 0 0 6px color-mix(in srgb, var(--mi-gold) 40%, transparent); }
 .mi-complete-icon { color: #64c99a; }
 .mi-rail-note { display: flex; gap: 8px; align-items: flex-start; margin-top: auto; padding: 11px 9px; border-top: 1px solid var(--ui-border, rgba(255,255,255,.08)); color: var(--ui-text-3, #949ba7); font-size: 10px; line-height: 1.45; }
 .mi-rail-note :deep(svg) { flex-shrink: 0; color: var(--mi-gold); }
@@ -1261,10 +1360,19 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-chat-local-note { display: block; max-width: 330px; margin-top: 5px; color: var(--ui-text-3, #949ba7); font-size: 9px; line-height: 1.4; }
 .mi-chat-list { display: flex; flex: 1; flex-direction: column; gap: 9px; min-height: 175px; max-height: 380px; overflow-y: auto; padding: 12px 2px; overscroll-behavior: contain; }
 .mi-chat-empty { align-self: center; max-width: 245px; margin: auto; color: var(--ui-text-3, #949ba7); font-size: 11px; line-height: 1.55; text-align: center; }
-.mi-chat-line { max-width: 92%; padding: 9px 10px; border: 1px solid var(--ui-border, rgba(255,255,255,.09)); border-radius: 9px; background: var(--ui-glass, rgba(255,255,255,.035)); }
-.mi-chat-line--student { align-self: flex-end; border-color: color-mix(in srgb, var(--mi-gold) 22%, var(--ui-border, #282c34)); background: color-mix(in srgb, var(--mi-gold) 7%, var(--ui-surface, #111318)); }
-.mi-chat-line > span { color: var(--ui-text-3, #949ba7); font-size: 8px; font-weight: 750; letter-spacing: .1em; }
+.mi-chat-line { position: relative; max-width: min(88%, 560px); padding: 11px 13px; border: 1px solid color-mix(in srgb, #91a9c8 16%, var(--ui-border, #282c34)); border-radius: 16px 16px 16px 5px; background: linear-gradient(145deg, color-mix(in srgb, #8ca9d4 7%, var(--ui-surface, #111318)), color-mix(in srgb, var(--ui-glass, rgba(255,255,255,.035)) 78%, transparent)); box-shadow: 0 8px 22px rgba(0,0,0,.12), inset 0 1px 0 rgba(255,255,255,.035); }
+.mi-chat-line--student { align-self: flex-end; border-color: color-mix(in srgb, var(--mi-gold) 28%, var(--ui-border, #282c34)); border-radius: 16px 16px 5px 16px; background: linear-gradient(145deg, color-mix(in srgb, var(--mi-gold) 10%, var(--ui-surface, #111318)), color-mix(in srgb, var(--mi-gold) 4%, var(--ui-glass, transparent))); }
+.mi-chat-line > span:first-child { color: var(--ui-text-3, #949ba7); font-size: 8px; font-weight: 750; letter-spacing: .1em; }
+.mi-chat-line--tutor > span:first-child::before { content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 6px 1px 0; border-radius: 50%; background: linear-gradient(135deg, #e5c178, #829bc2); box-shadow: 0 0 8px rgba(219,190,126,.36); }
 .mi-chat-line p { margin: 5px 0 0; font-size: 11px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mi-chat-line--thinking { border-color: color-mix(in srgb, var(--mi-gold) 34%, var(--ui-border, #282c34)); }
+.mi-chat-line--thinking p { color: var(--ui-text-2, #bac1ca); }
+.mi-typing-dots { display: flex; gap: 4px; width: fit-content; margin: 7px 0 0 2px; }
+.mi-typing-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--mi-gold); opacity: .42; animation: mi-typing 1s ease-in-out infinite alternate; }
+.mi-typing-dots i:nth-child(2) { animation-delay: .18s; }
+.mi-typing-dots i:nth-child(3) { animation-delay: .36s; }
+@keyframes mi-typing { to { opacity: 1; transform: translateY(-2px); } }
+.mandarin-app.motion-reduced .mi-typing-dots i { animation: none; opacity: .75; }
 .mi-chat-compose { display: flex; align-items: flex-end; gap: 7px; padding-top: 9px; border-top: 1px solid var(--ui-border, rgba(255,255,255,.09)); }
 .mi-chat-compose textarea { min-height: 48px; max-height: 120px; resize: vertical; font-size: 13px; }
 .mi-adapter-list { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 14px; }
@@ -1276,11 +1384,32 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-adapter a, .mi-source-links a { color: var(--mi-gold); font-size: 9px; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .mi-adapter-foot { margin: 1px 0 0; color: var(--ui-text-3, #949ba7); font-size: 9px; line-height: 1.5; }
 .mi-source-list { display: grid; gap: 10px; }
-.mi-teacher-stage { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; padding: 12px; border: 1px solid var(--ui-border, rgba(255,255,255,.1)); border-radius: 12px; background: color-mix(in srgb, var(--ui-glass, rgba(255,255,255,.025)) 70%, transparent); }
-.mi-teacher-stage > :deep(.orb-navigator) { flex: 0 0 150px; }
-.mi-teacher-stage > p { display: grid; gap: 4px; margin: 0; }
-.mi-teacher-stage > p strong { color: var(--ui-text, #f4f5f7); font-size: 12px; }
-.mi-teacher-stage > p span { color: var(--ui-text-2, #bac1ca); font-size: 10px; line-height: 1.5; }
+.mi-teacher-stage { position: relative; display: grid; grid-template-columns: minmax(112px, 150px) minmax(0, 1fr); align-items: center; gap: 12px 18px; margin: 0 0 14px; padding: 17px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--mi-gold) 17%, var(--ui-border, rgba(255,255,255,.1))); border-radius: 20px; background: radial-gradient(ellipse at 8% 6%, color-mix(in srgb, var(--mi-gold) 12%, transparent), transparent 43%), linear-gradient(145deg, color-mix(in srgb, var(--ui-glass, rgba(255,255,255,.025)) 86%, #111), color-mix(in srgb, var(--ui-surface, #111318) 93%, #17202b)); box-shadow: 0 18px 42px rgba(0,0,0,.16), inset 0 1px 0 rgba(255,255,255,.045); }
+.mi-teacher-stage::after { content: ''; position: absolute; top: -85px; right: -65px; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--mi-gold) 8%, transparent), transparent 68%); pointer-events: none; }
+.mi-teacher-orb { position: relative; z-index: 1; display: grid; place-items: center; min-width: 0; }
+.mi-teacher-dialog-column { position: relative; z-index: 1; display: grid; gap: 14px; min-width: 0; }
+.mi-orb-dialog { position: relative; min-height: 98px; padding: 15px 17px; border: 1px solid color-mix(in srgb, var(--mi-gold) 24%, var(--ui-border, rgba(255,255,255,.12))); border-radius: 17px 17px 17px 5px; background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.025) 60%), color-mix(in srgb, var(--ui-surface, #111318) 75%, transparent); box-shadow: 0 14px 32px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter: blur(18px); }
+.mi-orb-dialog::after { content: ''; position: absolute; bottom: -6px; left: 20px; width: 11px; height: 11px; border-right: 1px solid color-mix(in srgb, var(--mi-gold) 24%, var(--ui-border, rgba(255,255,255,.12))); border-bottom: 1px solid color-mix(in srgb, var(--mi-gold) 24%, var(--ui-border, rgba(255,255,255,.12))); background: color-mix(in srgb, var(--ui-surface, #111318) 88%, #29241b); transform: rotate(45deg); }
+.mi-orb-dialog-label { color: var(--mi-gold); font-size: 8px; font-weight: 800; letter-spacing: .16em; }
+.mi-orb-dialog p { margin: 7px 0 0; color: var(--ui-text, #f4f5f7); font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
+.mi-orb-dialog-enter-active, .mi-orb-dialog-leave-active { transition: opacity 160ms ease, transform 160ms ease; }
+.mi-orb-dialog-enter-from { opacity: 0; transform: translateY(5px); }
+.mi-orb-dialog-leave-to { opacity: 0; transform: translateY(-4px); }
+.mi-teacher-stage.motion-reduced .mi-orb-dialog-enter-active, .mi-teacher-stage.motion-reduced .mi-orb-dialog-leave-active { transition: none; }
+.mi-teacher-stage[data-activity='thinking'] .mi-orb-dialog { border-color: color-mix(in srgb, var(--mi-gold) 46%, var(--ui-border, transparent)); box-shadow: 0 0 32px color-mix(in srgb, var(--mi-gold) 8%, transparent), 0 14px 32px rgba(0,0,0,.18); }
+.mi-teacher-stage[data-activity='speaking'] .mi-orb-dialog { border-color: rgba(104,176,238,.36); }
+.mi-orb-path { display: grid; gap: 7px; }
+.mi-orb-path-top { display: flex; justify-content: space-between; gap: 8px; color: var(--ui-text-3, #949ba7); font-size: 8px; font-weight: 750; letter-spacing: .1em; }
+.mi-orb-path-top strong { color: var(--ui-text-2, #bac1ca); font-size: 9px; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.mi-orb-path-track { height: 3px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.09); }
+.mi-orb-path-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--mi-gold), #f3d998); box-shadow: 0 0 9px color-mix(in srgb, var(--mi-gold) 44%, transparent); transition: width 240ms ease; }
+.mandarin-app.motion-reduced .mi-orb-path-track span { transition: none; }
+.mi-orb-path-labels { display: flex; justify-content: space-between; gap: 5px; color: var(--ui-text-3, #949ba7); font-size: 8px; }
+.mi-orb-path-labels span.visited { color: var(--mi-gold); }
+.mi-orb-path-labels span.current { font-weight: 800; }
+.mi-teacher-safety { position: relative; z-index: 1; display: grid; gap: 3px; grid-column: 1 / -1; margin: 0; padding-top: 9px; border-top: 1px solid var(--ui-border, rgba(255,255,255,.08)); }
+.mi-teacher-safety strong { color: var(--ui-text, #f4f5f7); font-size: 10px; }
+.mi-teacher-safety span { color: var(--ui-text-2, #bac1ca); font-size: 9px; line-height: 1.45; }
 .mi-page-browser { display: grid; gap: 14px; }
 .mi-page-browser-heading h3 { margin: 6px 0; font-size: 17px; }
 .mi-page-browser-heading > p:not(.mi-source-label) { margin: 6px 0 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; line-height: 1.55; }
@@ -1324,8 +1453,9 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
   .mi-page-browser-controls { grid-template-columns: 1fr; }
   .mi-page-browser-nav { grid-column: auto; }
   .mi-page-context { flex-direction: column; }
-  .mi-teacher-stage { align-items: flex-start; flex-direction: column; }
-  .mi-teacher-stage > :deep(.orb-navigator) { flex-basis: auto; align-self: center; }
+  .mi-teacher-stage { grid-template-columns: 1fr; padding: 14px; }
+  .mi-teacher-orb { justify-self: center; }
+  .mi-teacher-dialog-column { width: 100%; }
   .mi-stage-nav { gap: 2px; overflow-x: auto; padding: 7px 12px; }
   .mi-stage-button { flex: 0 0 auto; min-height: 44px; padding: 0 9px; font-size: 10px; }
   .mi-save-state { position: sticky; right: 0; flex: 0 0 98px; padding: 7px 4px 7px 8px; background: var(--ui-surface, #111318); text-align: right; }

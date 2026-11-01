@@ -54,6 +54,9 @@
       <div class="lt-actions">
         <UiButton size="sm" variant="ghost" icon="solar:refresh-bold" :disabled="busy" @click="reload">Atualizar do vault</UiButton>
         <UiButton size="sm" icon="solar:diskette-bold" :disabled="busy || !vaultReady" @click="save">{{ busy && action === 'save' ? 'Salvando…' : 'Salvar no .cybermanju' }}</UiButton>
+        <UiButton size="sm" variant="danger" :disabled="busy || !vaultReady || !hasSavedConfig" @click="removeSettings">
+          {{ busy && action === 'delete' ? 'Apagando…' : 'Apagar configuração e credenciais locais' }}
+        </UiButton>
         <UiButton size="sm" variant="secondary" icon="solar:volume-loud-bold" :disabled="busy || !canTest" @click="test">
           {{ busy && action === 'test' ? 'Testando…' : 'Testar VoiceStudio' }}
         </UiButton>
@@ -69,6 +72,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import {
   defaultLanguageTeacherVoiceSettings,
+  deleteLanguageTeacherVoiceSettings,
   loadLanguageTeacherVoiceSettings,
   saveLanguageTeacherVoiceSettings,
   testVoiceStudioTts,
@@ -77,7 +81,7 @@ import {
 
 const draft = reactive<LanguageTeacherVoiceSettings>(defaultLanguageTeacherVoiceSettings())
 const busy = ref(false)
-const action = ref<'save' | 'test' | ''>('')
+const action = ref<'save' | 'delete' | 'test' | ''>('')
 const vaultReady = ref(false)
 const hasSavedConfig = ref(false)
 const status = ref('Verificando o vault local…')
@@ -135,6 +139,33 @@ async function save() {
   } catch (cause) {
     statusIsError.value = true
     status.value = cause instanceof Error ? cause.message : 'Não foi possível salvar a configuração.'
+  } finally {
+    busy.value = false
+    action.value = ''
+  }
+}
+
+async function removeSettings() {
+  if (busy.value || !vaultReady.value || !hasSavedConfig.value) return
+  if (!window.confirm('Apagar a configuração de voz e as credenciais locais salvas no arquivo .cybermanju?')) {
+    statusIsError.value = false
+    status.value = 'Exclusão cancelada.'
+    return
+  }
+
+  busy.value = true
+  action.value = 'delete'
+  statusIsError.value = false
+  status.value = 'Apagando a configuração selada do vault…'
+  try {
+    await deleteLanguageTeacherVoiceSettings()
+    applySettings(defaultLanguageTeacherVoiceSettings())
+    hasSavedConfig.value = false
+    isSaved.value = false
+    status.value = 'Configuração e credenciais locais apagadas do arquivo .cybermanju.'
+  } catch (cause) {
+    statusIsError.value = true
+    status.value = cause instanceof Error ? cause.message : 'Não foi possível apagar a configuração local.'
   } finally {
     busy.value = false
     action.value = ''

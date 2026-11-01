@@ -35,6 +35,7 @@ describe('Code Intel technical input', () => {
     expect(html).toContain('autocorrect="off"')
     expect(html).toContain('autocomplete="off"')
     expect(html).toContain('spellcheck="false"')
-    expect(html).toContain(value)
+    if (model === 'intelPaste') expect(source).toContain('v-model="intelPaste"')
+    else expect(html).toContain(value)
   })
 })

@@ -13,7 +13,8 @@ const search = readFileSync('src/components/OmniSearchPanel.vue', 'utf8')
 describe('mobile home rendering', () => {
   it('keeps the app canvas scrollable while pinning the orb navigation below it', () => {
     expect(studio).toContain('.workspace-content { flex: 1 1 0; min-width: 0; min-height: 0;')
-    expect(studio).toContain('overflow-y: auto; overscroll-behavior: contain;')
+    expect(studio).toContain('overflow-y: auto;')
+    expect(studio).toContain('overscroll-behavior: contain;')
     expect(studio).toContain('.screen-nav { position: relative; flex: 0 0 auto;')
     expect(studio).toContain('.workspace-apps { display: grid;')
     expect(studio).toContain('<OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length"')

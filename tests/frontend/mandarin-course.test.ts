@@ -281,6 +281,7 @@ describe('Mandarin course progress', () => {
     expect(progress.schemaVersion).toBe(1)
     expect(progress.activeLessonId).toBe('context')
     expect(progress.completedLessons).toEqual([])
+    expect(progress.lessonStageVisits).toEqual({})
     expect(progress.chatSessionIds).toEqual({})
     expect(progress.voiceLanguage).toBe('zh-CN')
     expect(progress.shortcuts.toggleVoice).not.toEqual(progress.shortcuts.replayPhrase)

@@ -25,7 +25,7 @@ function compileTutorTurn() {
   ) as (
     studio: any,
     progress: any,
-    tutorPrompt: (text: string) => string,
+    tutorPrompt: (text: string, lessonId?: string) => string,
     waitForTutorReply: (...args: any[]) => Promise<string>,
     newChatLine: (...args: any[]) => any,
     chatList: null,
@@ -109,6 +109,24 @@ describe('Mandarin instructor UI and voice lifecycle', () => {
     expect(studio.chatConfigId.value).toBe(configId)
   })
 
+  it('keeps the original lesson context when the student changes lessons during session loading', async () => {
+    const gate = deferred<void>()
+    const { studio } = createStudio({ loadSession: () => gate.promise })
+    const progress = { value: { activeLessonId: 'context', chatSessionIds: { 'agent-1': 'remote-session-1' }, chat: [] as any[] } }
+    const tutorPrompt = vi.fn((text: string, lessonId?: string) => `${text}:${lessonId}`)
+    const sendTutorTurn = compileTutorTurn()(studio, progress, tutorPrompt, async () => 'resposta',
+      (role, text, mode, lessonId) => ({ role, text, mode, lessonId }), null, async () => {})
+    const pending = sendTutorTurn('olá', 'text', new AbortController().signal)
+
+    progress.value.activeLessonId = 'sounds'
+    gate.resolve()
+    await pending
+
+    expect(tutorPrompt).toHaveBeenCalledWith('olá', 'context')
+    expect(studio.send).toHaveBeenCalledWith('olá:context')
+    expect(progress.value.chat.map((line: any) => line.lessonId)).toEqual(['context', 'context'])
+  })
+
   it('makes text the default and requires explicit voice mode before a mic start', () => {
     expect(template).toContain('O modo texto é completo e não pede permissão de microfone.')
     expect(template).toContain('selecionar Voz não inicia a captura')
@@ -136,7 +154,8 @@ describe('Mandarin instructor UI and voice lifecycle', () => {
     ]) expect(template).toContain(`activePedagogy.${field}`)
 
     expect(instructor).toMatch(/const quizSolutionsUnlocked = computed\(\(\) => quizPassingScore\.value > 0 && \(progress\.value\.bestQuizScores\[activeLessonId\.value\] \?\? 0\) >= quizPassingScore\.value\)/)
-    expect(instructor).toContain('buildTutorQuizContext(activeLesson.value.questions, quizSolutionsUnlocked.value)')
+    expect(instructor).toContain('buildTutorQuizContext(lesson.questions, solutionsUnlocked)')
+    expect(instructor).toContain('(progress.value.bestQuizScores[lesson.id] ?? 0) >= passingScore')
     expect(template).toMatch(/v-if="quizSolutionsUnlocked[^\"]*"[^>]*class="mi-pedagogy-answer">Resposta de referência: \{\{ item\.expectedAnswer \}\}/)
     expect(template).toMatch(/v-if="quizSolutionsUnlocked[^\"]*"[^>]*class="mi-pedagogy-answer">Modelo de referência: \{\{ item\.modelAnswer \}\}/)
     expect(template).toMatch(/v-if="quizSolutionsUnlocked[^\"]*"[^>]*class="mi-pedagogy-answer">\{\{ question\.answer \}\}/)

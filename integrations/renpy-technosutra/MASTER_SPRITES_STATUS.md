@@ -20,4 +20,4 @@ O arquivo `model_14.png` é um render válido do slot/capítulo 14, **Sudarśana
 
 A galeria mostra a identificação do arquivo/slot e o estado provisório. Os modelos não fornecem animações ou morph targets adequados à sincronização de boca; não foram tentadas variações de boca ou postura.
 
-O manifesto upstream registra uma divergência de licença: o README declara MIT, enquanto o arquivo LICENSE contém marcadores de conflito e texto GPLv3. A aprovação provisória para esta integração local não substitui a confirmação de licença para distribuição pública. Nenhuma publicação externa foi feita.
+O manifesto upstream registra uma divergência de licença: o README declara MIT, enquanto o arquivo LICENSE contém marcadores de conflito e texto GPLv3. O dono autorizou separadamente a redistribuição pública destes 54 renders derivados, além da adaptação de *The Stem Array*. Essa autorização específica não resolve a licença upstream nem cobre os GLBs ou outros materiais; mantenha apenas os 54 PNGs listados nos manifestos e os avisos de proveniência.

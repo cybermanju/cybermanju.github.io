@@ -17,12 +17,14 @@ export interface CourseChatLine {
   text: string
   createdAt: number
   mode: 'text' | 'voice'
+  lessonId?: LessonId
 }
 export interface KeyboardBinding { code: string; alt: boolean; ctrl: boolean; meta: boolean; shift: boolean }
 export interface MandarinProgress {
   schemaVersion: 1
   activeLessonId: LessonId
   completedLessons: LessonId[]
+  lessonStageVisits: Partial<Record<LessonId, Partial<Record<CourseStage, string>>>>
   bestQuizScores: Partial<Record<LessonId, number>>
   writing: Partial<Record<LessonId, string>>
   drawings: Partial<Record<LessonId, CourseStroke[]>>
@@ -247,6 +249,7 @@ export function defaultMandarinProgress(): MandarinProgress {
     schemaVersion: 1,
     activeLessonId: 'context',
     completedLessons: [],
+    lessonStageVisits: {},
     bestQuizScores: {},
     writing: {},
     drawings: {},

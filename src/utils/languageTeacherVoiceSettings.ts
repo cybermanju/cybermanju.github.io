@@ -165,8 +165,9 @@ export async function saveLanguageTeacherVoiceSettings(
 export async function deleteLanguageTeacherVoiceSettings(): Promise<void> {
   await requireEncryptedLocalVault()
   const existing = (await listMetadata()).some(row => row.id === LANGUAGE_TEACHER_VOICE_SECRET_ID)
-  if (!existing) return
-  await wasmDbDispatch('secrets.delete', { id: LANGUAGE_TEACHER_VOICE_SECRET_ID })
+  if (existing) {
+    await wasmDbDispatch('secrets.delete', { id: LANGUAGE_TEACHER_VOICE_SECRET_ID })
+  }
   const saved = await wasmSaveDisk()
   if (!saved.attached) throw new Error('O vault não confirmou o salvamento após remover a configuração.')
 }

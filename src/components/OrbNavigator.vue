@@ -7,7 +7,7 @@
      (the page list is read as a square-ish row-major grid shared with the studio via
      homeGridCols/homeGridNeighbors, so both sides agree on the same screen map). -->
 <template>
-  <div class="orb-navigator" :class="{ 'orb-navigator--teacher': teacherMode, 'motion-reduced': motionReduced }" :role="teacherMode ? 'img' : undefined" :aria-label="teacherMode ? teacherLabel : undefined">
+  <div class="orb-navigator" :class="{ 'orb-navigator--teacher': teacherMode, 'motion-reduced': motionReduced }" :data-activity="teacherMode ? activity : undefined" :role="teacherMode ? 'img' : undefined" :aria-label="teacherMode ? teacherLabel : undefined">
     <button
       ref="coreRef"
       class="orb-core"
@@ -577,17 +577,35 @@ onUnmounted(() => {
 .orb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 /* pressed feedback stays CSS so it reads even when the render loop is frozen */
 .orb-caption { color: var(--ui-text-3, #9a9a9a); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
-.orb-navigator--teacher { gap: 6px; }
-.orb-navigator--teacher .orb-core { cursor: default; }
+.orb-navigator--teacher { gap: 6px; position: relative; isolation: isolate; }
+.orb-navigator--teacher::before, .orb-navigator--teacher::after {
+  content: ''; position: absolute; z-index: 0; top: 56px; left: 50%; width: 126px; height: 126px;
+  border: 1px solid color-mix(in srgb, var(--ui-accent, #d99b43) 23%, transparent); border-radius: 50%;
+  opacity: .34; pointer-events: none; transform: translate(-50%, -50%);
+}
+.orb-navigator--teacher::after { width: 146px; height: 146px; border-style: dashed; opacity: .13; }
+.orb-navigator--teacher .orb-core { z-index: 1; cursor: default; }
+.orb-navigator--teacher .orb-teacher-caption { position: relative; z-index: 1; }
+.orb-navigator--teacher[data-activity='idle'] .orb-core { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--ui-accent, #d99b43) 17%, transparent)); }
 .orb-navigator--teacher .orb-core[data-activity='listening'] { filter: drop-shadow(0 0 13px rgba(86, 202, 160, .46)); animation: orb-teacher-listen 1.35s ease-in-out infinite alternate; }
 .orb-navigator--teacher .orb-core[data-activity='thinking'] { filter: drop-shadow(0 0 11px rgba(222, 175, 92, .42)); animation: orb-teacher-think 1.9s ease-in-out infinite alternate; }
 .orb-navigator--teacher .orb-core[data-activity='speaking'] { filter: drop-shadow(0 0 16px rgba(104, 176, 238, .58)); animation: orb-teacher-speak .52s ease-in-out infinite alternate; }
 .orb-navigator--teacher .orb-core[data-activity='muted'] { filter: drop-shadow(0 0 7px rgba(220, 174, 97, .2)); }
 .orb-navigator--teacher .orb-core[data-activity='error'] { filter: drop-shadow(0 0 8px rgba(230, 95, 95, .35)); }
+.orb-navigator--teacher[data-activity='listening']::before, .orb-navigator--teacher[data-activity='listening']::after { border-color: rgba(86, 202, 160, .5); animation: orb-teacher-ripple 1.65s ease-out infinite; }
+.orb-navigator--teacher[data-activity='listening']::after { animation-delay: .82s; }
+.orb-navigator--teacher[data-activity='thinking']::before, .orb-navigator--teacher[data-activity='thinking']::after { border-color: rgba(222, 175, 92, .38); animation: orb-teacher-orbit 5.4s linear infinite; }
+.orb-navigator--teacher[data-activity='thinking']::after { animation-direction: reverse; animation-duration: 7.2s; }
+.orb-navigator--teacher[data-activity='speaking']::before, .orb-navigator--teacher[data-activity='speaking']::after { border-color: rgba(104, 176, 238, .48); animation: orb-teacher-ripple .9s ease-out infinite; }
+.orb-navigator--teacher[data-activity='speaking']::after { animation-delay: .45s; }
+.orb-navigator--teacher[data-activity='muted']::before, .orb-navigator--teacher[data-activity='muted']::after { border-color: rgba(220, 174, 97, .25); border-style: dotted; opacity: .32; }
+.orb-navigator--teacher[data-activity='error']::before, .orb-navigator--teacher[data-activity='error']::after { border-color: rgba(230, 95, 95, .32); opacity: .3; }
 .orb-teacher-caption { max-width: 230px; color: var(--ui-text-2, #bac1ca); font: 600 10px/1.4 var(--ui-font, Inter, ui-sans-serif, system-ui, sans-serif); text-align: center; }
 @keyframes orb-teacher-listen { from { transform: scale(.98); } to { transform: scale(1.035); } }
 @keyframes orb-teacher-think { from { transform: scale(1); } to { transform: scale(1.025); } }
 @keyframes orb-teacher-speak { from { transform: scale(.985); } to { transform: scale(1.055); } }
-.orb-navigator--teacher.motion-reduced .orb-core[data-activity] { animation: none !important; }
-@media (prefers-reduced-motion: reduce) { .orb-navigator--teacher .orb-core[data-activity] { animation: none !important; } }
+@keyframes orb-teacher-ripple { 0% { opacity: .52; transform: translate(-50%, -50%) scale(.82); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.38); } }
+@keyframes orb-teacher-orbit { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.orb-navigator--teacher.motion-reduced .orb-core[data-activity], .orb-navigator--teacher.motion-reduced::before, .orb-navigator--teacher.motion-reduced::after { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .orb-navigator--teacher .orb-core[data-activity], .orb-navigator--teacher::before, .orb-navigator--teacher::after { animation: none !important; } }
 </style>

@@ -71,15 +71,20 @@ async function openDialog(kind: 'folder' | 'rename') {
   button.focus()
   return { wrapper, fileManager, input, overlay, button, win: wm.windows.value[0]! }
 }
-function expectSuspended(overlay: HTMLElement) {
-  const hiddenWindow = overlay.closest<HTMLElement>('[data-shell-window-id]')
-  expect(hiddenWindow).not.toBeNull()
-  expect(hiddenWindow!.hasAttribute('inert')).toBe(true)
-  let hidden = false
-  for (let element: HTMLElement | null = overlay; element; element = element.parentElement) {
-    if (getComputedStyle(element).display === 'none') hidden = true
+function expectSuspended(overlay: HTMLElement, mode: 'overview' | 'hidden' = 'hidden') {
+  const shellWindow = overlay.closest<HTMLElement>('[data-shell-window-id]')
+  expect(shellWindow).not.toBeNull()
+  if (mode === 'overview') {
+    expect(shellWindow!.hasAttribute('inert')).toBe(false)
+    expect(overlay.closest('.window-content[inert]')).not.toBeNull()
+  } else {
+    expect(shellWindow!.hasAttribute('inert')).toBe(true)
+    let hidden = false
+    for (let element: HTMLElement | null = overlay; element; element = element.parentElement) {
+      if (getComputedStyle(element).display === 'none') hidden = true
+    }
+    expect(hidden).toBe(true)
   }
-  expect(hidden).toBe(true)
   expect(overlay.contains(document.activeElement)).toBe(false)
 }
 beforeEach(() => {
@@ -111,15 +116,15 @@ describe('FileManager teleported overlays follow the persistent shell window', (
     expect(key(ui.button, 'o', true).defaultPrevented).toBe(true)
     await settle()
     expect(wm.shellLayoutMode.value).toBe('overview')
-    expectSuspended(ui.overlay)
+    expectSuspended(ui.overlay, 'overview')
     const overview = ui.wrapper.get('.desktop-overview')
     expect(document.activeElement).toBe(overview.element)
-    const card = ui.wrapper.get('.overview-card')
+    const card = ui.wrapper.get('.app-window--overview')
     ;(card.element as HTMLElement).focus()
     expect(document.activeElement).toBe(card.element)
     key(card.element, 'Tab')
     expect(ui.overlay.contains(document.activeElement)).toBe(false)
-    await card.trigger('click'); await settle()
+    key(card.element, 'Enter'); await settle()
     expect(wm.shellLayoutMode.value).toBe('floating')
     expect(ui.wrapper.findComponent(FileManager).vm.$).toBe(instance)
     expect(document.body.querySelector('.fm-ov')).toBe(ui.overlay)
@@ -159,8 +164,9 @@ describe('FileManager teleported overlays follow the persistent shell window', (
     // The visible Files dialog is not incorrectly suspended merely by losing focus.
     expect(ui.overlay.closest('.app-window')).toBeNull()
     ui.button.focus(); key(ui.button, 'o', true); await settle()
-    const otherCard = ui.wrapper.findAll('.overview-card').find(card => card.text().includes('CYBSH'))!
-    await otherCard.trigger('click'); await settle()
+    const otherCard = ui.wrapper.findAll('.app-window--overview').find(card => card.text().includes('CYBSH'))!
+    otherCard.element.focus()
+    key(otherCard.element, 'Enter'); await settle()
     expect(ui.overlay.contains(document.activeElement)).toBe(false)
   })
 })

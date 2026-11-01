@@ -21,6 +21,6 @@ describe('UI appearance persistence contract', () => {
   it('bounds IDs, image payloads and entry count', () => {
     expect(Object.keys(validateUiAppearance({ ['x'.repeat(513)]: { kind: 'icon', value: 'solar:home' } }))).toHaveLength(0)
     expect(Object.keys(validateUiAppearance(Object.fromEntries(Array.from({ length: 320 }, (_, i) => [`id-${i}`, { kind: 'icon', value: 'solar:home' }]))))).toHaveLength(300)
-    expect(Object.keys(validateUiAppearance({ huge: { kind: 'image', value: `data:image/png;base64,${'a'.repeat(256 * 1024)}` } }))).toHaveLength(0)
+    expect(Object.keys(validateUiAppearance({ huge: { kind: 'image', value: `data:image/png;base64,${'a'.repeat(360 * 1024 + 1)}` } }))).toHaveLength(0)
   })
 })

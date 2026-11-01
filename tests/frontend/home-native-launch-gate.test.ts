@@ -10,7 +10,7 @@ import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
 import { HOME_WORKSPACE_KEY, createHomeState } from '@/utils/homeWorkspaces'
 
 const native = vi.hoisted(() => ({ invoke: vi.fn(), openApp: vi.fn() }))
-vi.mock('@/composables/useTauri', () => ({ isAndroidApp: () => true, isTauri: () => true }))
+vi.mock('@/composables/useTauri', () => ({ isAndroidApp: () => true, isTauri: () => true, isTauriMobile: () => true }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: native.invoke }))
 vi.mock('@/composables/useAndroidApps', () => ({ useAndroidApps: () => ({ supported: true, apps: { value: [] }, status: { value: 'ready' }, refresh: vi.fn().mockResolvedValue(true), openApp: native.openApp }) }))
 vi.mock('@/composables/useMotion', () => ({ useMotion: () => ({ reduced: { value: false } }) }))

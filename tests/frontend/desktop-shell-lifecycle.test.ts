@@ -84,8 +84,7 @@ describe('DesktopShell keyed AppWindow lifecycle', () => {
       expect(host('one')).toBe(original)
       expect(host('one')!.props['data-instance']).toBe(1)
       if (layout === 'overview') {
-        expect(hidden(host('one')!)).toBe(true); expect(host('one')!.props.inert).toBe(true)
-        expect(all(ui.root).filter(el => el.props.class === 'overview-card')).toHaveLength(2)
+        expect(hidden(host('one')!)).toBe(false); expect(host('one')!.props.inert).toBe(false)
       }
       if (layout === 'strip') {
         expect(host('one')!.style.display).toBe('none'); expect(host('one')!.props.inert).toBe(true)
@@ -94,11 +93,11 @@ describe('DesktopShell keyed AppWindow lifecycle', () => {
     }
     ui.app.unmount()
   })
-  it('unmounts only the closed window and never duplicates AppWindow for overview cards', async () => {
+  it('unmounts only the closed window and keeps one keyed AppWindow per overview screen', async () => {
     const ui = mount()
     const host = (id: string) => all(ui.root).find(el => el.props['data-shell-window-id'] === id)
     ui.mode.value = 'overview'; await nextTick()
-    expect(all(ui.root).filter(el => el.props.class === 'overview-card')).toHaveLength(2)
+    expect(all(ui.root).filter(el => el.tag === 'article')).toHaveLength(2)
     expect(ui.lifecycle.mounts).toBe(2)
     ui.windows.splice(0, 1); await nextTick()
     expect(ui.lifecycle.unmounts).toBe(1); expect(host('one')).toBeUndefined(); expect(host('two')).toBeDefined()
