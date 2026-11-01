@@ -245,7 +245,7 @@ fn os_exec_and_write_are_admin_gated() {
     let (_dir, d) = mk_dashboard(3456);
 
     for role in ["user", "viewer"] {
-        let token = bearer(&mint(d, role, now_secs() + 3_600, JTI));
+        let token = bearer(&mint(&d, role, now_secs() + 3_600, JTI));
         let resp = call(
             &d,
             "POST",
@@ -263,8 +263,8 @@ fn os_exec_and_write_are_admin_gated() {
             body["message"]
                 .as_str()
                 .unwrap_or_default()
-                .starts_with("auth:"),
-            "denials speak the AGENT-1 prefix: {body}"
+                .starts_with("Forbidden:"),
+            "role denials use the canonical 403 response: {body}"
         );
 
         let resp = call(
@@ -282,7 +282,7 @@ fn os_exec_and_write_are_admin_gated() {
     }
 
     // Admin retains full cybsh and volume writes.
-    let admin = bearer(&mint(d, "admin", now_secs() + 3_600, JTI));
+    let admin = bearer(&mint(&d, "admin", now_secs() + 3_600, JTI));
     let resp = call(
         &d,
         "POST",
