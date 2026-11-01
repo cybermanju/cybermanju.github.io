@@ -79,7 +79,62 @@
 	            <p class="mi-section-label">EXERCÍCIO DE TRANSFERÊNCIA</p><p>{{ activeLesson.exercises[1].prompt }}</p>
 	          </section>
 
-	          <section class="mi-practice-callout">
+	          <section v-if="activePedagogy" class="mi-pedagogy" aria-label="Material didático estruturado">
+            <div class="mi-pedagogy-heading">
+              <p class="mi-section-label">MATERIAL DIDÁTICO DO CURSO</p>
+              <p v-if="activePedagogy.overview?.summary">{{ activePedagogy.overview.summary }}</p>
+            </div>
+            <details v-if="activePedagogy.languagePoints?.length" class="mi-pedagogy-block">
+              <summary>Pontos de língua ({{ activePedagogy.languagePoints.length }})</summary>
+              <div class="mi-pedagogy-list">
+                <article v-for="item in activePedagogy.languagePoints" :key="item.id" class="mi-pedagogy-item">
+                  <strong>{{ item.title }}</strong><code v-if="item.pattern">{{ item.pattern }}</code><p v-if="item.explanation">{{ item.explanation }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small>
+                </article>
+              </div>
+            </details>
+            <details v-if="activePedagogy.communicativeFunctions?.length" class="mi-pedagogy-block">
+              <summary>O que você vai conseguir fazer ({{ activePedagogy.communicativeFunctions.length }})</summary>
+              <ul class="mi-pedagogy-list mi-pedagogy-list--plain"><li v-for="item in activePedagogy.communicativeFunctions" :key="item.id">{{ item.function }} <small v-if="item.sourcePages">· {{ item.sourcePages }}</small></li></ul>
+            </details>
+            <details v-if="activePedagogy.explanations?.length" class="mi-pedagogy-block">
+              <summary>Explicações e exemplos guiados ({{ activePedagogy.explanations.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.explanations" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.topic }}</strong><p>{{ item.summary }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.listeningPractice?.length" class="mi-pedagogy-block">
+              <summary>Prática de escuta ({{ activePedagogy.listeningPractice.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.listeningPractice" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.focus }}</strong><p>{{ item.prompt }}</p><UiButton v-if="item.ttsText" size="xs" variant="outline" icon="solar:volume-loud-bold" @click="speak(item.ttsText, 'zh-CN')">Ouvir modelo sintetizado</UiButton><p v-if="quizSolutionsUnlocked && item.expectedAnswer" class="mi-pedagogy-answer">Resposta de referência: {{ item.expectedAnswer }}</p><p v-if="quizSolutionsUnlocked && item.answerExplanation">{{ item.answerExplanation }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.pronunciationPractice?.length" class="mi-pedagogy-block">
+              <summary>Prática de pronúncia ({{ activePedagogy.pronunciationPractice.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.pronunciationPractice" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.focus }}</strong><p>{{ item.prompt }}</p><p v-if="item.modelText"><span lang="zh-CN">{{ item.modelText }}</span> <span class="mi-pinyin">{{ item.modelPinyin }}</span><button type="button" class="mi-icon-button" :aria-label="`Ouvir modelo de ${item.focus}`" @click="speak(item.modelText, 'zh-CN')"><AppIcon name="solar:volume-loud-bold" :size="15" /></button></p><small>{{ item.feedbackCriteria }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.writingTasks?.length" class="mi-pedagogy-block">
+              <summary>Propostas de escrita ({{ activePedagogy.writingTasks.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.writingTasks" :key="item.id" class="mi-pedagogy-item"><p>{{ item.prompt }}</p><small>{{ item.feedbackCriteria }}</small><p v-if="quizSolutionsUnlocked && item.modelAnswer" class="mi-pedagogy-answer">Modelo de referência: {{ item.modelAnswer }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.characterSamples?.length" class="mi-pedagogy-block">
+              <summary>Caracteres representativos ({{ activePedagogy.characterSamples.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.characterSamples" :key="item.id" class="mi-pedagogy-item"><strong class="mi-hanzi" lang="zh-CN">{{ item.character }}</strong><small>Amostra representativa, não exaustiva · página {{ item.sourcePage }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.exerciseBank?.length" class="mi-pedagogy-block">
+              <summary>Banco de exercícios ({{ activePedagogy.exerciseBank.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.exerciseBank" :key="item.id" class="mi-pedagogy-item"><p>{{ item.prompt }}</p><p v-if="quizSolutionsUnlocked && item.expectedAnswer" class="mi-pedagogy-answer">Resposta de referência: {{ item.expectedAnswer }}</p><p v-if="quizSolutionsUnlocked && item.explanation">{{ item.explanation }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.readingSummaries?.length" class="mi-pedagogy-block">
+              <summary>Leituras de apoio ({{ activePedagogy.readingSummaries.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.readingSummaries" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.title }}</strong><p>{{ item.summary }}</p><div v-for="(question, index) in item.comprehensionQuestions" :key="`${item.id}-${index}`"><p>{{ question.prompt }}</p><p v-if="quizSolutionsUnlocked" class="mi-pedagogy-answer">{{ question.answer }} <small>{{ question.explanation }}</small></p></div><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.referenceIndexes?.length || activePedagogy.sourceContextNotes?.length" class="mi-pedagogy-block">
+              <summary>Índices e contexto das fontes</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in [...(activePedagogy.referenceIndexes ?? []), ...(activePedagogy.sourceContextNotes ?? [])]" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.title }}</strong><p>{{ item.summary }}</p><small v-if="item.sourcePages">{{ item.sourcePages }}</small></article></div>
+            </details>
+            <details v-if="activePedagogy.pageSummaries?.length" class="mi-pedagogy-block">
+              <summary>Resumo das páginas-fonte ({{ activePedagogy.pageSummaries.length }})</summary>
+              <div class="mi-pedagogy-list"><article v-for="item in activePedagogy.pageSummaries" :key="item.id" class="mi-pedagogy-item"><strong>{{ item.title }} · {{ item.sourceId === 'reader' ? 'livro do aluno' : 'Shangrila' }} · PDF p. {{ item.pdfPage }}</strong><p>{{ item.summary }}</p></article></div>
+            </details>
+            <p v-if="!quizSolutionsUnlocked" class="mi-pedagogy-gate">Respostas de referência aparecem depois que sua melhor nota atingir pelo menos 2/3.</p>
+          </section>
+          <section class="mi-practice-callout">
             <div class="mi-callout-icon"><AppIcon name="solar:lightbulb-bolt-bold" :size="20" /></div>
             <div><p class="mi-section-label">FAÇA AGORA</p><p>{{ activeLesson.practicePrompt }}</p></div>
             <UiButton size="sm" icon="solar:pen-bold" @click="setStage('write')">Praticar</UiButton>
@@ -142,7 +197,7 @@
               <p class="mi-shortcut-note">Atalhos são opcionais. O navegador ou o sistema operacional pode reservar certas combinações.</p>
             </section>
             <section class="mi-chat-card" aria-label="Transcrição do tutor do curso">
-              <div class="mi-chat-head"><div><p class="mi-section-label">TRANSCRIÇÃO DO CURSO</p><strong>{{ progress.chat.length }} mensagens salvas</strong></div><button type="button" class="mi-icon-button" title="Limpar transcrição do curso" aria-label="Limpar transcrição do curso" :disabled="!progress.chat.length" @click="clearChat"><AppIcon name="solar:trash-bin-trash-bold" :size="16" /></button></div>
+              <div class="mi-chat-head"><div><p class="mi-section-label">HISTÓRICO LOCAL DO CURSO</p><strong>{{ progress.chat.length }} mensagens salvas</strong><small class="mi-chat-local-note">Limpar remove apenas o histórico e o vínculo locais; a sessão remota do Agent continua em Agents.</small></div><button type="button" class="mi-icon-button" title="Apagar somente o histórico local do curso" aria-label="Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada" :disabled="!progress.chat.length" @click="clearChat"><AppIcon name="solar:trash-bin-trash-bold" :size="16" /></button></div>
               <div ref="chatList" class="mi-chat-list" aria-live="polite">
                 <p v-if="!progress.chat.length" class="mi-chat-empty">Comece com “Nǐ hǎo” ou pergunte sobre um dos tópicos da aula.</p>
                 <article v-for="line in progress.chat" :key="line.id" class="mi-chat-line" :class="`mi-chat-line--${line.role}`"><span>{{ line.role === 'student' ? 'VOCÊ' : 'TUTOR' }} · {{ line.mode === 'voice' ? 'voz' : 'texto' }}</span><p>{{ line.text }}</p></article>
@@ -206,6 +261,47 @@ import {
   type VoiceLanguage,
 } from '@/utils/mandarinCourse'
 
+type LessonPedagogyItem = {
+  id?: string
+  title?: string
+  summary?: string
+  topic?: string
+  pattern?: string
+  explanation?: string
+  function?: string
+  prompt?: string
+  focus?: string
+  ttsText?: string
+  ttsPinyin?: string
+  expectedAnswer?: string
+  answerExplanation?: string
+  modelText?: string
+  modelPinyin?: string
+  feedbackCriteria?: string
+  modelAnswer?: string
+  sourcePages?: string
+  sourceId?: string
+  pdfPage?: number
+  sourcePage?: number
+  character?: string
+  exhaustive?: boolean
+  comprehensionQuestions?: Array<{ prompt?: string; answer?: string; explanation?: string }>
+}
+type LessonPedagogy = {
+  overview?: { summary?: string }
+  languagePoints?: LessonPedagogyItem[]
+  communicativeFunctions?: LessonPedagogyItem[]
+  explanations?: LessonPedagogyItem[]
+  listeningPractice?: LessonPedagogyItem[]
+  pronunciationPractice?: LessonPedagogyItem[]
+  writingTasks?: LessonPedagogyItem[]
+  characterSamples?: LessonPedagogyItem[]
+  exerciseBank?: LessonPedagogyItem[]
+  readingSummaries?: LessonPedagogyItem[]
+  referenceIndexes?: LessonPedagogyItem[]
+  sourceContextNotes?: LessonPedagogyItem[]
+  pageSummaries?: LessonPedagogyItem[]
+}
 const wm = useWindowManager()
 const windowUi = useWindowUi()
 const studio = useStudioAgent()
@@ -215,6 +311,7 @@ const saveState = ref('Carregando progresso…')
 const stage = ref<CourseStage>('learn')
 const activeLessonId = computed(() => progress.value.activeLessonId)
 const activeLesson = computed(() => MANDARIN_LESSONS.find(row => row.id === activeLessonId.value) ?? MANDARIN_LESSONS[0])
+const activePedagogy = computed(() => (activeLesson.value as unknown as { pedagogy?: LessonPedagogy }).pedagogy)
 const lessonGroups = [
   { id: 'shangrila-m1', title: 'SHANGRILA · MÓDULO 1', lessons: MANDARIN_LESSONS.filter(lesson => lesson.moduleId === 'shangrila-m1') },
   { id: 'contemporary', title: 'CHINÊS CONTEMPORÂNEO · LIÇÕES 0–20', lessons: MANDARIN_LESSONS.filter(lesson => lesson.moduleId === 'contemporary') },
@@ -225,6 +322,7 @@ const quizAnswers = ref<Record<string, string>>({})
 const quizScored = ref(false)
 const quizScore = ref(0)
 const quizPassingScore = computed(() => getQuizPassingScore(quizQuestions.value.length))
+const quizSolutionsUnlocked = computed(() => quizPassingScore.value > 0 && (progress.value.bestQuizScores[activeLessonId.value] ?? 0) >= quizPassingScore.value)
 const quizPass = computed(() => quizScored.value && quizScore.value >= quizPassingScore.value)
 const allQuizAnswered = computed(() => quizQuestions.value.every(question => !!quizAnswers.value[question.id]))
 const chatDraft = ref('')
@@ -546,14 +644,14 @@ function scheduleSave() {
   }, 350)
 }
 
+function ensureTutorTurnActive(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('Voz interrompida.', 'AbortError')
+}
 function newChatLine(role: CourseChatLine['role'], text: string, mode: CourseChatLine['mode']): CourseChatLine {
   return { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, role, text: text.slice(0, 6000), mode, createdAt: Date.now() }
 }
 
 function tutorPrompt(text: string) {
-  const passingScore = getQuizPassingScore(activeLesson.value.questions.length)
-  const bestScore = progress.value.bestQuizScores[activeLessonId.value] ?? 0
-  const solutionsUnlocked = passingScore > 0 && bestScore >= passingScore
   return [
     'Você é o tutor conversacional de um curso estruturado de mandarim, para alguém que estuda em português brasileiro.',
     `Módulo: ${activeLesson.value.moduleTitle}. Lição ${activeLesson.value.sequence}: ${activeLesson.value.title}. Objetivo: ${activeLesson.value.objective}`,
@@ -562,7 +660,7 @@ function tutorPrompt(text: string) {
     `Exemplo(s) original(is): ${activeLesson.value.examples.map(example => `${example.text} (${example.pinyin}) = ${example.translation}`).join('; ')}.`,
     `Exercícios propostos: ${activeLesson.value.exercises.map(exercise => exercise.prompt).join(' | ')}.`,
     `Desafio de escrita: ${activeLesson.value.writing.prompt} Modelos para praticar: ${activeLesson.value.writing.characters.join('、')}. ${activeLesson.value.writing.strokeNotes}`,
-    buildTutorQuizContext(activeLesson.value.questions, solutionsUnlocked),
+    buildTutorQuizContext(activeLesson.value.questions, quizSolutionsUnlocked.value),
     activeLesson.value.agentGuidance,
     'Responda com gentileza e precisão: use caracteres simplificados, pinyin com tons e explicação curta em português. Use as perguntas para recuperação ativa, uma de cada vez, sem revelar o gabarito antes de o estudante tentar; depois explique a resposta correta. Corrija uma coisa por vez. Se a resposta não estiver sustentada pelo resumo, diga que o estudante deve consultar a fonte que pode usar; não invente citação nem reconstrua diálogo ou exercício do livro. Não peça dados pessoais, não acione ferramentas e não altere arquivos.',
     `Mensagem do estudante (${progress.value.voiceLanguage === 'zh-CN' ? 'a fala pode estar em mandarim' : 'a fala pode estar em português'}):`,
@@ -612,24 +710,27 @@ async function sendTutorTurn(text: string, mode: CourseChatLine['mode'], signal?
   const configId = studio.chatConfigId.value
   if (!configId) throw new Error('Escolha ou crie um Agent em Apps → Agents antes de iniciar a conversa.')
   if (studio.jobActive.value) throw new Error('O Agent já está ocupado. Aguarde a resposta anterior antes de enviar outra mensagem.')
-  if (signal?.aborted) throw new DOMException('Voz interrompida.', 'AbortError')
+  ensureTutorTurnActive(signal)
   const previousConfigId = configId
   const previousViewing = studio.viewing.value
   let sessionId: string | undefined = progress.value.chatSessionIds[configId]
   try {
     if (sessionId) {
       await studio.loadSession(sessionId)
+      ensureTutorTurnActive(signal)
       if (studio.viewing.value?.id !== sessionId) sessionId = undefined
     }
     if (!sessionId) {
       studio.setViewing(null)
       const created = await studio.newSession()
+      ensureTutorTurnActive(signal)
       if (!created) throw new Error('Não consegui abrir uma sessão de estudo no Agent selecionado.')
       sessionId = created.id
       progress.value.chatSessionIds[configId] = sessionId
     }
     const session = studio.viewing.value
     if (!session || session.id !== sessionId) throw new Error('A sessão do tutor mudou durante o envio. Tente novamente.')
+    ensureTutorTurnActive(signal)
     const startIndex = session.messages.length
     const abortOwnedTurn = () => {
       if (studio.activeJob.value?.sessionId === sessionId) void studio.abort()
@@ -638,8 +739,10 @@ async function sendTutorTurn(text: string, mode: CourseChatLine['mode'], signal?
     let answer: string
     try {
       const sent = await studio.send(tutorPrompt(text.slice(0, 800)))
+      ensureTutorTurnActive(signal)
       if (!sent) throw new Error('O Agent não aceitou a mensagem. Verifique sua configuração e tente de novo.')
       answer = await waitForTutorReply(startIndex, sessionId, signal)
+      ensureTutorTurnActive(signal)
     } finally {
       signal?.removeEventListener('abort', abortOwnedTurn)
     }
@@ -859,6 +962,21 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-example-card p { margin: 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; }
 .mi-exercise-bank { margin-top: 9px; padding: 11px 13px; border-left: 2px solid color-mix(in srgb, var(--mi-gold) 65%, transparent); border-radius: 0 8px 8px 0; background: var(--ui-glass, rgba(255,255,255,.025)); }
 .mi-exercise-bank > p:last-child { margin: 6px 0 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; line-height: 1.5; }
+.mi-pedagogy { display: grid; gap: 7px; margin-top: 15px; }
+.mi-pedagogy-heading { padding: 12px 13px; border: 1px solid var(--ui-border, rgba(255,255,255,.1)); border-radius: 10px; background: var(--ui-glass, rgba(255,255,255,.025)); }
+.mi-pedagogy-heading > p:last-child { margin: 6px 0 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; line-height: 1.5; }
+.mi-pedagogy-block { padding: 11px 13px; border: 1px solid var(--ui-border, rgba(255,255,255,.1)); border-radius: 10px; background: var(--ui-glass, rgba(255,255,255,.025)); }
+.mi-pedagogy-block > summary { cursor: pointer; color: var(--ui-text, #f4f5f7); font-size: 11px; font-weight: 700; }
+.mi-pedagogy-list { display: grid; gap: 8px; padding-top: 10px; }
+.mi-pedagogy-list--plain { padding-left: 20px; color: var(--ui-text-2, #bac1ca); font-size: 10px; line-height: 1.5; }
+.mi-pedagogy-item { display: grid; gap: 5px; min-width: 0; padding: 10px; border: 1px solid var(--ui-border, rgba(255,255,255,.08)); border-radius: 8px; }
+.mi-pedagogy-item strong { font-size: 10px; }
+.mi-pedagogy-item p { margin: 0; color: var(--ui-text-2, #bac1ca); font-size: 10px; line-height: 1.5; overflow-wrap: anywhere; }
+.mi-pedagogy-item code { color: var(--mi-gold); font: 11px/1.5 var(--ui-font-mono, ui-monospace, monospace); white-space: normal; }
+.mi-pedagogy-item small, .mi-pedagogy-item li small { color: var(--ui-text-3, #949ba7); font-size: 9px; line-height: 1.4; }
+.mi-pedagogy-item .mi-icon-button { width: 30px; height: 30px; margin-left: 5px; vertical-align: middle; }
+.mi-pedagogy-answer { color: var(--mi-gold) !important; }
+.mi-pedagogy-gate { margin: 2px 0 0; color: var(--ui-text-3, #949ba7); font-size: 9px; line-height: 1.4; }
 .mi-practice-callout { display: grid; grid-template-columns: 35px minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-top: 15px; padding: 14px; border: 1px solid var(--ui-border, rgba(255,255,255,.1)); border-radius: 11px; background: var(--ui-glass, rgba(255,255,255,.035)); }
 .mi-callout-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; color: var(--mi-gold); background: color-mix(in srgb, var(--mi-gold) 15%, transparent); }
 .mi-practice-callout > div:nth-child(2) p:last-child { margin: 5px 0 0; color: var(--ui-text-2, #bac1ca); font-size: 11px; line-height: 1.5; }
@@ -923,6 +1041,7 @@ watch(activeStrokes, () => { void nextTick(renderCanvas) }, { deep: true })
 .mi-chat-card { display: flex; flex-direction: column; min-height: 330px; }
 .mi-chat-head { flex: 0 0 auto; padding-bottom: 9px; border-bottom: 1px solid var(--ui-border, rgba(255,255,255,.09)); }
 .mi-chat-head strong { display: block; margin-top: 4px; font-size: 10px; }
+.mi-chat-local-note { display: block; max-width: 330px; margin-top: 5px; color: var(--ui-text-3, #949ba7); font-size: 9px; line-height: 1.4; }
 .mi-chat-list { display: flex; flex: 1; flex-direction: column; gap: 9px; min-height: 175px; max-height: 380px; overflow-y: auto; padding: 12px 2px; overscroll-behavior: contain; }
 .mi-chat-empty { align-self: center; max-width: 245px; margin: auto; color: var(--ui-text-3, #949ba7); font-size: 11px; line-height: 1.55; text-align: center; }
 .mi-chat-line { max-width: 92%; padding: 9px 10px; border: 1px solid var(--ui-border, rgba(255,255,255,.09)); border-radius: 9px; background: var(--ui-glass, rgba(255,255,255,.035)); }

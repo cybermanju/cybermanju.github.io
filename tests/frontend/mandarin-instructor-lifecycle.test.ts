@@ -1,0 +1,116 @@
+import { readFileSync } from 'node:fs'
+import { describe, expect, it, vi } from 'vitest'
+import ts from 'typescript'
+
+const instructor = readFileSync('src/components/MandarinInstructor.vue', 'utf8')
+const template = instructor.split('<script setup lang="ts">')[0]
+
+function compileTutorTurn() {
+  const script = instructor.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)?.[1]
+  if (!script) throw new Error('MandarinInstructor script setup not found')
+  const sourceFile = ts.createSourceFile('MandarinInstructor.ts', script, ts.ScriptTarget.Latest, true)
+  const targets = new Set(['ensureTutorTurnActive', 'sendTutorTurn'])
+  const declarations = sourceFile.statements.filter(
+    (statement): statement is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(statement) && !!statement.name && targets.has(statement.name.text),
+  )
+  if (declarations.length !== targets.size) throw new Error('Tutor turn functions not found')
+  const code = declarations.map(node => script.slice(node.getStart(sourceFile), node.end)).join('\n')
+  const compiled = ts.transpile(code, { target: ts.ScriptTarget.ES2022 })
+  return new Function(
+    'studio', 'progress', 'tutorPrompt', 'waitForTutorReply', 'newChatLine', 'chatList', 'nextTick',
+    `${compiled}; return sendTutorTurn`,
+  ) as (
+    studio: any,
+    progress: any,
+    tutorPrompt: (text: string) => string,
+    waitForTutorReply: (...args: any[]) => Promise<string>,
+    newChatLine: (...args: any[]) => any,
+    chatList: null,
+    nextTick: (callback: () => void) => Promise<void>,
+  ) => (text: string, mode: 'voice' | 'text', signal?: AbortSignal) => Promise<string>
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+function createStudio(options: {
+  loadSession?: () => Promise<void>
+  newSession?: () => Promise<any>
+} = {}) {
+  const session = { id: 'remote-session-1', messages: [] as any[] }
+  const studio: any = {
+    chatConfigId: { value: 'agent-1' },
+    jobActive: { value: false },
+    viewing: { value: null as any },
+    loadSession: vi.fn(async () => {
+      await options.loadSession?.()
+      studio.viewing.value = session
+    }),
+    setViewing: vi.fn((value: any) => { studio.viewing.value = value }),
+    newSession: vi.fn(async () => {
+      await options.newSession?.()
+      studio.viewing.value = session
+      return session
+    }),
+    send: vi.fn(async () => true),
+  }
+  return { studio, session }
+}
+
+function runTurn(studio: any, progress: any, signal: AbortSignal) {
+  const sendTutorTurn = compileTutorTurn()(studio, progress, () => 'prompt', async () => 'resposta', () => ({}), null, async () => {})
+  return sendTutorTurn('olá', 'voice', signal)
+}
+
+describe('Mandarin instructor UI and voice lifecycle', () => {
+  it.each([
+    ['loading an existing remote session', 'loadSession'],
+    ['creating a remote session', 'newSession'],
+  ])('does not send if voice is ended while %s', async (_label, operation) => {
+    const gate = deferred<void>()
+    const options = operation === 'loadSession'
+      ? { loadSession: () => gate.promise }
+      : { newSession: () => gate.promise }
+    const { studio } = createStudio(options)
+    const progress = { value: {
+      chatSessionIds: operation === 'loadSession' ? { 'agent-1': 'remote-session-1' } : {},
+      chat: [],
+    } }
+    const controller = new AbortController()
+    const pending = runTurn(studio, progress, controller.signal)
+
+    controller.abort()
+    gate.resolve()
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(studio.send).not.toHaveBeenCalled()
+  })
+
+  it('labels transcript clearing as local-only and leaves remote Agent sessions untouched', () => {
+    expect(template).toContain('HISTÓRICO LOCAL DO CURSO')
+    expect(template).toContain('Apagar somente o histórico local do curso; a sessão remota do Agent não será apagada')
+    expect(template).toContain('a sessão remota do Agent continua em Agents')
+    const clearChat = instructor.slice(instructor.indexOf('function clearChat()'), instructor.indexOf('function shortcutLabel'))
+    expect(clearChat).toContain('progress.value.chat = []')
+    expect(clearChat).toContain('progress.value.chatSessionIds = {}')
+    expect(clearChat).not.toContain('studio.')
+  })
+
+  it('surfaces the structured pedagogy fields without leaking answer keys before 2/3', () => {
+    for (const field of [
+      'languagePoints', 'communicativeFunctions', 'explanations', 'listeningPractice',
+      'pronunciationPractice', 'writingTasks', 'characterSamples', 'exerciseBank', 'readingSummaries',
+      'referenceIndexes', 'sourceContextNotes', 'pageSummaries',
+    ]) expect(template).toContain(`activePedagogy.${field}`)
+
+    expect(instructor).toMatch(/const quizSolutionsUnlocked = computed\(\(\) => quizPassingScore\.value > 0 && \(progress\.value\.bestQuizScores\[activeLessonId\.value\] \?\? 0\) >= quizPassingScore\.value\)/)
+    expect(instructor).toContain('buildTutorQuizContext(activeLesson.value.questions, quizSolutionsUnlocked.value)')
+    expect(template).toMatch(/v-if="quizSolutionsUnlocked[^\"]*"[^>]*class="mi-pedagogy-answer">Resposta de referência: \{\{ item\.expectedAnswer \}\}/)
+    expect(template).toMatch(/v-if="quizSolutionsUnlocked[^\"]*"[^>]*class="mi-pedagogy-answer">Modelo de referência: \{\{ item\.modelAnswer \}\}/)
+    expect(template).toMatch(/v-if="quizSolutionsUnlocked[^\"]*"[^>]*class="mi-pedagogy-answer">\{\{ question\.answer \}\}/)
+  })
+})
