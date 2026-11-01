@@ -7,22 +7,14 @@
 // router, with the auth gate in front of it, plus the command-table contract
 // the terminal's tab-completion is built on.
 
-use crate::web::{bearer, body_of, call, mint, mk_dashboard, now_secs, status_of};
-use std::sync::OnceLock;
+use crate::web::{bearer, body_of, call, mint, mk_dashboard, now_secs, status_of, test_data_dir};
 
 const JTI: &str = "jti-agent8-os";
 
-/// Point the process-wide volume at a scratch directory *before* the kernel
-/// resolves its root — first caller wins, and every test then shares the same
-/// throwaway directory instead of the developer's real volume.
+/// Use the shared scratch data directory initialized before any test database
+/// is created, so the volume and keystore use one stable process-wide root.
 fn scratch_volume() -> &'static std::path::Path {
-    static DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
-    let dir = DIR.get_or_init(|| {
-        let dir = tempfile::tempdir().expect("scratch volume");
-        std::env::set_var("CYBERMANJU_DATA_DIR", dir.path());
-        dir
-    });
-    dir.path()
+    test_data_dir()
 }
 
 fn auth(d: &cybermanju_web::WebDashboard) -> String {

@@ -238,7 +238,13 @@ fn sessions_crud_and_import_rekey() {
 
 #[test]
 fn cybsh_ai_without_configs_answers_honestly() {
-    let (_dir, d, auth) = authed();
+    let (_dir, d) = mk_dashboard(3456);
+    let auth = bearer(&mint(
+        &d,
+        "admin",
+        now_secs() + 3_600,
+        "jti-agent-cybsh-no-config",
+    ));
     // No configs exist: the intercept answers ok:false, HTTP stays 200.
     let resp = call(
         &d,
@@ -422,18 +428,13 @@ fn init_validates_config_without_spawning() {
 fn mcp_dead_servers_fail_loudly_not_silently() {
     let (_dir, d) = mk_dashboard(3456);
     let admin = bearer(&mint(&d, "admin", now_secs() + 3_600, "jti-agent-mcp-live"));
-    let member = bearer(&mint(
-        &d,
-        "user",
-        now_secs() + 3_600,
-        "jti-agent-mcp-live-user",
-    ));
 
     let body = r#"{"config":{
         "id":"","name":"MCP2","providerId":"ollama","model":"llama3.1:8b",
         "workingDir":"","agentKind":"build","permission":{"default":"ask","rules":{}},
-        "autoApprove":false,"maxTurns":5}}"#;
-    let resp = call(&d, "POST", "/api/agent/configs", body, Some(&member));
+        "autoApprove":false,"maxTurns":5,
+        "mcpServers":{"exa":{"transport":"http","url":"https://mcp.exa.ai/mcp","enabled":false}}}}"#;
+    let resp = call(&d, "POST", "/api/agent/configs", body, Some(&admin));
     assert_eq!(status_of(&resp), 200, "{resp}");
     let id: String = serde_json::from_str::<serde_json::Value>(body_of(&resp)).expect("json")["id"]
         .as_str()

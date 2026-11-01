@@ -190,10 +190,23 @@ fn test_default_port() {
 /// Fresh dashboard backed by a throwaway database. The tempdir is returned so
 /// it outlives the dashboard (redb keeps the file open).
 pub(crate) fn mk_dashboard(port: u16) -> (tempfile::TempDir, Arc<WebDashboard>) {
+    test_data_dir();
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("matrix.redb");
     let d = Arc::new(WebDashboard::new(port, db_path.to_str().unwrap()));
     (dir, d)
+}
+
+/// One stable data directory for this test process. The keystore derives its
+/// master passphrase from this path, so tests must not race while changing it.
+pub(crate) fn test_data_dir() -> &'static std::path::Path {
+    static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let dir = tempfile::tempdir().expect("test data dir");
+        std::env::set_var("CYBERMANJU_DATA_DIR", dir.path());
+        dir
+    })
+    .path()
 }
 
 /// One request through the shared router (no transport, no sockets).

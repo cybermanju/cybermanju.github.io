@@ -1869,6 +1869,7 @@ mod tests {
             .get_file_node(&env.record.id)
             .expect("node read")
             .expect("file nodes are restored too");
+        let pool_dir = format!("rebuild-dir-{}", &crate::blake3_hex(b"/pool")[..16]);
         let pool_volume_dir = format!("rebuild-dir-{}", &crate::blake3_hex(b"/pool/volume")[..16]);
         assert_eq!(
             node.parent_id.as_deref(),
@@ -1880,7 +1881,17 @@ mod tests {
             .expect("dir read")
             .expect("rebuild-dir-* folder exists");
         assert_eq!(dir_node.file_type, "folder");
-        assert_eq!(dir_node.parent_id, None, "/pool is the top rebuilt folder");
+        assert_eq!(
+            dir_node.parent_id.as_deref(),
+            Some(pool_dir.as_str()),
+            "/pool/volume is nested inside /pool"
+        );
+        let pool_node = fresh
+            .get_file_node(&pool_dir)
+            .expect("pool dir read")
+            .expect("/pool folder exists");
+        assert_eq!(pool_node.file_type, "folder");
+        assert_eq!(pool_node.parent_id, None, "/pool is the top rebuilt folder");
 
         let snap = snapshot(&fresh).expect("snapshot");
         assert_eq!(snap.records.len(), 1);
