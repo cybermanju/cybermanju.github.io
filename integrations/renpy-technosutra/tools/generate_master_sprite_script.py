@@ -7,6 +7,7 @@ or posture variations.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -74,11 +75,16 @@ def load_assets() -> tuple[list[int], dict[int, dict]]:
             raise SystemExit(f"ID {number} does not reference the existing provisional folder")
         staged_path = IMAGE_ROOT / relative_file
         source_path = IMAGE_ROOT / source_capture
-        if not staged_path.is_file() or not source_path.is_file():
-            raise SystemExit(f"ID {number} references a missing staged/source image")
+        if not staged_path.is_file():
+            raise SystemExit(f"ID {number} references a missing runtime image: {staged_path}")
         expected_hash = record.get("sha256")
-        if not expected_hash or sha256(staged_path) != expected_hash or sha256(source_path) != expected_hash:
-            raise SystemExit(f"ID {number} failed source/staged SHA-256 verification")
+        if not expected_hash or sha256(staged_path) != expected_hash:
+            raise SystemExit(f"ID {number} failed runtime-image SHA-256 verification")
+        # Raw capture files are retained locally for provenance, but are not
+        # duplicated in compact CI checkouts or in the shipped game. When a
+        # capture is present, verify that it still matches the recorded hash.
+        if source_path.is_file() and sha256(source_path) != expected_hash:
+            raise SystemExit(f"ID {number} failed source-capture SHA-256 verification")
         if record.get("copiedByteForByte") is not True:
             raise SystemExit(f"ID {number} is not marked as an unmodified copy")
         assets[number] = record
@@ -159,9 +165,31 @@ def build_script(numbers: list[int], assets: dict[int, dict]) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--exclude-upstream-renders",
+        action="store_true",
+        help="write a safe explanatory gallery stub without referencing upstream image files",
+    )
+    args = parser.parse_args()
+    if args.exclude_upstream_renders:
+        OUTPUT.write_text(
+            "\n".join([
+                "# License-safe build stub. Upstream render files are not included.",
+                "label technosutra_master_gallery:",
+                "    scene bg_intro_scene with fade",
+                '    centered "Galeria Technosutra não incluída neste pacote"',
+                '    narrator "Os 54 renders brutos do upstream foram mantidos fora do pacote devido ao conflito de licença."',
+                "    return",
+                "",
+            ]),
+            encoding="utf-8",
+        )
+        print(f"Wrote license-safe gallery stub {OUTPUT}; no upstream render files referenced.")
+        return 0
     numbers, assets = load_assets()
     OUTPUT.write_text(build_script(numbers, assets), encoding="utf-8")
-    print(f"Wrote {OUTPUT}: {len(numbers)} provisional static renders; verified existing files and SHA-256.")
+    print(f"Wrote {OUTPUT}: {len(numbers)} provisional static renders; verified runtime files and SHA-256.")
     print("Missing slots 43 and 52; generated no mouth/posture variants.")
     return 0
 

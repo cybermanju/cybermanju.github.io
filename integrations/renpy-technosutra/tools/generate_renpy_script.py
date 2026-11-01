@@ -2,6 +2,7 @@
 """Generate the full 56-chapter Ren'Py VN from the detailed chapter manifest."""
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from pathlib import Path
@@ -10,21 +11,31 @@ ROOT = Path(__file__).resolve().parents[1]
 GAME = ROOT / "game"
 MANIFEST = json.loads((ROOT / "chapters.json").read_text(encoding="utf-8"))
 CHAPTERS = MANIFEST["chapters"]
-SPRITE_MANIFEST = json.loads((GAME / "images/masters/sprites/manifest.json").read_text(encoding="utf-8"))
-if SPRITE_MANIFEST.get("status") != "provisional":
-    raise SystemExit("Master sprite manifest must remain explicitly provisional")
-EXPECTED_PROVISIONAL_CHAPTERS = list(range(1, 43)) + list(range(44, 52)) + list(range(53, 57))
-PROVISIONAL_SPRITES = {
-    int(asset["chapter"]): asset
-    for asset in SPRITE_MANIFEST.get("assets", [])
-    if asset.get("status") == "provisional"
-}
-if sorted(PROVISIONAL_SPRITES) != EXPECTED_PROVISIONAL_CHAPTERS or SPRITE_MANIFEST.get("availableCount") != 54:
-    raise SystemExit(f"Expected the 54 verified provisional renders; found {sorted(PROVISIONAL_SPRITES)}")
-for number, asset in PROVISIONAL_SPRITES.items():
-    image_path = GAME / "images" / asset["file"]
-    if not image_path.is_file():
-        raise SystemExit(f"Missing provisional render for chapter slot {number}: {image_path}")
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--exclude-upstream-renders",
+    action="store_true",
+    help="omit all upstream render declarations and references from this generated game",
+)
+ARGS = parser.parse_args()
+EXCLUDE_UPSTREAM_RENDERS = ARGS.exclude_upstream_renders
+PROVISIONAL_SPRITES: dict[int, dict] = {}
+if not EXCLUDE_UPSTREAM_RENDERS:
+    SPRITE_MANIFEST = json.loads((GAME / "images/masters/sprites/manifest.json").read_text(encoding="utf-8"))
+    if SPRITE_MANIFEST.get("status") != "provisional":
+        raise SystemExit("Master sprite manifest must remain explicitly provisional")
+    EXPECTED_PROVISIONAL_CHAPTERS = list(range(1, 43)) + list(range(44, 52)) + list(range(53, 57))
+    PROVISIONAL_SPRITES = {
+        int(asset["chapter"]): asset
+        for asset in SPRITE_MANIFEST.get("assets", [])
+        if asset.get("status") == "provisional"
+    }
+    if sorted(PROVISIONAL_SPRITES) != EXPECTED_PROVISIONAL_CHAPTERS or SPRITE_MANIFEST.get("availableCount") != 54:
+        raise SystemExit(f"Expected the 54 verified provisional renders; found {sorted(PROVISIONAL_SPRITES)}")
+    for number, asset in PROVISIONAL_SPRITES.items():
+        image_path = GAME / "images" / asset["file"]
+        if not image_path.is_file():
+            raise SystemExit(f"Missing provisional render for chapter slot {number}: {image_path}")
 
 if len(CHAPTERS) != 56 or [c["number"] for c in CHAPTERS] != list(range(1, 57)):
     raise SystemExit("chapters.json must contain chapters 1–56 in order")
@@ -57,6 +68,11 @@ for chapter in CHAPTERS:
             if name != "Narrador" and name not in speakers:
                 speakers.append(name)
 speaker_ids = {name: f"speaker_{index:03d}" for index, name in enumerate(speakers, 1)}
+gallery_choice = (
+    "Galeria Technosutra (renders upstream excluídos)"
+    if EXCLUDE_UPSTREAM_RENDERS
+    else "Galeria de renders provisórios"
+)
 
 lines = [
     "# The Stem Array / Gaṇḍavyūha — Technosutra visual novel.",
@@ -109,7 +125,7 @@ lines.extend([
     '    narrator "Esta abertura usa um cenário original independente. A imagem enviada pelo projeto não foi incluída porque sua origem ainda precisa ser confirmada."',
     '    narrator "As cenas recontam os capítulos com base no texto integral autorizado. As falas da VN são criações de adaptação, não citações da tradução."',
     "    menu:",
-    '        "Galeria de renders provisórios":',
+    f"        {quoted(gallery_choice)}:",
     "            jump technosutra_master_gallery",
     '        "Começar a jornada — capítulo 1":',
     "            jump chapter_01",

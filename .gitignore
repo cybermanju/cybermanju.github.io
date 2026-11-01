@@ -43,10 +43,28 @@ download/
 
 # Ren'Py generated bundles and local WebAssembly deployment artifacts
 /integrations/renpy-technosutra/build/
-/integrations/renpy-technosutra/game/
-/integrations/renpy-technosutra/chapters.json
 /public/technosutra-vn/
 /integrations/renpy-technosutra/*.zip
+
+# Compact Ren'Py inputs are versionable; keep full-resolution working sources
+# and redundant local JPEGs out of the repository. The q85 derivatives,
+# transparent runtime sprites, chapter JSON, and provenance manifests remain includable.
+/integrations/renpy-technosutra/game/images/bg_ch*.png
+/integrations/renpy-technosutra/game/images/bg_intro_generic.png
+/integrations/renpy-technosutra/game/images/bg_ch*.jpg
+/integrations/renpy-technosutra/game/images/assets-manifest.json
+/integrations/renpy-technosutra/game/images/masters/source/model_*.png
+/integrations/renpy-technosutra/game/previews/
+/integrations/renpy-technosutra/game/cache/
+/integrations/renpy-technosutra/game/saves/
+/integrations/renpy-technosutra/game/**/*.rpyc
+/integrations/renpy-technosutra/game/script.rpy
+/integrations/renpy-technosutra/game/technosutra_masters.rpy
+/integrations/renpy-technosutra/tools/__pycache__/
+/integrations/renpy-technosutra/errors.txt
+/integrations/renpy-technosutra/log.txt
+/integrations/renpy-technosutra/progressive_download.txt
+/integrations/renpy-technosutra/master_sprites_provisional.json
 
 # Temp
 *.b64

@@ -1,0 +1,1482 @@
+{
+  "title": "Technosutra gallery GLB reference captures",
+  "sourceRepository": "https://github.com/technosutra21/technosutra",
+  "sourceCommit": "b0f08869b385faf9934548fbc978573dc3fc7b3",
+  "captureMethod": "Three.js transparent render at 600x800 with camera azimuth 90deg and polar angle 75deg.",
+  "licenseCaution": "The upstream README and LICENSE contain conflicting signals. The project owner has explicitly authorized public redistribution of these 54 game sprites; preserve this source record and the runtime SHA-256 manifest.",
+  "galleryAvailableModelCount": 54,
+  "captures": [
+    {
+      "chapter": 1,
+      "chapterTitle": "The Setting",
+      "upstreamFile": "models/modelo1.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo1.glb",
+      "capture": "model_01.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.9998836517333984,
+          0.9851492345333099,
+          0.9886282980442047
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch01_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 2,
+      "chapterTitle": "Samantabhadra",
+      "upstreamFile": "models/modelo2.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo2.glb",
+      "capture": "model_02.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.8104352056980133,
+          0.9997686445713043,
+          0.8460488617420197
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch02_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 3,
+      "chapterTitle": "Mañjuśrī",
+      "upstreamFile": "models/modelo3.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo3.glb",
+      "capture": "model_03.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.7918701171875,
+          0.999969482421875,
+          0.5928955078125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch03_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 4,
+      "chapterTitle": "Meghaśrī",
+      "upstreamFile": "models/modelo4.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo4.glb",
+      "capture": "model_04.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.6238413751125336,
+          1.0001220703125,
+          0.6529675424098969
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch04_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 5,
+      "chapterTitle": "Sāgaramegha",
+      "upstreamFile": "models/modelo5.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo5.glb",
+      "capture": "model_05.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.47174072265625,
+          1,
+          0.656982421875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch05_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 6,
+      "chapterTitle": "Supratiṣṭhita",
+      "upstreamFile": "models/modelo6.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo6.glb",
+      "capture": "model_06.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.3865835517644882,
+          0.9945600032806396,
+          0.5174813270568848
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch06_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 7,
+      "chapterTitle": "Megha",
+      "upstreamFile": "models/modelo7.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo7.glb",
+      "capture": "model_07.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.63897705078125,
+          1,
+          0.61016845703125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch07_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 8,
+      "chapterTitle": "Muktaka",
+      "upstreamFile": "models/modelo8.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo8.glb",
+      "capture": "model_08.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.46160888671875,
+          1,
+          0.728912353515625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch08_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 9,
+      "chapterTitle": "Sāgaradhvaja",
+      "upstreamFile": "models/modelo9.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo9.glb",
+      "capture": "model_09.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.46160888671875,
+          1,
+          0.728912353515625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch09_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 10,
+      "chapterTitle": "Āśā",
+      "upstreamFile": "models/modelo10.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo10.glb",
+      "capture": "model_10.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.565460205078125,
+          0.999969482421875,
+          0.85284423828125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch10_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 11,
+      "chapterTitle": "Bhīṣmottaranirghoṣa",
+      "upstreamFile": "models/modelo11.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo11.glb",
+      "capture": "model_11.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.5884978473186493,
+          1.0000633001327515,
+          0.7589302957057953
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch11_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 12,
+      "chapterTitle": "Jayoṣmāyatana",
+      "upstreamFile": "models/modelo12.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo12.glb",
+      "capture": "model_12.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.648956298828125,
+          0.999908447265625,
+          0.9112548828125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch12_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 13,
+      "chapterTitle": "Maitrayaṇī",
+      "upstreamFile": "models/modelo13.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo13.glb",
+      "capture": "model_13.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.704345703125,
+          1,
+          0.725616455078125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch13_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 14,
+      "chapterTitle": "Sudarśana",
+      "upstreamFile": "models/modelo14.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo14.glb",
+      "capture": "model_14.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.22743087246899998,
+          0.9999999956144999,
+          0.32240737208299997
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch14_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 15,
+      "chapterTitle": "Indriyeśvara",
+      "upstreamFile": "models/modelo15.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo15.glb",
+      "capture": "model_15.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.46368408203125,
+          1,
+          0.253753662109375
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch15_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 16,
+      "chapterTitle": "Prabhūtā",
+      "upstreamFile": "models/modelo16.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo16.glb",
+      "capture": "model_16.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.999969482421875,
+          0.978118896484375,
+          0.810516357421875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch16_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 17,
+      "chapterTitle": "Vidvān",
+      "upstreamFile": "models/modelo17.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo17.glb",
+      "capture": "model_17.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.7156982421875,
+          1.00006103515625,
+          0.59722900390625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch17_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 18,
+      "chapterTitle": "Ratnacūḍa",
+      "upstreamFile": "models/modelo18.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo18.glb",
+      "capture": "model_18.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.5176979005336761,
+          0.999983549118042,
+          0.8011835217475891
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch18_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 19,
+      "chapterTitle": "Samantanetra",
+      "upstreamFile": "models/modelo19.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo19.glb",
+      "capture": "model_19.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.30474853515625,
+          0.999969482421875,
+          0.335906982421875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch19_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 20,
+      "chapterTitle": "Anala",
+      "upstreamFile": "models/modelo20.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo20.glb",
+      "capture": "model_20.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.72320556640625,
+          0.999969482421875,
+          0.639434814453125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch20_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 21,
+      "chapterTitle": "Mahāprabha",
+      "upstreamFile": "models/modelo21.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo21.glb",
+      "capture": "model_21.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.5144505798816681,
+          1.00015789270401,
+          0.5772219896316528
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch21_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 22,
+      "chapterTitle": "Acalā",
+      "upstreamFile": "models/modelo22.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo22.glb",
+      "capture": "model_22.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.4059367924928665,
+          1.0000778138637543,
+          0.5245377719402313
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch22_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 23,
+      "chapterTitle": "Sarvagamin",
+      "upstreamFile": "models/modelo23.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo23.glb",
+      "capture": "model_23.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.20170654356479645,
+          0.9999828636646271,
+          0.26981134712696075
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch23_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 24,
+      "chapterTitle": "Utpalabhūti",
+      "upstreamFile": "models/modelo24.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo24.glb",
+      "capture": "model_24.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.312713623046875,
+          0.999969482421875,
+          0.506805419921875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch24_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 25,
+      "chapterTitle": "Vaira",
+      "upstreamFile": "models/modelo25.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo25.glb",
+      "capture": "model_25.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.21985626220703125,
+          1,
+          0.3558807373046875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch25_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 26,
+      "chapterTitle": "Jayottama",
+      "upstreamFile": "models/modelo26.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo26.glb",
+      "capture": "model_26.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.3353424072265625,
+          1.00006103515625,
+          0.41143798828125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch26_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 27,
+      "chapterTitle": "Siṃhavijṛmbhitā",
+      "upstreamFile": "models/modelo27.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo27.glb",
+      "capture": "model_27.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.277618408203125,
+          1,
+          0.3308258056640625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch27_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 28,
+      "chapterTitle": "Vasumitrā",
+      "upstreamFile": "models/modelo28.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo28.glb",
+      "capture": "model_28.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.2799558490514755,
+          1.0000011920928955,
+          0.587432473897934
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch28_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 29,
+      "chapterTitle": "Veṣṭhila",
+      "upstreamFile": "models/modelo29.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo29.glb",
+      "capture": "model_29.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.610198974609375,
+          0.999664306640625,
+          0.4119873046875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch29_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 30,
+      "chapterTitle": "Avalokiteśvara",
+      "upstreamFile": "models/modelo30.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo30.glb",
+      "capture": "model_30.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.19258880615234375,
+          1,
+          0.3247222900390625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch30_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 31,
+      "chapterTitle": "Ananyagāmin",
+      "upstreamFile": "models/modelo31.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo31.glb",
+      "capture": "model_31.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.40337073802948,
+          0.9999582171440125,
+          0.5615629553794861
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch31_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 32,
+      "chapterTitle": "Mahādeva",
+      "upstreamFile": "models/modelo32.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo32.glb",
+      "capture": "model_32.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.37488920986652374,
+          1.0000803470611572,
+          0.6018271148204803
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch32_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 33,
+      "chapterTitle": "Sthāvarā",
+      "upstreamFile": "models/modelo33.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo33.glb",
+      "capture": "model_33.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.7835695445537567,
+          1.0000319480895996,
+          0.7117501795291901
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch33_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 34,
+      "chapterTitle": "Vāsantī",
+      "upstreamFile": "models/modelo34.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo34.glb",
+      "capture": "model_34.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.55303955078125,
+          0.999969482421875,
+          0.68426513671875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch34_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 35,
+      "chapterTitle": "Samantagambhīraśrīvimalaprabhā",
+      "upstreamFile": "models/modelo35.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo35.glb",
+      "capture": "model_35.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.2450404390692711,
+          0.9999437630176544,
+          0.3433547168970108
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch35_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 36,
+      "chapterTitle": "Pramuditanayanajagadvirocanā",
+      "upstreamFile": "models/modelo36.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo36.glb",
+      "capture": "model_36.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.3470384180545807,
+          0.9999644160270691,
+          0.6860322058200836
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch36_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 37,
+      "chapterTitle": "Samantasattvatrāṇojaḥśrī",
+      "upstreamFile": "models/modelo37.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo37.glb",
+      "capture": "model_37.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.51531982421875,
+          1,
+          0.59173583984375
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch37_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 38,
+      "chapterTitle": "Praśantarutasāgaravatī",
+      "upstreamFile": "models/modelo38.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo38.glb",
+      "capture": "model_38.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.5695781707763672,
+          1.0000345706939697,
+          0.79041987657547
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch38_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 39,
+      "chapterTitle": "Sarvanagararakṣāsaṃbhavatejaḥśrī",
+      "upstreamFile": "models/modelo39.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo39.glb",
+      "capture": "model_39.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.52679443359375,
+          1,
+          0.70892333984375
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch39_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 40,
+      "chapterTitle": "Sarvavṛkṣpraphullanasukhasaṃvāsā",
+      "upstreamFile": "models/modelo40.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo40.glb",
+      "capture": "model_40.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.49233120679855347,
+          0.999985933303833,
+          0.6016633212566376
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch40_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 41,
+      "chapterTitle": "Sarvajagadrakṣāpraṇidhānavīryaprabhā",
+      "upstreamFile": "models/modelo41.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo41.glb",
+      "capture": "model_41.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.414306640625,
+          1,
+          0.59991455078125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch41_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 42,
+      "chapterTitle": "Sutejomaṇḍalaratiśrī",
+      "upstreamFile": "models/modelo42.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo42.glb",
+      "capture": "model_42.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.735870361328125,
+          0.999725341796875,
+          0.788970947265625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch42_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 44,
+      "chapterTitle": "Māyādevī",
+      "upstreamFile": "models/modelo44.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo44.glb",
+      "capture": "model_44.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.2921142578125,
+          1,
+          0.3695068359375
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch44_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 45,
+      "chapterTitle": "Surendrābhā",
+      "upstreamFile": "models/modelo45.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo45.glb",
+      "capture": "model_45.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.3086700439453125,
+          1.0001220703125,
+          0.56219482421875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch45_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 46,
+      "chapterTitle": "Viśvāmitra",
+      "upstreamFile": "models/modelo46.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo46.glb",
+      "capture": "model_46.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.2755126953125,
+          0.999969482421875,
+          0.3712310791015625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch46_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 47,
+      "chapterTitle": "Śilpābhijña",
+      "upstreamFile": "models/modelo47.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo47.glb",
+      "capture": "model_47.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.304046630859375,
+          1.0001220703125,
+          0.3854522705078125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch47_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 48,
+      "chapterTitle": "Bhadrottamā",
+      "upstreamFile": "models/modelo48.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo48.glb",
+      "capture": "model_48.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.1962738037109375,
+          1,
+          0.3129119873046875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch48_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 49,
+      "chapterTitle": "Muktāsāra",
+      "upstreamFile": "models/modelo49.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo49.glb",
+      "capture": "model_49.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.798858642578125,
+          0.9998779296875,
+          0.780487060546875
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch49_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 50,
+      "chapterTitle": "Sucandra",
+      "upstreamFile": "models/modelo50.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo50.glb",
+      "capture": "model_50.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.4154052734375,
+          0.999969482421875,
+          0.3635406494140625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch50_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 51,
+      "chapterTitle": "Ajitasena",
+      "upstreamFile": "models/modelo51.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo51.glb",
+      "capture": "model_51.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.26636190712451935,
+          1.0000210106372833,
+          0.4115968197584152
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch51_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 53,
+      "chapterTitle": "Śrīsaṃbhava and Śrīmati",
+      "upstreamFile": "models/modelo53.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo53.glb",
+      "capture": "model_53.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.30206298828125,
+          1,
+          0.5562744140625
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch53_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 54,
+      "chapterTitle": "Maitreya",
+      "upstreamFile": "models/modelo54.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo54.glb",
+      "capture": "model_54.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.8952990174293518,
+          1.9953759908676147,
+          0.432560995221138
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch54_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 55,
+      "chapterTitle": "Mañjuśrī",
+      "upstreamFile": "models/modelo55.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo55.glb",
+      "capture": "model_55.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.7918701171875,
+          0.999969482421875,
+          0.5928955078125
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch55_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    },
+    {
+      "chapter": 56,
+      "chapterTitle": "Samantabhadra and “The Prayer for Completely Good Conduct”",
+      "upstreamFile": "models/modelo56.glb",
+      "sourceUrl": "https://github.com/technosutra21/technosutra/blob/b0f08869b385faf9934548fbc978573dc3fc7b3/models/modelo56.glb",
+      "capture": "model_56.png",
+      "width": 600,
+      "height": 800,
+      "downloadError": null,
+      "render": {
+        "size": [
+          0.8104352056980133,
+          0.9997686445713043,
+          0.8460488617420197
+        ],
+        "animations": [],
+        "morphTargets": [],
+        "meshCount": 1
+      },
+      "renderError": null,
+      "provisionalSprite": {
+        "status": "provisional",
+        "file": "masters/sprites/provisional/master_ch56_provisional.png",
+        "copiedByteForByte": true,
+        "animated": false
+      }
+    }
+  ],
+  "provisionalSpriteHandoff": {
+    "status": "provisional",
+    "temporaryUseApprovedByOwner": true,
+    "manifest": "masters/sprites/manifest.json",
+    "assetDirectory": "masters/sprites/provisional/",
+    "availableCount": 54,
+    "chapterSlotCount": 56,
+    "missingChapters": [
+      43,
+      52
+    ],
+    "use": "Raw transparent front captures as static sprites; no generated variants, mouth frames, or lip-sync.",
+    "publicDistributionRights": "uncleared; upstream README/LICENSE conflict remains"
+  }
+}

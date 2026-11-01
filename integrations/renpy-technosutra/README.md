@@ -1,30 +1,30 @@
 # The Stem Array — Ren’Py visual novel
 
-This working-tree folder contains the Ren’Py source project, chapter data, asset-preparation tools and a Web build script. The Vue bridge lives at `src/components/TechnosutraStudio.vue` in the repository root. The public push intentionally omits generated builds and the book-derived script/chapter data until public-distribution rights and a current runtime build are cleared.
+This integration contains the source data, Ren’Py generators, compact runtime art and a Web build script. The Vue bridge is in `src/components/TechnosutraStudio.vue` at the repository root. `.github/workflows/renpy-ci.yml` builds and smoke-tests the game without publishing or uploading the bundle.
 
-## Current state
+## Compact assets and quality checks
 
-The current source describes 56 chapters, 246 scenes, 540 newly written VN dialogue lines, 56 reconvergent choices and 56 chapter quizzes. The 56 PNG chapter backgrounds and 30 cyberpunk variants are present. The owner approved provisional use of 54 transparent 600×800 front renders as static sprites; slots 43 and 52 are absent from the upstream model set. No mouth/posture variants or lip-sync are available.
+The runtime needs 56 chapter backgrounds, one independent opening background and 54 transparent static sprites. The chapter backgrounds are quality-controlled 1920×1080 JPEG derivatives (q85, 4:4:4): 59,750,485 bytes total, 19.29% smaller than the previous 56-JPEG set. Comparing against resized original PNGs produced PSNR values from 30.34 to 35.02 dB, above the 30 dB gate. The opening JPEG is 963,067 bytes. The 54 600×800 RGBA sprites total 15,689,414 bytes and remain byte-identical to the manifest-pinned captures. Total runtime image payload is 72.86 MiB.
 
-The Ren’Py lint passed on an earlier source revision, but the latest packaging attempt stopped with exit code 143 during progressive download. The latest `game.zip` files are not validated and may not match the current script. A prior build opened in a browser, but the current package has not passed a smoke test inside the Cybermanju OS panel. Treat `public/technosutra-vn/` as a local, unvalidated artifact, not a playable release.
+Original background PNGs and the previous root-level JPEG set are preserved in the local worktree but omitted from the compact checkout. `game/images/optimized/manifest.json` records source/output hashes, dimensions, byte sizes and PSNR. The sprite and capture manifests retain their upstream repository, commit and file mapping. Ren’Py Web emits the full-size runtime art as progressive-download files beside `game.zip`; the ZIP contains compiled scripts, the remote-file map, provenance manifests and generated low-resolution placeholders. The validator checks ZIP integrity, all 111 full-size runtime images and hashes, placeholder/download mappings, and excludes duplicate capture PNGs, caches and previews.
 
-## Continue the build
+## Build and CI
 
-Use the official Ren’Py SDK 8.5 with Web Platform Support. In this sandbox it was located at `/tmp/renpy-sdk/renpy-8.5.3-sdk`; elsewhere, set `RENPY_SDK` to the SDK path.
+The workflow installs Python 3.12, Pillow 12.3.0, Playwright 1.62.0 and the official Ren’Py 8.5.3 SDK/Web support verified by SHA-256. It runs Ren’Py lint and a WebAssembly build, validates progressive assets, then serves the complete Web output to Chromium to check the game canvas, runtime resources, keyboard input and browser errors. The smoke test also verifies HTTP 200 for all 111 progressive images. Output remains in the ignored local build directory on the runner; there is no artifact upload, deployment or change to `public/technosutra-vn/`.
 
-1. Check `game/script.rpy`, `game/options.rpy`, `chapters.json`, the source page references and both sprite manifests for consistency.
-2. Run `bash -n integrations/renpy-technosutra/build_web.sh`, then inspect the script before executing it. Do not overwrite or delete the previous artifact until the new lint/build succeeds.
-3. Build to a fresh staging directory, check the archive and hashes, then open that exact output in the panel and test start, chapter navigation, dialogue, choices, quiz, and return to OS.
-4. Only replace the public path after a successful smoke test. Keep the package small; current generated archives are several hundred MB to multiple GB and must not be committed to GitHub.
+GitHub Actions runs on pushes to `main` or `develop` that touch the Ren’Py inputs, on pull requests to `main` that touch them, and by manual dispatch. For local instructions, see [`BUILD-CI.md`](BUILD-CI.md), then run:
 
-The Studio `.pdf` picker records metadata only; PDF extraction and voice output are not connected. It can add owner-provided route coordinates, but it does not ingest Street View pixels. Do not download or transform Google Street View images; use owner-provided/licensed photos or original art.
+```sh
+RENPY_SDK=/tmp/renpy-8.5.3-sdk BUILD_ID=local-check-001 \
+  bash integrations/renpy-technosutra/build_web.sh
+```
 
-## Sources and rights
+The build refuses to overwrite an existing `BUILD_ID`. The `game.zip` file alone is not the complete Web game: use the whole Web output directory (or a full Web archive made from it), because progressive image files are served alongside the ZIP. Legacy files under `build/output/`, `build/provisional-output/` and `public/technosutra-vn/` are not reused or overwritten by this CI workflow.
 
-*The Stem Array* (Gaṇḍavyūha), Toh 44–45, is available from [84000](https://84000.co/translation/toh44-45). The PDF states CC BY-NC-ND 4.0. The owner separately authorized adaptation to this Agent; that does not establish general permission for public distribution. Confirm distribution rights before publishing or pushing a built game. This authorization is separate from the owner’s permission for the two Mandarin-course PDFs.
+## Source and permissions
 
-The public upstream Technosutra repository has inconsistent license signals (its README says MIT while the published LICENSE contains conflict markers/GPLv3 text). The temporary permission to use raw renders does not resolve redistribution rights. Do not publish them in a game build until this is clarified.
+[*The Stem Array* (Gaṇḍavyūha), Toh 44–45](https://84000.co/translation/toh44-45) is published by 84000 under CC BY-NC-ND 4.0. The project owner has explicitly confirmed public-distribution authorization for the adapted Ren’Py script and included game assets. Separately, the owner has authorized public distribution of the 54 GLB-derived sprite renders. Preserve attribution, the capture manifest and every runtime SHA-256 record. This permission does not mean a build has been published: CI only validates and does not deploy.
 
-## Provisional sprites
+The upstream Technosutra README and LICENSE contain conflicting license signals; the owner’s authorization for this game build is recorded in the manifests. The sprites remain marked provisional, with no mouth/posture variants or lip-sync. Chapters 43 and 52 have no sprite.
 
-The owner approved temporary use of available raw renders, clearly marked provisional. Preserve their source hashes and mapping in `game/images/masters/sprites/manifest.json`. They are static front views without animation or lip-sync. The current inventory is 54 files, mapped to existing model/chapter IDs; models 43 and 52 are absent. Model 14 was captured after the Meshopt adjustment, and model 56 corresponds to chapter 56, not a cover.
+The opening scene uses an independent original environment. A separate supplied JPEG with unconfirmed origin is excluded. No Google Street View imagery or derivatives are included. The Studio PDF picker records metadata only; PDF extraction and voice output are not connected.

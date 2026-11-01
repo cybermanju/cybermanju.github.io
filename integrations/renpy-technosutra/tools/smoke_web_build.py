@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Headless browser smoke test for a Ren'Py Web build served locally."""
+from __future__ import annotations
+
+import argparse
+import functools
+import json
+import os
+import shutil
+import threading
+import zipfile
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
+
+
+class Handler(SimpleHTTPRequestHandler):
+    def end_headers(self) -> None:
+        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def log_message(self, _format: str, *args: object) -> None:
+        return
+
+
+def find_chromium() -> str | None:
+    explicit = os.environ.get("CHROMIUM_PATH")
+    if explicit:
+        return explicit
+    for name in ("chromium", "chromium-browser", "google-chrome"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("web_directory", type=Path)
+    parser.add_argument("--report", type=Path)
+    args = parser.parse_args()
+    web_directory = args.web_directory.resolve()
+    for name in ("index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data"):
+        if not (web_directory / name).is_file():
+            raise SystemExit(f"Missing web runtime file: {web_directory / name}")
+
+    try:
+        with zipfile.ZipFile(web_directory / "game.zip") as archive:
+            background_manifest = json.loads(archive.read("game/images/optimized/manifest.json"))
+            sprite_manifest = json.loads(archive.read("game/images/masters/sprites/manifest.json"))
+    except (OSError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
+        raise SystemExit(f"Could not read progressive image manifests from game.zip: {error}") from error
+    if len(background_manifest.get("assets", [])) != 56 or len(sprite_manifest.get("assets", [])) != 54:
+        raise SystemExit("Expected 56 progressive backgrounds and 54 progressive sprites in the manifests")
+    progressive_assets = ["game/images/bg_intro_scene.jpg"]
+    progressive_assets.extend(f"game/images/optimized/{asset['file']}" for asset in background_manifest["assets"])
+    progressive_assets.extend(f"game/images/{asset['file']}" for asset in sprite_manifest["assets"])
+    if len(set(progressive_assets)) != 111:
+        raise SystemExit("Expected exactly 111 unique progressive runtime image paths")
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as error:
+        raise SystemExit("Playwright is required for the local browser smoke test") from error
+
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        functools.partial(Handler, directory=str(web_directory)),
+    )
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base_url = f"http://127.0.0.1:{server.server_port}/"
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    failed_requests: list[str] = []
+    resource_status: dict[str, int] = {}
+    progressive_asset_status: dict[str, int] = {}
+    canvas_size: list[int] | None = None
+    try:
+        for relative_path in progressive_assets:
+            request = Request(base_url + quote(relative_path, safe="/"), method="HEAD")
+            try:
+                with urlopen(request, timeout=30) as response:
+                    progressive_asset_status[relative_path] = response.status
+            except Exception as error:
+                raise SystemExit(f"Progressive runtime image was not served: {relative_path}: {error}") from error
+        if any(status != 200 for status in progressive_asset_status.values()):
+            raise SystemExit(f"Progressive runtime images did not all return HTTP 200: {progressive_asset_status}")
+
+        with sync_playwright() as playwright:
+            launch_args = [
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--enable-webgl",
+                "--ignore-gpu-blocklist",
+                "--use-gl=angle",
+                "--use-angle=swiftshader",
+            ]
+            chromium = find_chromium()
+            browser = playwright.chromium.launch(
+                headless=True,
+                executable_path=chromium,
+                args=launch_args,
+            )
+            page = browser.new_page(viewport={"width": 1280, "height": 720})
+            page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on(
+                "requestfailed",
+                lambda request: failed_requests.append(f"{request.url}: {request.failure}"),
+            )
+            page.on(
+                "response",
+                lambda response: resource_status.__setitem__(Path(urlparse(response.url).path).name, response.status)
+                if Path(urlparse(response.url).path).name in {"index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data"}
+                else None,
+            )
+            response = page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
+            if response is None or response.status != 200:
+                raise SystemExit(f"Web page did not return HTTP 200: {response.status if response else 'no response'}")
+            page.wait_for_function(
+                """() => {
+                    const canvas = document.querySelector('canvas');
+                    return canvas && canvas.width >= 640 && canvas.height >= 360;
+                }""",
+                timeout=120_000,
+            )
+            page.wait_for_timeout(3000)
+            canvas_size = page.locator("canvas").first.evaluate("canvas => [canvas.width, canvas.height]")
+            # Verify the rendered game accepts a real keyboard event without a runtime exception.
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(2000)
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    required = {"game.zip", "renpy.js", "renpy.wasm", "renpy.data"}
+    missing = sorted(name for name in required if resource_status.get(name) != 200)
+    if missing:
+        raise SystemExit(f"Required runtime resources were not fetched successfully: {missing}; got {resource_status}")
+    if failed_requests:
+        raise SystemExit("Failed browser requests: " + " | ".join(failed_requests))
+    if console_errors or page_errors:
+        details = " | ".join(console_errors + page_errors)
+        raise SystemExit("Browser runtime reported errors: " + details)
+
+    report = {
+        "status": "PASS",
+        "url": base_url,
+        "canvas": canvas_size,
+        "resources": resource_status,
+        "progressiveImageAssets": {
+            "count": len(progressive_asset_status),
+            "backgroundCount": len(background_manifest["assets"]),
+            "spriteCount": len(sprite_manifest["assets"]),
+            "allHttp200": all(status == 200 for status in progressive_asset_status.values()),
+        },
+        "keyboardInput": "Enter dispatched after canvas initialization",
+        "consoleErrors": console_errors,
+        "pageErrors": page_errors,
+        "failedRequests": failed_requests,
+    }
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    print(f"PASS: Ren'Py Web canvas {canvas_size}; HTTP 200 for game.zip/runtime and all {len(progressive_asset_status)} progressive images; Enter input accepted; no browser errors.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

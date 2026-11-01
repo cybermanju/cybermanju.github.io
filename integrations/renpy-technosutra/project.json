@@ -15,7 +15,7 @@
     "sourceUrl": "https://84000.co/translation/toh44-45",
     "license": "CC BY-NC-ND 4.0",
     "separateAdaptationPermission": "owner-confirmed",
-    "publicDistributionPermission": "not-confirmed; do not publish or distribute externally",
+    "publicDistributionPermission": "owner-confirmed for public distribution of the adapted Ren’Py script and included game assets",
     "adaptationStatus": "detailed-56-chapter-vn-adaptation"
   },
   "chapterCoverage": {
@@ -55,8 +55,20 @@
     "voiceOutput": "awaiting-owner-app",
     "streetView": "owner-provided-coordinates-and-official-link-only",
     "streetViewImageCapture": "not-used",
-    "renpyRuntime": "official-renpy-web-build; local build only",
+    "renpyRuntime": "official-renpy-web-build; CI validation only; no deployment",
     "buildCommand": "integrations/renpy-technosutra/build_web.sh",
-    "externalPublication": "not performed; requires separate confirmation"
+    "externalPublication": "not performed; public distribution permission confirmed; CI workflow does not publish"
+  },
+  "compactBuild": {
+    "renpyVersion": "8.5.3",
+    "ciWorkflow": ".github/workflows/renpy-ci.yml",
+    "backgrounds": 57,
+    "backgroundFormat": "56 chapter backgrounds at 1920x1080 JPEG quality 85, 4:4:4, plus the independent opening JPEG; manifest/hash/PSNR validated",
+    "transparentRuntimeSprites": 54,
+    "runtimeImagePayloadMiB": 72.86,
+    "originalPngsPreservedLocally": true,
+    "approvedSpritesAndProvenanceIncluded": true,
+    "rawCaptureDuplicatesInBundle": false,
+    "generatedBundlesUploadedByCi": false
   }
 }
