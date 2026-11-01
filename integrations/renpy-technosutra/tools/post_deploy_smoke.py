@@ -344,23 +344,34 @@ def dismiss_setup_and_tour(page: Any, report: dict[str, Any]) -> None:
         raise RuntimeError("First-run tour did not dismiss after using its visible controls")
 
 
+def launch_from_command_palette(page: Any) -> None:
+    # The palette is a keyboard-accessible, real UI route when a window or
+    # overlay intercepts pointer input to the desktop shortcut.
+    page.keyboard.press("Control+k")
+    palette = page.get_by_role("dialog", name="Command palette")
+    palette.wait_for(state="visible", timeout=5_000)
+    search = page.get_by_role("textbox", name="Search commands")
+    search.fill("Play The Stem Array")
+    result = page.locator(".cp-item").filter(has_text=re.compile(r"Play The Stem Array", re.I))
+    result.first.wait_for(state="visible", timeout=5_000)
+    result.first.click(timeout=5_000)
+
+
 def open_stem_array(page: Any, report: dict[str, Any]) -> None:
-    # Prefer the actual app shortcut in the desktop launcher/home grid.
+    # Prefer the actual app shortcut in the desktop launcher/home grid, but
+    # do not let a stale/overlapping window make the smoke fail if it blocks
+    # the pointer. The documented keyboard palette is the normal fallback.
     shortcut = page.locator("button[data-home-item='app:technosutra-novel']")
     if shortcut.is_visible(timeout=1_000):
-        shortcut.click(timeout=10_000)
-        report["navigation"] = {"method": "desktop launcher app shortcut", "control": "The Stem Array"}
+        try:
+            shortcut.click(timeout=2_000)
+            report["navigation"] = {"method": "desktop launcher app shortcut", "control": "The Stem Array"}
+        except Exception as shortcut_error:
+            report["navigationFallbackReason"] = f"{type(shortcut_error).__name__}: {shortcut_error}"
+            launch_from_command_palette(page)
+            report["navigation"] = {"method": "command palette", "control": "Play The Stem Array — Ren'Py visual novel"}
     else:
-        # Command palette fallback: open by its documented Ctrl+K shortcut,
-        # filter by user typing, then click the matching real result.
-        page.keyboard.press("Control+k")
-        palette = page.get_by_role("dialog", name="Command palette")
-        palette.wait_for(state="visible", timeout=5_000)
-        search = page.get_by_role("textbox", name="Search commands")
-        search.fill("Play The Stem Array")
-        result = page.locator(".cp-item").filter(has_text=re.compile(r"Play The Stem Array", re.I))
-        result.first.wait_for(state="visible", timeout=5_000)
-        result.first.click(timeout=5_000)
+        launch_from_command_palette(page)
         report["navigation"] = {"method": "command palette", "control": "Play The Stem Array — Ren'Py visual novel"}
 
     frame_locator = page.locator("iframe.ts-game-frame")
