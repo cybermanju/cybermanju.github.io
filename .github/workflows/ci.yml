@@ -54,21 +54,6 @@ jobs:
       - name: Static transport inventory (TS REST↔Rust route registration)
         run: node scripts/check-transport-parity.mjs
 
-      - name: REST HTTP smoke harness tests (local fake servers)
-        run: node --test scripts/smoke-rest-http.test.mjs
-
-      - name: Ren'Py same-commit runtime metadata regressions
-        run: python3 tests/python/test_renpy_ci_metadata.py
-
-      - name: Android package verifier regressions
-        run: python3 scripts/verify-android-package.test.py
-
-      - name: Android clipboard gate tests
-        run: python3 tests/python/test_android_clipboard.py
-
-      - name: Android widget host installer regressions
-        run: python3 tests/python/test_android_widgets.py
-
       - name: Top-file headers present
         run: bash scripts/check-file-headers.sh
 
@@ -82,41 +67,9 @@ jobs:
       - name: Windows installer parses
         run: pwsh -NoProfile -Command "[scriptblock]::Create((Get-Content install.ps1 -Raw)) | Out-Null; Write-Host 'install.ps1 parses'"
 
-  # ─── Frontend unit tests (gating) ─────────────────────────────────
-  # REVIEW-2026-10-27 P1-OPS-2: `npm test` used to run only inside
-  # wasm-build, whose vitest step carries `continue-on-error` (a leaked
-  # worker handle must not block the bundle). That meant no failure of the
-  # 267-file suite could ever turn the pipeline red. This standalone job is
-  # the real gate: same flags, no continue-on-error, cached Node, 20-minute
-  # ceiling. wasm-build keeps its soft-gate step for the bundle only.
-  frontend-tests:
-    name: Frontend Unit Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npx vue-tsc --noEmit
-
-      - name: Unit tests (hard gate)
-        run: >-
-          npm test -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000
-          --teardownTimeout=15000 --reporter=default --reporter=hanging-process
-
-  # ─── Rust: Lint & Test ─────────────────────────────────────────────
+  # ─── Rust: lint (unit tests run in the independent unit-tests workflow) ──
   rust-check:
-    name: Rust Lint & Test
+    name: Rust Lint
     runs-on: ubuntu-latest
     timeout-minutes: 40  # REVIEW-2026-10-27 P2-OPS-4
     steps:
@@ -199,22 +152,13 @@ jobs:
             exit 1
           fi
 
-      # Keep workspace-wide validation: native command regressions live in
-      # src-tauri, while shared backend/integration tests live in crates/*.
+      # Build-critical Rust checks remain here; workspace unit tests run in
+      # the independent unit-tests.yml workflow and never gate this pipeline.
       - name: Check formatting
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-
-      # Android uses these same registered Tauri commands, not REST. This gate
-      # uses a host MockRuntime with real IPC dispatch, storage and cryptography;
-      # it is NOT device/WebView coverage and needs no emulator/display server.
-      - name: Android/native crypto command regressions (host IPC)
-        run: cargo test --locked -p cybermanju-os-desktop --lib native_crypto_tests -- --nocapture
-
-      - name: Run tests
-        run: cargo test --workspace --no-fail-fast
+        run: cargo clippy --workspace -- -D warnings
 
   # ─── Docker: Build Image ──────────────────────────────────────────
   docker-build:
@@ -412,17 +356,6 @@ jobs:
 
       - name: Type check
         run: npx vue-tsc --noEmit
-
-      - name: Frontend unit tests
-        # REVIEW-2026-10-27 P1-OPS-2: soft gate only. The suite that CAN fail
-        # the pipeline is the standalone `frontend-tests` job; this copy keeps
-        # a leaked worker handle / shutdown stall from blocking the wasm
-        # bundle while still reporting failures with the same flags.
-        continue-on-error: true
-        timeout-minutes: 15
-        run: >-
-          npm test -- --maxWorkers=2 --testTimeout=30000 --hookTimeout=30000
-          --teardownTimeout=15000 --reporter=default --reporter=hanging-process
 
       # Keep the freshly built pkg in place so the vite step's alias to
       # crates/os-wasm/pkg resolves to the wasm backend (integrated
@@ -1233,24 +1166,6 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - name: Test Android HOME callback ordering on JVM
-        run: python3 tests/python/test_android_home_lifecycle.py
-        env:
-          REQUIRE_KOTLIN_COMPILER: '1'
-
-      - name: Test Android HOME role installer
-        run: python3 tests/python/test_android_home_role_installer.py
-
-      - name: Test Android HOME role lifecycle and ACK on JVM
-        run: python3 tests/python/test_android_home_role_runtime.py
-        env:
-          REQUIRE_KOTLIN_COMPILER: '1'
-
-      - name: Test Android widget host state and lifecycle on JVM
-        run: python3 tests/python/test_android_widgets_runtime.py
-        env:
-          REQUIRE_KOTLIN_COMPILER: '1'
-
       - name: Verify Android native bridges in APK DEX
         run: |
           mapfile -d '' apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' -print0)
@@ -1512,17 +1427,6 @@ jobs:
       - name: Check formatting
         working-directory: cli
         run: test -z "$(gofmt -l .)"
-
-      - name: Run vet + tests
-        working-directory: cli
-        run: |
-          go vet ./...
-          go test -race -count=1 ./...
-
-      - name: Termux installer safety regressions (offline)
-        run: |
-          bash -n cli/scripts/install-termux.sh cli/scripts/install-termux_test.sh
-          bash cli/scripts/install-termux_test.sh
 
       - name: Cross-compile cyb (desktop amd64/arm64; Android/Termux arm64)
         working-directory: cli

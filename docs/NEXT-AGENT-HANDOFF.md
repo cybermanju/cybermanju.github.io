@@ -1,12 +1,13 @@
 # Cybermanju OS — handoff para próximos Agents
 
-Estado de referência: branch `main`, `HEAD` e `origin/main` em `f67a662`; worktree compartilhado ainda contém mudanças locais não commitadas. Não assumir que está limpo nem rodar `git add -A`. Em 18:29, typecheck, build Vite e 104 testes focados em 15 arquivos passaram; o build ainda reporta warnings de chunks grandes/importações. A suíte ampla permanece inconclusiva: uma execução parcial parou após 2.710 testes com 41 falhas em 13 arquivos, sem triagem completa. CI #459 para `f67a662` estava em andamento; o deploy Pages atual não foi confirmado.
+Este handoff não fixa o SHA atual: antes de editar, confira `git rev-parse HEAD`, `origin/main` e a execução mais recente do Actions. Não presuma que o worktree esteja limpo nem rode `git add -A`. A validação local do snapshot do tutor passou typecheck, build Vite e 104 testes focados em 15 arquivos; o build ainda reporta warnings de chunks grandes/importações. A suíte ampla permanece inconclusiva: uma execução parcial parou após 2.710 testes com 41 falhas em 13 arquivos, sem triagem completa. O run #460 para `c335b79` falhou nos testes Rust; confirme o estado final de seus demais jobs e o deploy Pages antes de afirmar release.
 
 ## Prioridade imediata
 
 1. Revisar `git status` e separar mudanças por frente antes de editar; o shell, Mandarin, Technosutra e Ren’Py compartilharam arquivos.
 2. Rodar `npm run typecheck` e os testes direcionados da própria frente depois de cada edição. A suíte ampla já travou em `home-screen-create.test.ts`; os resultados parciais não são aprovação.
 3. Não marcar nenhum app como pronto sem smoke test no ambiente em que será usado. Não fazer push de builds gerados gigantescos.
+4. Testes unitários ficam em `.github/workflows/unit-tests.yml`, em jobs independentes; `.github/workflows/ci.yml` mantém build, metadata, WASM, Ren'Py e smoke de publicação sem depender do workflow unitário. Não inclua `.tmp` ou outputs locais.
 
 ## OS principal
 
