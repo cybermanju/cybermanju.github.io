@@ -1,3 +1,5 @@
+// CyberManju OS — Mandarin instructor lifecycle tests.
+// Role: verifies component lifecycle behavior; Integrates: instructor source and Vue test utilities.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import ts from 'typescript'

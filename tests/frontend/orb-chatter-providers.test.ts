@@ -1,3 +1,5 @@
+// CyberManju OS — Orb Chatter voice provider tests.
+// Role: verifies provider resolution contracts; Integrates: the OS Orb Chatter provider module.
 import { describe, expect, it } from 'vitest'
 import {
   ORB_CHATTER_VOICE_PROVIDERS,

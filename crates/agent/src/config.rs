@@ -6,7 +6,7 @@
 // `*` spans any run, `?` exactly one char. Plan-kind sessions deny
 // edit/write/bash unconditionally. `deny` always beats `auto_approve`.
 
-use cybermanju_types::agent::{AgentKind, PermissionAction, PermissionRuleset};
+use cybermanju_types::agent::{AgentKind, PermissionAction, PermissionRule, PermissionRuleset};
 
 /// Record an "allow always" decision. Explicit and reversible — the row
 /// shows exactly what "always" meant, unlike an invisible always-list.
@@ -551,7 +551,9 @@ mod remember_tests {
         match rules.rules.get("bash") {
             Some(PermissionRule::Granular(pairs)) => {
                 assert_eq!(pairs.len(), 2, "no pairs may be added or removed");
-                assert!(pairs.iter().any(|(p, a)| p == "git push *" && *a == PermissionAction::Deny));
+                assert!(pairs
+                    .iter()
+                    .any(|(p, a)| p == "git push *" && *a == PermissionAction::Deny));
             }
             other => panic!("ruleset replaced: {:?}", other),
         }

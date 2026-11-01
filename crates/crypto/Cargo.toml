@@ -4,6 +4,12 @@ version = "0.1.1"
 edition = "2021"
 description = "Post-quantum cryptography engine (ML-KEM, ML-DSA, ChaCha20)"
 
+[features]
+default = ["pqc"]
+# ML-KEM uses native C bindings. Portable consumers such as the database
+# need only keystore/container and must not pull these into the WASM build.
+pqc = ["dep:pqcrypto-mlkem", "dep:pqcrypto-traits"]
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
@@ -19,8 +25,8 @@ lz4_flex = "0.11"
 # E0277/E0576 (CI 2026-10-11). Do NOT bump without moving the whole tree.
 hmac = "0.12"
 ml-dsa = { version = "0.1.1", features = ["getrandom"] }
-pqcrypto-mlkem = "0.1"
-pqcrypto-traits = "0.3"
+pqcrypto-mlkem = { version = "0.1", optional = true }
+pqcrypto-traits = { version = "0.3", optional = true }
 rand_core = { version = "0.6", features = ["getrandom"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

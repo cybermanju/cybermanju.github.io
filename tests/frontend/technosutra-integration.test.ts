@@ -28,10 +28,13 @@ describe('Techno Sutra app integration', () => {
     expect(resolvePanel('technosutra-novel')).toBe('technosutra-novel')
     expect(TECHNOSUTRA_VN_BUILD).toMatchObject({
       assetBasePath: 'technosutra-vn/',
-      validationCommit: '8a61887',
+      validationCommit: 'GENERATED_BY_MAIN_CI',
       optimizedBackgroundCount: 56,
       runtimeSpriteCount: 54,
     })
+    // The main CI replaces the local fallback with the exact Ren'Py SHA/ZIP
+    // metadata before compiling the OS bundle. Never call the fallback a deploy.
+    expect(TECHNOSUTRA_VN_BUILD.validationCommit).not.toBe('8a61887')
   })
 
   it('exposes the upstream home, gallery, map, and AR routes', () => {

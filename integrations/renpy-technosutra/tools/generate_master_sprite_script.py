@@ -145,7 +145,7 @@ def build_script(numbers: list[int], assets: dict[int, dict]) -> str:
         '    add Solid("#070916")',
         "    $ _model_id = TECHNOSUTRA_PROVISIONAL_RENDER_IDS[technosutra_master_gallery_index]",
         "    $ _source_file = TECHNOSUTRA_PROVISIONAL_RENDER_FILES[_model_id]",
-        '    add expression ("gallery_master_%02d_provisional" % _model_id) at technosutra_provisional_gallery_portrait',
+        '    add ("gallery_master_%02d_provisional" % _model_id) at technosutra_provisional_gallery_portrait',
         "    frame:",
         "        xalign 0.5",
         "        yalign 0.97",

@@ -1,3 +1,5 @@
+<!-- CyberManju OS — Techno Sutra studio component. -->
+<!-- Role: presents the Techno Sutra studio; Integrates: its route and content modules. -->
 <template>
   <main class="ts-studio">
     <header class="ts-header">
@@ -14,7 +16,7 @@
 
     <section class="ts-notice" aria-label="Project availability">
       <AppIcon name="solar:info-circle-bold" :size="18" />
-      <p>The compact Ren’Py 8.5.3 WebAssembly build passed CI at {{ TECHNOSUTRA_VN_BUILD.validationCommit }} and is staged locally for this OS app. It includes 56 optimized backgrounds and 54 runtime portraits; deployment remains pending review.</p>
+      <p>This OS app packages the Ren’Py 8.5.3 WebAssembly build validated at {{ TECHNOSUTRA_VN_BUILD.validationCommit }}, with 56 optimized backgrounds and 54 runtime portraits. The main CI run summary records post-deployment browser evidence separately.</p>
     </section>
 
     <section class="ts-card ts-game-card" aria-labelledby="ts-game-title">
@@ -32,7 +34,7 @@
         <div class="ts-game-frame-wrap">
           <iframe class="ts-game-frame" :src="gameUrl" title="The Stem Array — Ren’Py WebAssembly visual novel" allow="fullscreen" allowfullscreen loading="eager" referrerpolicy="strict-origin-when-cross-origin" />
         </div>
-        <p class="ts-footnote">The standalone CI smoke verified the Ren’Py canvas/runtime, all 111 progressive images, and keyboard input. It confirms startup, not a complete chapter playthrough or an authenticated-shell visual check.</p>
+        <p class="ts-footnote">Build smoke checks startup and packaged assets. The separate post-Pages job opens this app, captures real dialogue and tests navigation; consult its report for success or blockers. Canvas initialization alone is not verified gameplay, and this is not a complete chapter playthrough.</p>
     </section>
 
     <div class="ts-grid">
@@ -125,8 +127,8 @@
         </div>
         <div class="ts-connector">
           <span class="ts-connector-icon"><AppIcon name="solar:code-bold" :size="18" /></span>
-          <div><strong>Ren’Py runtime</strong><span>WebAssembly source/build script exist, but the latest package has not passed an in-panel smoke test.</span></div>
-          <span class="ts-state">PENDING</span>
+          <div><strong>Ren’Py runtime</strong><span>Built in the main OS pipeline from the same source commit. The post-deployment CI report records in-panel interaction status and any authentication or hosting blocker.</span></div>
+          <span class="ts-state">CI EVIDENCE</span>
         </div>
         <div class="ts-connector">
           <span class="ts-connector-icon"><AppIcon name="solar:file-text-bold" :size="18" /></span>

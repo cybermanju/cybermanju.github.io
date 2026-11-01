@@ -1,3 +1,5 @@
+<!-- CyberManju OS — Mandarin course instructor component. -->
+<!-- Role: renders Mandarin lessons and tutor interactions; Integrates: course state and shared voice services. -->
 <template>
   <div class="mandarin-app" @keydown="onPanelKeydown">
     <header class="mi-header">

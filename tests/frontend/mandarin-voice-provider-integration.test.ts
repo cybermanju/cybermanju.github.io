@@ -1,3 +1,5 @@
+// CyberManju OS — Mandarin voice provider integration tests.
+// Role: verifies shared tutor voice wiring; Integrates: instructor, provider settings, and course state.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# CyberManju OS — Ren’Py web build entry point.
+# Role: builds the visual novel for web; Integrates: pinned Ren’Py SDK and project build tools.
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"

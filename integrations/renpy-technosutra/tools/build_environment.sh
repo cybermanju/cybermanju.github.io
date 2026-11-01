@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# CyberManju OS — Ren’Py web build environment setup.
+# Role: installs build dependencies; Integrates: Python, Playwright, and the Ren’Py integration.
 set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

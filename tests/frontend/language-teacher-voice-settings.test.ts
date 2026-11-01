@@ -1,3 +1,5 @@
+// CyberManju OS — Language Teacher voice settings tests.
+// Role: verifies provider configuration persistence; Integrates: mocked vault and WASM backend services.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const backend = vi.hoisted(() => ({

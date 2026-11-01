@@ -1,26 +1,11 @@
 name: Ren'Py Web CI
 
+# Called by the main OS CI: one source SHA, one validated runtime artifact.
 on:
-  push:
-    branches: [main, develop]
-    paths:
-      - '.gitignore'
-      - '.github/workflows/renpy-ci.yml'
-      - 'integrations/renpy-technosutra/**'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.gitignore'
-      - '.github/workflows/renpy-ci.yml'
-      - 'integrations/renpy-technosutra/**'
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: renpy-web-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -72,7 +57,7 @@ jobs:
           RENPY_SDK: ${{ runner.temp }}/renpy-8.5.3-sdk
         run: bash build_web.sh
 
-      - name: Verify local CI reports (no deployment or artifact upload)
+      - name: Verify candidate reports before export
         working-directory: integrations/renpy-technosutra
         run: |
           python - <<'PY'
@@ -92,8 +77,32 @@ jobs:
           assert report["missingSpriteSlots"] == [43, 52]
           assert report["optimizedImageCount"] == 56
           assert report["smokeTest"]["status"] == "PASS"
-          print(f"PASS: {build / 'build-report.json'}")
-          print(f"PASS: {build / 'smoke-report.json'}")
-          print(f"game.zip: {report['gameZipBytes']:,} bytes; SHA-256 {report['gameZipSha256']}")
-          print("CI leaves the build under the temporary runner workspace; no artifact upload or deployment is configured.")
+          print(f"PASS: candidate {build}; startup/assets smoke only, not a complete playthrough")
           PY
+          python tools/ci_runtime_metadata.py export \
+            --build-report "build/local/$BUILD_ID/build-report.json" \
+            --runtime-dir "build/local/$BUILD_ID/output" \
+            --sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+
+      - name: Export validated runtime to the OS WASM job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: renpy-web-runtime
+          path: integrations/renpy-technosutra/build/local/${{ env.BUILD_ID }}/output/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      - name: Preserve Ren'Py build diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: renpy-build-diagnostics
+          path: |
+            integrations/renpy-technosutra/build/local/${{ env.BUILD_ID }}/build-report.json
+            integrations/renpy-technosutra/build/local/${{ env.BUILD_ID }}/smoke-report.json
+            integrations/renpy-technosutra/build/local/${{ env.BUILD_ID }}/build.log
+          if-no-files-found: warn
+          retention-days: 7

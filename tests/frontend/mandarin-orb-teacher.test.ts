@@ -1,3 +1,5 @@
+// CyberManju OS — Mandarin orb teacher regression tests.
+// Role: verifies instructor/orb behavior; Integrates: Vue source and course fixture contracts.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'

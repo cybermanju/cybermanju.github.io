@@ -1,3 +1,5 @@
+// CyberManju OS — Orb Chatter voice provider contract.
+// Role: resolves supported voice providers; Integrates: native OS and browser speech capabilities.
 // Orb Chatter compatibility layer for CyberManju OS.
 // Upstream architecture reference: Remix ChatterBots, Copyright 2024 Google LLC,
 // distributed under Apache-2.0 (see this directory's LICENSE). This file is a

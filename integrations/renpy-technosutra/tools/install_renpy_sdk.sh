@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# CyberManju OS — Ren’Py SDK installer.
+# Role: fetches and verifies the pinned SDK; Integrates: Ren’Py web build scripts.
 set -Eeuo pipefail
 
 SDK_VERSION="8.5.3"

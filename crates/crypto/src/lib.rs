@@ -5,6 +5,8 @@
 // Contracts: none special (pure logic; errors bubble to caller).
 pub mod container;
 pub mod keystore;
+#[cfg(feature = "pqc")]
 pub mod pqc;
 
+#[cfg(feature = "pqc")]
 pub use pqc::*;

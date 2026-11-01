@@ -1,3 +1,5 @@
+<!-- CyberManju OS — Techno Sutra panel component. -->
+<!-- Role: presents Techno Sutra routes and controls; Integrates: the Techno Sutra application state. -->
 <template>
   <section class="technosutra-panel" aria-label="Techno Sutra AR">
     <header class="technosutra-toolbar">

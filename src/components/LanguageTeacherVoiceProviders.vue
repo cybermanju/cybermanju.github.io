@@ -1,3 +1,5 @@
+<!-- CyberManju OS — Language Teacher voice provider settings component. -->
+<!-- Role: configures local voice providers; Integrates: Language Teacher settings and VoiceStudio. -->
 <template>
   <details class="lt-providers">
     <summary>Configurar credenciais locais e teste do VoiceStudio</summary>

@@ -12,6 +12,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      'cybermanju-os-wasm': fileURLToPath(new URL('./src/wasm-stub.js', import.meta.url)),
     },
   },
   test: {

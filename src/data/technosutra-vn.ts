@@ -1,12 +1,12 @@
-// CyberManju OS — The Stem Array Ren'Py Web build metadata.
-// Role: single source of truth for the locally staged WebAssembly app.
+// CyberManju OS — local fallback for The Stem Array Ren'Py Web build metadata.
+// Role: dev/test fallback only; main CI replaces this with same-run SHA metadata before bundling.
 // Exports: TECHNOSUTRA_VN_BUILD.
 // Integrates: TechnosutraStudio and frontend integration tests.
-// Contracts: this points only to the reviewed local static bundle; it does not deploy it.
+// Contracts: no Pages build may use this fallback as deployment provenance.
 
 export const TECHNOSUTRA_VN_BUILD = {
   assetBasePath: 'technosutra-vn/',
-  validationCommit: '8a61887',
+  validationCommit: 'GENERATED_BY_MAIN_CI',
   buildId: 'verify-sprites-20261101-r2',
   renpyVersion: '8.5.3.26051504',
   optimizedBackgroundCount: 56,

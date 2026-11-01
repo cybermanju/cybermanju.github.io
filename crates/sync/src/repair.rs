@@ -1880,10 +1880,7 @@ mod tests {
             .expect("dir read")
             .expect("rebuild-dir-* folder exists");
         assert_eq!(dir_node.file_type, "folder");
-        assert_eq!(
-            dir_node.parent_id, None,
-            "/pool is the top rebuilt folder"
-        );
+        assert_eq!(dir_node.parent_id, None, "/pool is the top rebuilt folder");
 
         let snap = snapshot(&fresh).expect("snapshot");
         assert_eq!(snap.records.len(), 1);

@@ -1,3 +1,5 @@
+// CyberManju OS — Mandarin page summary navigation tests.
+// Role: verifies page-summary lookup and navigation; Integrates: Mandarin lesson corpus and instructor source.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'

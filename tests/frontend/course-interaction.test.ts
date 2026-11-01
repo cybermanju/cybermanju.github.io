@@ -1,3 +1,5 @@
+// CyberManju OS — course interaction policy tests.
+// Role: verifies text/voice mode behavior; Integrates: Mandarin course defaults and voice eligibility.
 import { describe, expect, it } from 'vitest'
 import { MANDARIN_LESSONS, defaultMandarinProgress } from '@/utils/mandarinCourse'
 import { canStartCourseVoice, normalizeCourseInteractionMode } from '@/utils/courseInteraction'

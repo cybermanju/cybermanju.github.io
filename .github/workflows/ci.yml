@@ -31,6 +31,14 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Ren'Py is part of the OS pipeline, not an independent green check.
+  # wasm-build consumes this exact run's verified WebAssembly game artifact.
+  renpy-web:
+    name: Ren'Py visual novel integration
+    uses: ./.github/workflows/renpy-ci.yml
+    permissions:
+      contents: read
+
   # ─── Meta: versions + license agree ───────────────────────────────
   meta-check:
     name: Version & Metadata
@@ -48,6 +56,9 @@ jobs:
 
       - name: REST HTTP smoke harness tests (local fake servers)
         run: node --test scripts/smoke-rest-http.test.mjs
+
+      - name: Ren'Py same-commit runtime metadata regressions
+        run: python3 tests/python/test_renpy_ci_metadata.py
 
       - name: Android package verifier regressions
         run: python3 scripts/verify-android-package.test.py
@@ -334,6 +345,7 @@ jobs:
   # ─── WASM: Rust crate + web bundle ────────────────────────────────
   wasm-build:
     name: Build WASM (crate + web bundle)
+    needs: renpy-web
     runs-on: ubuntu-latest
     timeout-minutes: 45  # REVIEW-2026-10-27 P2-OPS-4
     concurrency:
@@ -379,6 +391,24 @@ jobs:
       # No `node_modules` cache: `npm ci` deletes the directory before it
       # installs, so restoring it buys nothing. `setup-node`'s `cache: npm`
       # above is what actually speeds this up (it keeps `~/.npm`).
+
+      - name: Replace checked-in VN bundle with the validated same-run runtime
+        run: rm -rf public/technosutra-vn
+
+      - name: Download validated Ren'Py WebAssembly runtime
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: renpy-web-runtime
+          path: public/technosutra-vn/
+
+      - name: Verify runtime SHA and bind OS panel metadata
+        run: >-
+          python3 integrations/renpy-technosutra/tools/ci_runtime_metadata.py stage
+          --runtime-dir public/technosutra-vn
+          --typescript-output src/data/technosutra-vn.ts
+          --expected-sha "$GITHUB_SHA"
+          --expected-run-id "$GITHUB_RUN_ID"
+          --expected-run-attempt "$GITHUB_RUN_ATTEMPT"
 
       - name: Type check
         run: npx vue-tsc --noEmit
@@ -507,6 +537,24 @@ jobs:
           VITE_BASE: ${{ github.ref == 'refs/heads/main' && '/develop/' || '/' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Stamp exact source provenance in both Pages branch builds
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          def stamp(root, sha, ref):
+              record = {"schemaVersion": 1, "sha": sha, "ref": ref,
+                        "runId": os.environ["GITHUB_RUN_ID"],
+                        "runAttempt": os.environ["GITHUB_RUN_ATTEMPT"]}
+              (root / "deployment-info.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+          stamp(Path("dist-wasm"), os.environ["GITHUB_SHA"], os.environ["GITHUB_REF"])
+          sibling = Path("sibling/dist-wasm")
+          if sibling.is_dir():
+              sha = subprocess.check_output(["git", "-C", "sibling", "rev-parse", "HEAD"], text=True).strip()
+              branch = "develop" if os.environ["GITHUB_REF"] == "refs/heads/main" else "main"
+              stamp(sibling, sha, "refs/heads/" + branch)
+          PY
 
       - name: Assemble Pages site with isolated preview path
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
@@ -1516,6 +1564,8 @@ jobs:
     name: Deploy to GitHub Pages
     runs-on: ubuntu-latest
     timeout-minutes: 15  # REVIEW-2026-10-27 P2-OPS-4
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     needs: [wasm-build, rust-check]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     concurrency:
@@ -1548,3 +1598,68 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # A canvas is not a gameplay test. This final job requires a real dialogue
+  # change after normal UI input and preserves failure/auth evidence as well.
+  pages-vn-evidence:
+    name: Published VN dialogue, navigation and screenshots
+    needs: deploy-pages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the deployed source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned browser verification dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r integrations/renpy-technosutra/requirements-renpy-build.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Open the published OS app and navigate real dialogue
+        id: smoke
+        env:
+          VN_BASE_URL: ${{ format('{0}{1}', needs.deploy-pages.outputs.page_url, github.ref == 'refs/heads/develop' && 'develop/' || '') }}
+        run: >-
+          python integrations/renpy-technosutra/tools/post_deploy_smoke.py
+          --base-url "$VN_BASE_URL"
+          --expected-sha "$GITHUB_SHA"
+          --expected-run-id "$GITHUB_RUN_ID"
+          --expected-run-attempt "$GITHUB_RUN_ATTEMPT"
+          --output-dir "$RUNNER_TEMP/pages-vn-evidence"
+
+      - name: Upload actual screenshots and navigation report
+        id: evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pages-vn-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/pages-vn-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish evidence and limitations in the CI summary
+        if: always()
+        env:
+          EVIDENCE_URL: ${{ steps.evidence.outputs.artifact-url }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          echo "## Published The Stem Array verification" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: \`$GITHUB_SHA\` · browser step: **$SMOKE_OUTCOME**" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$RUNNER_TEMP/pages-vn-evidence/summary.md" ]; then
+            cat "$RUNNER_TEMP/pages-vn-evidence/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No gameplay report was produced. Browser setup or execution was blocked; gameplay is NOT verified." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$EVIDENCE_URL" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "[Download real screenshots, dialogue transitions and diagnostics]($EVIDENCE_URL)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This is a bounded startup/navigation smoke, never a complete chapter or full-game playthrough." >> "$GITHUB_STEP_SUMMARY"

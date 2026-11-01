@@ -1,3 +1,5 @@
+// CyberManju OS — shared Language Teacher voice settings.
+// Role: persists voice-provider configuration; Integrates: OS vault and WASM storage services.
 import {
   sessionVaultPassphrase,
   wasmDbDispatch,

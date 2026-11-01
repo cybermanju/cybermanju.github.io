@@ -27,10 +27,19 @@ import subprocess, pathlib, sys, re
 mode = sys.argv[1]
 files = subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
 exts = ('.rs', '.ts', '.vue', '.js', '.mjs', '.sh', '.go')
+# These are upstream/generated Ren'Py web-runtime artifacts, not OS-authored
+# source. Keep the exception path-exact so every other tracked code file remains
+# subject to the header gate; do not inject project headers into third-party code.
+upstream_generated = {
+    'public/technosutra-vn/renpy.js',
+    'public/technosutra-vn/renpy-pre.js',
+    'public/technosutra-vn/service-worker.js',
+}
 targets = [f for f in files if f.endswith(exts)
            and not f.startswith('target/')
            and not f.startswith('dist')
            and '/pkg/' not in f
+           and f not in upstream_generated
            and 'tsbuildinfo' not in f]
 
 HEADER_RE = re.compile(r'CyberManju(\s+OS)?\s*[—\-–:]', re.IGNORECASE)

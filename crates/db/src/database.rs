@@ -1571,7 +1571,9 @@ impl Database {
     /// is treated as legacy plaintext.
     fn seal_sync_secret(secret: &str) -> Result<String> {
         let passphrase = cybermanju_crypto::keystore::master_passphrase().ok_or_else(|| {
-            anyhow::anyhow!("unsupported: no master passphrase available to seal a provider credential")
+            anyhow::anyhow!(
+                "unsupported: no master passphrase available to seal a provider credential"
+            )
         })?;
         let payload = cybermanju_crypto::keystore::seal_str(&passphrase, secret.as_bytes())
             .map_err(|e| anyhow::anyhow!("integrity: could not seal a provider credential: {e}"))?;
@@ -1598,13 +1600,17 @@ impl Database {
         let Some(passphrase) = cybermanju_crypto::keystore::master_passphrase() else {
             // Degraded env (no HOME, no env var): keep listings/services
             // alive, lose the credential loudly — never half-decrypt.
-            log::warn!("sealed provider credential present but no master passphrase: answering None");
+            log::warn!(
+                "sealed provider credential present but no master passphrase: answering None"
+            );
             return Ok(None);
         };
         match cybermanju_crypto::keystore::open_sealed_str(&passphrase, payload) {
             Ok(plain) => Ok(Some(plain)),
             // Wrong passphrase or corrupted blob: refuse, never guess.
-            Err(e) => Err(anyhow::anyhow!("integrity: could not unseal a stored credential: {e}")),
+            Err(e) => Err(anyhow::anyhow!(
+                "integrity: could not unseal a stored credential: {e}"
+            )),
         }
     }
 
