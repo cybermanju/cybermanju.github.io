@@ -80,7 +80,7 @@ jobs:
       # Parse it the way PowerShell would, without executing any scriptbody.
       # pwsh is preinstalled on GitHub-hosted runners.
       - name: Windows installer parses
-        run: pwsh -NoProfile -Command "[scriptblock]::Create((Get-Content install.ps1 -Raw)) > $null; Write-Host 'install.ps1 parses'"
+        run: pwsh -NoProfile -Command "[scriptblock]::Create((Get-Content install.ps1 -Raw)) | Out-Null; Write-Host 'install.ps1 parses'"
 
   # ─── Frontend unit tests (gating) ─────────────────────────────────
   # REVIEW-2026-10-27 P1-OPS-2: `npm test` used to run only inside
