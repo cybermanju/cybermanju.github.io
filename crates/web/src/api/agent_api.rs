@@ -3060,7 +3060,7 @@ pub fn approve_job_for(
             .as_ref()
             .map(|pending| {
                 (
-                    pending.tool.clone(),
+                    Some(pending.tool.clone()),
                     // The exact command the user saw (bash-like tools —
                     // review P1-RUST-5: "allow always" pins only that).
                     pending
