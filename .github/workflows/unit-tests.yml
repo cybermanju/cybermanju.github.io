@@ -141,9 +141,11 @@ jobs:
       - name: Locate Kotlin compiler jars
         shell: bash
         run: |
-          compiler="$(find "$HOME/.gradle/wrapper/dists" -type f -path '*/gradle-*/lib/kotlin-compiler-embeddable-*.jar' -print -quit)"
-          test -n "$compiler"
-          kotlin_lib="$(dirname "$compiler")"
+          gradle_bin="$(readlink -f "$(command -v gradle)")"
+          gradle_home="$(dirname "$(dirname "$gradle_bin")")"
+          kotlin_lib="$gradle_home/lib"
+          echo "Gradle distribution: $gradle_home"
+          test -f "$kotlin_lib"/kotlin-compiler-embeddable-*.jar
           test -f "$kotlin_lib"/kotlin-stdlib-*.jar
           test -f "$kotlin_lib"/annotations-*.jar
           classpath="$(printf '%s:' "$kotlin_lib"/*.jar)"
