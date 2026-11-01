@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Política de Privacidade — CyberManju OS</title>
-<meta name="description" content="Política de Privacidade do CyberManju OS: como tratamos seus dados do Google (identidade e Google Drive).">
+<meta name="description" content="Política de Privacidade do CyberManju OS: dados do Google, progresso de curso, microfone, transcrições e integrações com Agents.">
 <style>
 :root { color-scheme: dark; --bg: #0b0f1a; --card: #121a2b; --fg: #e8eef7; --mut: #93a1b8; --acc: #00d4ff; }
 * { box-sizing: border-box; }
@@ -29,13 +29,12 @@ footer a { color: var(--acc); }
 <nav><a href="./">← CyberManju OS</a><a href="privacy.html">Privacidade</a><a href="terms.html">Termos de Uso</a></nav>
 
 <h1>Política de Privacidade — CyberManju OS</h1>
-<p class="sub">Última atualização: 8 de outubro de 2026 · CyberManju OS v0.1.1 (código aberto, licença MIT)</p>
+<p class="sub">Última atualização: 1º de novembro de 2026 · CyberManju OS v0.1.1 (código aberto, licença MIT)</p>
 
 <p>O CyberManju OS é um gerenciador de arquivos criptografados <strong>local-first</strong>:
-seus dados vivem no seu dispositivo, dentro de um cofre criptografado
-(<code>.cybermanju</code>). Não operamos servidores próprios que recebam seus arquivos.
-Esta página explica quais dados do Google acessamos, por quê e como são tratados —
-ela atende aos requisitos da tela de consentimento OAuth do Google.</p>
+seus arquivos vivem no seu dispositivo, dentro de um cofre criptografado
+(<code>.cybermanju</code>). Não operamos um servidor próprio para receber seus arquivos.
+Alguns recursos opcionais, como login Google, Agents e reconhecimento de fala, usam serviços externos; esta página explica quando isso acontece.</p>
 
 <h2>1. Dados que acessamos via Google</h2>
 <ul>
@@ -43,43 +42,55 @@ ela atende aos requisitos da tela de consentimento OAuth do Google.</p>
 <li><strong>Google Drive</strong> (escopo <code>https://www.googleapis.com/auth/drive.file</code>): visualizar e gerenciar <strong>somente</strong> os arquivos e pastas que o próprio CyberManju OS cria, ou que você abre explicitamente com o aplicativo. Não temos acesso ao restante do seu Drive.</li>
 </ul>
 
-<h2>2. Como usamos esses dados</h2>
+<h2>2. Como usamos os dados do Google</h2>
 <ul>
 <li>Autenticar você (login via Google, intermediado pelo Supabase Auth do <em>seu</em> projeto configurado em Configurações → OAuth).</li>
 <li>Sincronizar seu cofre criptografado com a pasta do aplicativo no seu Google Drive.</li>
-<li>Nada mais. Não exibimos anúncios, não fazemos perfilamento e nenhum humano lê seus arquivos.</li>
+<li>Não usamos esses dados para anúncios nem perfilamento. Os demais recursos e serviços externos estão descritos nas seções 4 e 5.</li>
 </ul>
 
 <div class="card"><strong>Uso limitado (Google API Services User Data Policy).</strong><br>
-The use and transfer of information received from Google APIs to any other app will adhere to the
+O uso e a transferência de informações recebidas das APIs do Google seguem a
 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
-including the Limited Use requirements: Google user data is used only to provide or improve the user-facing
-features of CyberManju OS, never sold, never used for advertising, and never shared except as required by law
-or with your explicit consent.</div>
+incluindo os requisitos de Limited Use: os dados do Google são usados apenas para oferecer ou melhorar os recursos que você pediu no CyberManju OS, nunca vendidos, nunca usados para publicidade e nunca compartilhados, salvo quando exigido por lei ou com seu consentimento explícito.</div>
 
 <h2>3. Onde seus dados ficam</h2>
 <ul>
-<li><strong>Tokens OAuth</strong>: guardados apenas no seu navegador (armazenamento local / arquivo de cofre) ou no cofre de segredos do seu sistema operacional na versão desktop. Nunca são enviados a servidores nossos.</li>
-<li><strong>Arquivos</strong>: criptografados no seu dispositivo (ChaCha20Poly1305 + criptografia pós-quântica ML-KEM) antes de qualquer upload. O Google recebe apenas blobs criptografados.</li>
-<li><strong>Troca OAuth</strong>: executada pelo Supabase Auth (projeto que você configurou). Consulte também a política do seu provedor Supabase.</li>
+<li><strong>Tokens OAuth</strong>: guardados no navegador, no cofre local ou no cofre de segredos do sistema operacional, conforme a versão e o dispositivo. Não são enviados a um servidor operado por nós.</li>
+<li><strong>Arquivos</strong>: criptografados no seu dispositivo antes de qualquer upload. O Google recebe os blobs criptografados, não os arquivos em texto aberto.</li>
+<li><strong>Progresso do curso</strong>: lições, notas, escrita, desenhos, histórico local do tutor e IDs de sessão ficam no armazenamento do app no dispositivo, normalmente no vault/banco local; versões antigas podem usar <code>localStorage</code> como fallback.</li>
+<li><strong>Configuração de voz</strong>: chaves e opções salvas pelo painel do Language Teacher ficam seladas no arquivo <code>.cybermanju</code> desbloqueado. Elas não são colocadas na URL. As chaves de Gemini e ElevenLabs permanecem inativas enquanto não houver um broker seguro.</li>
+<li><strong>Troca OAuth</strong>: executada pelo Supabase Auth do projeto que você configurou. Consulte também a política do seu provedor Supabase.</li>
 </ul>
 
-<h2>4. Compartilhamento</h2>
-<p>Não vendemos, alugamos nem compartilhamos seus dados com terceiros, exceto quando exigido por lei.
-O código-fonte é público (<a href="https://github.com/cybermanju/cybermanju.github.io">cybermanju/cybermanju.github.io</a>),
-para que qualquer pessoa possa auditar exatamente o que o aplicativo faz.</p>
+<h2>4. Compartilhamento com outros serviços</h2>
+<p>Não vendemos nem alugamos seus dados. Quando você usa um recurso que depende de outro serviço, os dados necessários são enviados ao serviço que você escolheu, não a um backend de fala operado pelo CyberManju OS. O tratamento e a retenção desse serviço seguem os termos e controles do próprio provedor; consulte-os antes de enviar informações sensíveis.</p>
+<ul>
+<li>Ao conversar com o tutor, sua mensagem e o contexto didático necessário são enviados ao Agent selecionado no app. O provedor configurado para esse Agent pode processar e guardar a conversa de acordo com as próprias regras.</li>
+<li>O reconhecimento de fala é fornecido pelo navegador ou pelo serviço de fala configurado no Android. Esse provedor pode usar a própria rede para processar o áudio; o CyberManju OS não controla sua retenção.</li>
+<li>Se você clicar em <em>Testar VoiceStudio</em>, o app envia uma frase de teste fixa e as opções de voz ao endpoint HTTPS que você cadastrou. O pedido não inclui token nem cookie; o serviço recebe o texto do teste e os metadados normais da conexão.</li>
+</ul>
 
-<h2>5. Revogar o acesso / apagar dados</h2>
+<h2>5. Voz, transcrições e tutor do curso</h2>
+<ul>
+<li><strong>Modo Texto</strong>: é o padrão e não inicia nem usa o microfone. Ao enviar uma mensagem ao tutor, o app acrescenta o contexto da lição atual e, se você selecionou uma página no catálogo, o respectivo resumo e localização. O PDF original e o OCR bruto não são enviados pelo curso.</li>
+<li><strong>Modo Voz</strong>: você precisa escolher esse modo e iniciar a chamada explicitamente. O microfone só é usado durante a chamada em primeiro plano; ao encerrar, sair da tela ou ocultar o app, a captura é parada. O app recebe o texto reconhecido e o envia, junto com o contexto da lição, ao Agent selecionado.</li>
+<li>O app não cria nem guarda uma gravação de áudio da chamada. O áudio pode ser processado pelo reconhecedor do navegador ou do Android, inclusive pela rede desse provedor conforme a configuração do dispositivo. A resposta pode ser lida em voz alta pelo navegador ou pelo serviço de fala do Android.</li>
+<li>As mensagens reconhecidas e as respostas do tutor ficam no histórico local do curso até você limpá-lo ou apagar o armazenamento do app. Se houver um turno ativo, limpar o histórico o interrompe localmente. O botão remove o histórico e o vínculo locais, mas não apaga a sessão remota em Agents. Para removê-la, apague a conversa separadamente em Agents e verifique também as opções de retenção do provedor do Agent e do reconhecedor de fala.</li>
+</ul>
+
+<h2>6. Revogar o acesso / apagar dados</h2>
 <ul>
 <li>Revogue o acesso do app a qualquer momento em <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</li>
-<li>No app: Contas → <em>Sign out</em> e apague o arquivo <code>.cybermanju</code> para remover todos os dados locais.</li>
-<li>Revogar no Google invalida o token em até 1 hora (tokens de acesso do Google duram ~1h); o app então pede nova conexão.</li>
+<li>No app: Contas → <em>Sign out</em>. Apague o arquivo <code>.cybermanju</code> se também quiser remover os dados guardados nele; isso pode apagar outros dados locais do app.</li>
+<li>Limpe o histórico do tutor pelo próprio curso e apague separadamente as sessões remotas em Agents. Remover o histórico local não apaga cópias que o Agent ou um provedor de fala já possa ter retido.</li>
+<li>Revogar no Google invalida o token em até 1 hora (tokens de acesso do Google duram cerca de 1h); o app então pede nova conexão.</li>
 </ul>
 
-<h2>6. Contato</h2>
+<h2>7. Contato</h2>
 <p>Dúvidas sobre privacidade: <strong>cybermanju.os@gmail.com</strong>.</p>
 
-<h2>7. Alterações</h2>
+<h2>8. Alterações</h2>
 <p>Atualizaremos esta página quando o tratamento de dados mudar; a data no topo indica a versão vigente.</p>
 
 <footer>CyberManju OS · <a href="./">Página inicial</a> · <a href="terms.html">Termos de Uso</a></footer>
