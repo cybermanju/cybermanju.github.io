@@ -177,8 +177,17 @@ def main() -> int:
     missing = sorted(name for name in required if resource_status.get(name) != 200)
     if missing:
         raise SystemExit(f"Required runtime resources were not fetched successfully: {missing}; got {resource_status}")
-    if failed_requests:
-        raise SystemExit("Failed browser requests: " + " | ".join(failed_requests))
+    benign_archive_aborts = [
+        request for request in failed_requests
+        if request == base_url + "game.zip: net::ERR_ABORTED"
+        and resource_status.get("game.zip") == 200
+        and canvas_size is not None
+    ]
+    unresolved_failed_requests = [request for request in failed_requests if request not in benign_archive_aborts]
+    if benign_archive_aborts:
+        print("INFO: Chromium canceled a game.zip request after HTTP 200 and canvas initialization.")
+    if unresolved_failed_requests:
+        raise SystemExit("Failed browser requests: " + " | ".join(unresolved_failed_requests))
     if console_errors or page_errors:
         details = " | ".join(console_errors + page_errors)
         raise SystemExit("Browser runtime reported errors: " + details)
@@ -208,7 +217,8 @@ def main() -> int:
         "keyboardInput": "Enter dispatched after canvas initialization",
         "consoleErrors": console_errors,
         "pageErrors": page_errors,
-        "failedRequests": failed_requests,
+        "failedRequests": unresolved_failed_requests,
+        "benignArchiveAborts": benign_archive_aborts,
     }
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
