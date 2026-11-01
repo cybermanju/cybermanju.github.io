@@ -124,20 +124,26 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      - name: Install pinned Kotlin compiler
+      # setup-gradle insists on detecting a Gradle project, while these tests
+      # only need the Kotlin compiler bundled with its pinned distribution.
+      - name: Create temporary Gradle marker for tool setup
+        run: touch build.gradle
+
+      - name: Install Gradle with Kotlin compiler
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          gradle-version: "8.14"
+          cache-provider: basic
+
+      - name: Remove temporary Gradle marker
+        run: rm -f build.gradle
+
+      - name: Locate Kotlin compiler jars
         shell: bash
         run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/kotlin-compiler-2.0.21.zip"
-          curl --fail --location --silent --show-error \
-            https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip \
-            --output "$archive"
-          echo '0352c0a45bd22f80f6b26e485cd04da8047baa5de54865281fb9f89a4a7bcf2a  '"$archive" | sha256sum --check --status
-          install_dir="$RUNNER_TEMP/kotlin-compiler"
-          mkdir -p "$install_dir"
-          unzip -q "$archive" -d "$install_dir"
-          kotlin_lib="$install_dir/kotlinc/lib"
-          test -f "$kotlin_lib"/kotlin-compiler-embeddable-*.jar
+          compiler="$(find "$HOME/.gradle/wrapper/dists" -type f -path '*/gradle-*/lib/kotlin-compiler-embeddable-*.jar' -print -quit)"
+          test -n "$compiler"
+          kotlin_lib="$(dirname "$compiler")"
           test -f "$kotlin_lib"/kotlin-stdlib-*.jar
           test -f "$kotlin_lib"/annotations-*.jar
           classpath="$(printf '%s:' "$kotlin_lib"/*.jar)"
