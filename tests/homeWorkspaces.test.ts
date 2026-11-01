@@ -94,10 +94,13 @@ describe('home workspaces', () => {
     expect(classifyHomeGesture(0, 72, 3)).toBe('overview-close')
     expect(classifyHomeGesture(64, 0, 1)).toBe('previous')
     expect(classifyHomeGesture(-64, 0, 1)).toBe('next')
-    // Diagonal one-finger swipes also page along the nearest axis.
-    expect(classifyHomeGesture(64, 64, 1)).toBe('previous')
-    expect(classifyHomeGesture(-100, -100, 1)).toBe('next')
+    // Vertical motion remains native scroll; only a clearly horizontal-led sweep pages.
+    expect(classifyHomeGesture(64, 64, 1)).toBeNull()
+    expect(classifyHomeGesture(-100, -100, 1)).toBeNull()
+    expect(classifyHomeGesture(100, 40, 1)).toBe('previous')
+    expect(classifyHomeGesture(-100, 40, 1)).toBe('next')
     expect(classifyHomeGesture(200, 0, 2)).toBe('previous')
-    expect(classifyHomeGesture(0, 100, 1)).toBe('previous')
+    expect(classifyHomeGesture(0, 100, 1)).toBeNull()
+    expect(classifyHomeGesture(0, -100, 1)).toBeNull()
   })
 })

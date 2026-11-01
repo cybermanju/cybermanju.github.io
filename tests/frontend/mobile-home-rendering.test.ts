@@ -15,10 +15,11 @@ describe('mobile home rendering', () => {
     expect(studio).toContain('.workspace-content { flex: 1 1 0; min-width: 0; min-height: 0;')
     expect(studio).toContain('overflow-y: auto;')
     expect(studio).toContain('overscroll-behavior: contain;')
-    expect(studio).toContain('.screen-nav { position: fixed; left: 50vw;')
+    expect(studio).toContain('.screen-nav { position: fixed; left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px);')
     expect(studio).toContain('.workspace-grid { display: grid;')
     expect(studio).toContain('<OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length"')
-    expect(studio).toContain('v-if="!orbHiddenOnDesktop"')
+    expect(studio).toContain('v-if="!orbHiddenOnDesktop && !props.blocked"')
+    expect(studio.indexOf('<slot v-if="!editing && !overview" name="home-tools" />')).toBeLessThan(studio.indexOf('<div class="workspace-grid"'))
     expect(studio).not.toContain('feTurbulence')
   })
 

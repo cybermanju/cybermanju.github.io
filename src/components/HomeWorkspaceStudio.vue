@@ -26,8 +26,9 @@
       <div v-if="editing" class="screen-tools"><button type="button" :disabled="state.pages.length >= MAX_WORKSPACES" @click="newScreen">+ New screen</button><label class="grid-control">Columns<select v-model.number="activePage.columns"><option v-for="n in 8" :key="n" :value="n" :disabled="n < 2">{{ n }}</option></select></label><label class="grid-control">Rows<select v-model.number="activePage.rows"><option v-for="n in 8" :key="n" :value="n" :disabled="n < 2">{{ n }}</option></select></label><button type="button" :aria-pressed="editing" @click="toggleEditing">Done</button><button type="button" @click="openPicker('widgets')">Widget library</button></div>
       <HomeDefaultRoleAction v-if="editing" :before-request="suspendHome" />
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
+      <slot v-if="!editing && !overview" name="home-tools" />
       <nav class="screen-nav" aria-label="Home screen navigation">
-        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop" @navigate="navigateOrb" @open-apps="emit('openApps')" />
+        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop && !props.blocked" @navigate="navigateOrb" @open-apps="emit('openApps')" />
       </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -59,11 +60,10 @@
               <label v-if="editing" class="widget-move">Move to<select :value="activePage.id" :aria-label="`Move ${itemTitle(item)} to screen`" @change="moveItem(item, ($event.target as HTMLSelectElement).value)"><option v-for="p in state.pages" :key="p.id" :value="p.id">{{ p.title }}</option></select></label>
             </article>
           </div>
-          <slot v-if="page.id === state.pages[0]?.id" name="home-tools" />
           <p v-if="editing" class="studio-hint">Removing an app only unpins it. Removing an Android widget also deletes its host placement, not the app. Move tiles using the screen selector or Eagle view.</p>
         </div>
 
-      <p class="studio-hint gesture-hint">Swipe up: apps · Swipe down: search · Orb: screens · Three-finger swipe up: overview</p>
+      <p class="studio-hint gesture-hint">Swipe left/right: screens · Scroll vertically: content · Top/bottom edge: search/apps · Orb: screens · Three fingers: overview</p>
     </div>
     </div>
     </div>
@@ -98,6 +98,7 @@ import { useHomeNativeWidgets } from '@/composables/useHomeNativeWidgets'
 import { widgetConfirmation, type NativeWidgetProvider, type NativeWidgetRecord } from '@/composables/useAndroidWidgets'
 import { homeWidgetCatalog } from '@/data/homeWidgetCatalog'
 import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, homeGridCols, homeItemPlacement, placeHomeItems, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeGridDelta, type HomeWorkspace } from '@/utils/homeWorkspaces'
+import { MOBILE_EDGE_GESTURE_RATIO } from '@/utils/mobileShell'
 type HomeApp = { id: string; label: string; icon: string; tint?: string; image?: string }
 const props = defineProps<{ apps: HomeApp[]; initialIds: string[]; blocked?: boolean }>()
 const emit = defineEmits<{ open: [id: string]; openApps: []; customize: [id: string] }>()
@@ -269,7 +270,7 @@ function homeClick(event: MouseEvent) { touchSafety.click(event); if (!event.def
 let gestureEpoch = 0, touchCount = 0, touchBlocked = false
 function center(touches: TouchList) { const points = Array.from(touches); return { x: points.reduce((a, p) => a + p.clientX, 0) / points.length, y: points.reduce((a, p) => a + p.clientY, 0) / points.length } }
 function distance(touches: TouchList) { return touches.length >= 2 ? Math.hypot(touches[0]!.clientX - touches[1]!.clientX, touches[0]!.clientY - touches[1]!.clientY) : 0 }
-function excludedTouchTarget(target: EventTarget | null) { return (target as HTMLElement | null)?.closest?.('button,a,input,textarea,select,[contenteditable],[role="button"],.workspace-app,.workspace-widget,[data-native-placement],.studio-picker,.orb-navigator') }
+function excludedTouchTarget(target: EventTarget | null) { const element = target as HTMLElement | null; if (element?.closest?.('.workspace-launch')) return false; return element?.closest?.('button,a,input,textarea,select,[contenteditable],[role="button"],.workspace-app,.workspace-widget,[data-native-placement],.studio-picker,.orb-navigator') }
 function touchStart(event: TouchEvent) {
   touchSafety.start(event)
   // A sequence ends only after all contacts lift; never re-enroll an invalid sequence.
@@ -290,11 +291,17 @@ function touchStart(event: TouchEvent) {
   // impossible when a swipe began near the bezel.
   // Allow 1 -> 2 -> 3 initial formation, but a count change after movement cancels everything.
   if (gesture && (gesture.releasing || gesture.moved || touchCount <= gesture.fingers)) { resetTouch(); return }
-  if (touchCount === 1 && ((event.target as HTMLElement).closest('button,a') || overview.value)) return
+  const target = event.target as HTMLElement
+  const appLaunch = target.closest('.workspace-launch')
+  if (touchCount === 1 && ((target.closest('button,a') && !appLaunch) || overview.value)) return
   const point = center(event.touches)
-  // The launcher reserves the top and bottom edge bands for search and the
-  // app drawer. Do not let Home also page when either system gesture starts.
-  if (touchCount === 1 && (point.y <= 140 || point.y >= window.innerHeight - 140)) return
+  // Match the launcher's responsive outer-fifth zones so edge shortcuts and
+  // Home paging never compete, including short landscape touch viewports.
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+  const bounds = root.value?.getBoundingClientRect()
+  const top = Math.max(0, bounds?.top ?? 0), bottom = Math.min(viewportHeight, bounds?.bottom ?? viewportHeight)
+  const zoneTop = bottom > top ? top : 0, zoneHeight = bottom > top ? bottom - top : viewportHeight
+  if (touchCount === 1 && (point.y <= zoneTop + zoneHeight * MOBILE_EDGE_GESTURE_RATIO || point.y >= zoneTop + zoneHeight * (1 - MOBILE_EDGE_GESTURE_RATIO))) return
   const current = { ...point, fingers: touchCount, lastX: point.x, lastY: point.y, distance: distance(event.touches), zoom: zoom.value, panX: panX.value, panY: panY.value, hidden: gesture?.hidden ?? suspendHome(), ready: false, epoch: gestureEpoch, inOverview: overview.value, moved: false, releasing: false, contacts: Array.from(event.touches, p => ({ id: p.identifier, x: p.clientX, y: p.clientY })) }
   gesture = current
   void current.hidden.then(ok => { if (gesture !== current || current.epoch !== gestureEpoch) return; current.ready = ok; if (!ok) resetTouch() })
@@ -447,10 +454,10 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 .home-studio button,.home-studio input,.home-studio select { font: inherit; }.home-studio button { cursor: pointer; }.home-studio button:disabled { opacity: .5; cursor: default; }.home-studio button:focus-visible,.home-studio input:focus-visible,.home-studio select:focus-visible,.home-studio textarea:focus-visible { outline: 3px solid var(--hw-accent); outline-offset: 3px; }
 .studio-heading,.studio-tools,.screen-tools,.overview-bar,.screen-nav,.picker-title,.picker-tabs { display: flex; align-items: center; gap: 8px; }.studio-heading,.picker-title { justify-content: space-between; }.studio-heading h2,.picker-title h2 { font-size: 20px; margin: 5px 0 0; letter-spacing: -.04em; overflow-wrap: anywhere; }.studio-kicker { color: var(--hw-accent); font-size: 10px; letter-spacing: .16em; font-weight: 700; }.studio-status,.studio-hint { color: var(--hw-muted); font-size: 11px; line-height: 1.6; margin: 10px 0; }
 .studio-tools button,.screen-tools button,.overview-bar button,.screen-nav button,.picker-title>button,.picker-tabs button,.widget-filters button { color: var(--hw-text); background: var(--hw-surface); border: 1px solid var(--hw-line); border-radius: 12px; min-width: 44px; min-height: 44px; padding: 8px 12px; }.studio-tools .studio-add { background: var(--hw-accent); color: var(--ui-on-accent); font-size: 30px; line-height: 1; border-color: transparent; }.screen-tools { justify-content: space-between; margin-bottom: 14px; }.screen-tools button { font-size: 12px; }.screen-name { display: grid; gap: 6px; margin: 10px 0; font-size: 12px; }.screen-name input { color: inherit; border: 1px solid var(--hw-line); background: var(--hw-surface); padding: 10px; border-radius: 8px; }
-.screen-nav { position: fixed; left: 50vw; bottom: calc(var(--mobile-favorites-dock-h, 7vh) + env(safe-area-inset-bottom, 0px) + 2vh); z-index: 105; transform: translateX(-50%); flex: 0 0 auto; flex-direction: column; justify-content: center; gap: 4px; margin: 0; padding: 0; }
+.screen-nav { position: fixed; left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); bottom: calc(var(--mobile-favorites-dock-h, 7vh) + env(safe-area-inset-bottom, 0px) + 2vh); z-index: 105; transform: none; flex: 0 0 auto; flex-direction: column; align-items: center; justify-content: center; gap: 4px; margin: 0; padding: 0; }
 @media (max-width: 768px), (pointer: coarse) and (max-height: 600px) {
   .home-studio { padding-top: 0; }
-  .workspace-content { padding-bottom: calc(var(--mobile-favorites-dock-h, 7vh) + 12vh + env(safe-area-inset-bottom, 0px)); }
+  .workspace-content { padding-bottom: 2vh; }
   .screen-nav :deep(.orb-caption) { display: none; }
   .gesture-hint { display: none; }
 }
@@ -494,7 +501,6 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 }
 @media(max-height:700px) and (max-width:768px) {
   .screen-nav { margin-top: 0; }
-  .screen-nav :deep(.orb-navigator) { transform: scale(.84); transform-origin: center; margin-block: -8px; }
   .screen-nav :deep(.orb-caption) { font-size: 7px; }
   .gesture-hint { display: none; }
 }

@@ -3,6 +3,7 @@
 // Exports: useLauncherWorkspaceGestures; Integrates: MobileLauncher capture handlers.
 // Contracts: no lifecycle listeners or app APIs; preserve controls, scrolling and multitouch ownership.
 import { drawerGestureProgress, shouldCommitDrawerGesture } from '@/utils/drawerGesture'
+import { MOBILE_EDGE_GESTURE_RATIO } from '@/utils/mobileShell'
 
 type Options = {
   blocked: () => boolean
@@ -52,7 +53,7 @@ export function useLauncherWorkspaceGestures(options: Options) {
     const rect = studio.getBoundingClientRect()
     const top = Math.max(0, rect.top), bottom = Math.min(height, rect.bottom)
     const zoneTop = bottom > top ? top : 0, zoneHeight = bottom > top ? bottom - top : height
-    const direction = point.clientY > zoneTop + zoneHeight * .8 ? 'drawer' : point.clientY < zoneTop + zoneHeight * .2 ? 'search' : null
+    const direction = point.clientY > zoneTop + zoneHeight * (1 - MOBILE_EDGE_GESTURE_RATIO) ? 'drawer' : point.clientY < zoneTop + zoneHeight * MOBILE_EDGE_GESTURE_RATIO ? 'search' : null
     if (!direction || (direction === 'drawer' ? scrollTop < maxScroll - 1 : scrollTop > 0)) return
     gesture = { id: point.identifier, x: point.clientX, y: point.clientY, startedAt: clock(), target, scroller, scrollTop, direction, claimed: false }
   }

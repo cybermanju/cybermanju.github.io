@@ -68,10 +68,10 @@ function showTask(id: string) {
   display: none;
   position: fixed;
   bottom: calc(var(--mobile-favorites-dock-h, 7vh) + env(safe-area-inset-bottom, 0px) + 2vh);
-  left: 2vw;
-  right: 2vw;
+  left: var(--mobile-safe-inline-start, 3vw);
+  right: var(--mobile-safe-inline-end, 3vw);
   height: var(--mobile-taskbar-h, 6vh);
-  min-height: 40px;
+  min-height: 44px;
   box-sizing: border-box;
   padding: 2px 1vw;
   align-items: center;
@@ -101,7 +101,7 @@ function showTask(id: string) {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-height: 38px;
+  min-height: 44px;
   padding: 2px 3vw;
   border-radius: 12px;
   transition: color 120ms ease-out, transform 150ms cubic-bezier(.34,1.4,.4,1), background 120ms ease-out;

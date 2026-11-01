@@ -32,7 +32,7 @@
            / dragged direction). No frames or rings — the button is just the sphere. -->
       <canvas ref="canvasRef" class="orb-canvas" aria-hidden="true" />
     </button>
-    <span v-if="!teacherMode" class="orb-caption" aria-hidden="true">HOVER · DRAG ANY DIRECTION · TAP NEXT · DOUBLE-TAP ALL APPS</span>
+    <span v-if="!teacherMode" class="orb-caption" aria-hidden="true">DRAG TO NAVIGATE · TAP NEXT · DOUBLE-TAP ALL APPS</span>
     <span v-else class="orb-teacher-caption" aria-hidden="true">{{ caption || activityLabel }}</span>
   </div>
 </template>
@@ -92,7 +92,7 @@ const ariaLabel = computed(() => {
   ].filter(Boolean).join(', ')
   return `Orb navigator. Home screen ${props.screenIndex + 1} of ${props.screenCount}.` +
     (nearby ? ` Nearby: ${nearby}.` : ' No nearby screens.') +
-    ' Click for the next screen, double-click for all apps, or drag toward a nearby screen.'
+    ' Activate for the next screen, activate twice for all apps, or drag toward a nearby screen.'
 })
 
 // ---------- gesture state (single/double activation contract unchanged) ----------
@@ -577,9 +577,9 @@ onUnmounted(() => {
 .orb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 /* pressed feedback stays CSS so it reads even when the render loop is frozen */
 .orb-caption { color: var(--ui-text-3, #9a9a9a); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
-.orb-navigator:not(.orb-navigator--teacher) { position: relative; width: clamp(40px, 5.5vh, 56px); height: clamp(40px, 5.5vh, 56px); gap: 0; }
+.orb-navigator:not(.orb-navigator--teacher) { position: relative; width: clamp(44px, 5.5vh, 56px); height: clamp(44px, 5.5vh, 56px); gap: 0; }
 .orb-navigator:not(.orb-navigator--teacher)::before { content: ''; position: absolute; inset: -18%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, color-mix(in srgb, var(--ui-accent, #78aaff) 32%, transparent) 0%, color-mix(in srgb, var(--ui-accent, #78aaff) 12%, transparent) 48%, transparent 74%); filter: blur(.7vh); opacity: .9; }
-.orb-navigator:not(.orb-navigator--teacher) .orb-core { z-index: 1; width: clamp(40px, 5.5vh, 56px); height: clamp(40px, 5.5vh, 56px); min-width: 0 !important; min-height: 0 !important; filter: drop-shadow(0 0 1vh color-mix(in srgb, var(--ui-accent, #78aaff) 48%, transparent)); }
+.orb-navigator:not(.orb-navigator--teacher) .orb-core { z-index: 1; width: clamp(44px, 5.5vh, 56px); height: clamp(44px, 5.5vh, 56px); min-width: 0 !important; min-height: 0 !important; filter: drop-shadow(0 0 1vh color-mix(in srgb, var(--ui-accent, #78aaff) 48%, transparent)); }
 .orb-navigator:not(.orb-navigator--teacher) .orb-caption { display: none; }
 .orb-navigator--teacher { gap: 6px; position: relative; isolation: isolate; }
 .orb-navigator--teacher::before, .orb-navigator--teacher::after {

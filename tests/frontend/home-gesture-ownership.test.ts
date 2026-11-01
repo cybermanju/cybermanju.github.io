@@ -78,4 +78,10 @@ describe('Home gesture ownership', () => {
     const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
     expect(studio).toMatch(/<section[^>]*class="home-studio"[^>]*data-shell-gesture-exclude/)
   })
+
+  it('allows a horizontal page gesture to begin on an app shortcut without turning widgets into swipe targets', () => {
+    const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
+    expect(studio).toContain("if (element?.closest?.('.workspace-launch')) return false")
+    expect(studio).toContain(".workspace-widget,[data-native-placement]")
+  })
 })

@@ -152,9 +152,12 @@ describe('home workspace model', () => {
     expect(classifyHomeGesture(0, 72, 3)).toBe('overview-close')
     expect(classifyHomeGesture(64, 0, 1)).toBe('previous')
     expect(classifyHomeGesture(-64, 0, 1)).toBe('next')
-    // Diagonal one-finger swipes also page: the sweep is classified on the nearest axis.
-    expect(classifyHomeGesture(100, 100, 1)).toBe('previous')
-    expect(classifyHomeGesture(-100, -100, 1)).toBe('next')
+    // Vertical one-finger motion belongs to scrolling; horizontal intent pages.
+    expect(classifyHomeGesture(100, 100, 1)).toBeNull()
+    expect(classifyHomeGesture(-100, -100, 1)).toBeNull()
+    expect(classifyHomeGesture(120, 40, 1)).toBe('previous')
+    expect(classifyHomeGesture(-120, 40, 1)).toBe('next')
+    expect(classifyHomeGesture(0, -120, 1)).toBeNull()
     expect(classifyHomeGesture(-64, 0, 2)).toBe('next')
     expect(classifyHomeGesture(64, 0, 2)).toBe('previous')
     expect(classifyHomeGesture(0, -64, 2)).toBe('next')

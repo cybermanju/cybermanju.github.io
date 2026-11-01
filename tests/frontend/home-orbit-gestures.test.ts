@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { classifyHomeGesture, createHomeWorkspace } from '@/utils/homeWorkspaces'
 import { useHomeTouchSafety } from '@/composables/useHomeTouchSafety'
+import { MOBILE_EDGE_GESTURE_RATIO } from '@/utils/mobileShell'
 
 const source = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
 function setup(hidden: Promise<boolean>) {
@@ -21,6 +22,7 @@ function setup(hidden: Promise<boolean>) {
   const state = { value: { pages: [{ id: 'first' }, { id: 'second' }, { id: 'third' }], activeId: 'second' } }, message = { value: '' }
   const nativeHome = { suspend: vi.fn(() => hidden), schedule: vi.fn() }, toggleOverview = vi.fn(), closeOverview = vi.fn()
   const window = Object.assign(new EventTarget(), { innerWidth: 390, innerHeight: 760 }), unmounts: Array<() => void> = []
+  const root = { value: { getBoundingClientRect: () => ({ top: 0, bottom: 760 }) } }
   const addListener = vi.spyOn(window, 'addEventListener'), removeListener = vi.spyOn(window, 'removeEventListener')
   // UI announcement behavior is covered by mounted Home tests; this adapter
   // preserves the native barrier/deferred Promise for the extracted gesture handlers.
@@ -29,7 +31,7 @@ function setup(hidden: Promise<boolean>) {
   // screen-transition timers, `screenMotionTimer` stays null so unmount has
   // nothing to clear, and `arrangeOverflow`/`createHomeWorkspace` are stubs
   // (layout) plus the real `nextTick`.
-  const handlers = new Function('nativeHome', 'suspendHome', 'props', 'picker', 'dragging', 'editing', 'overview', 'zoom', 'panX', 'panY', 'innerWidth', 'innerHeight', 'classifyHomeGesture', 'activeIndex', 'state', 'message', 'toggleOverview', 'closeOverview', 'window', 'onMounted', 'onUnmounted', 'watch', 'androidApps', 'document', 'useHomeTouchSafety', 'motion', 'screenMotionTimer', 'nextTick', 'createHomeWorkspace', 'arrangeOverflow', 'emptyPress', `${compiled};return {touchStart,touchMove,touchEnd,resetTouch,cancelTouch,workspaceKeys};`)(nativeHome, () => nativeHome.suspend(), props, picker, dragging, editing, overview, zoom, panX, panY, 390, 760, classifyHomeGesture, activeIndex, state, message, toggleOverview, closeOverview, window, (fn: () => void) => fn(), (fn: () => void) => unmounts.push(fn), vi.fn(), { supported: false }, new EventTarget(), useHomeTouchSafety, { reduced: { value: true } }, null, nextTick, createHomeWorkspace, vi.fn(), { click: vi.fn() })
+  const handlers = new Function('nativeHome', 'suspendHome', 'props', 'picker', 'dragging', 'editing', 'overview', 'zoom', 'panX', 'panY', 'innerWidth', 'innerHeight', 'classifyHomeGesture', 'MOBILE_EDGE_GESTURE_RATIO', 'root', 'activeIndex', 'state', 'message', 'toggleOverview', 'closeOverview', 'window', 'onMounted', 'onUnmounted', 'watch', 'androidApps', 'document', 'useHomeTouchSafety', 'motion', 'screenMotionTimer', 'nextTick', 'createHomeWorkspace', 'arrangeOverflow', 'emptyPress', `${compiled};return {touchStart,touchMove,touchEnd,resetTouch,cancelTouch,workspaceKeys};`)(nativeHome, () => nativeHome.suspend(), props, picker, dragging, editing, overview, zoom, panX, panY, 390, 760, classifyHomeGesture, MOBILE_EDGE_GESTURE_RATIO, root, activeIndex, state, message, toggleOverview, closeOverview, window, (fn: () => void) => fn(), (fn: () => void) => unmounts.push(fn), vi.fn(), { supported: false }, new EventTarget(), useHomeTouchSafety, { reduced: { value: true } }, null, nextTick, createHomeWorkspace, vi.fn(), { click: vi.fn() })
   const target = (selector = '') => ({ closest: (s: string) => selector && selector.split(',').some(part => s.split(',').map(x => x.trim()).includes(part.trim())) ? {} : null })
   const point = (x: number, y = 300, selector = '') => ({ clientX: x, clientY: y, target: target(selector) })
   const event = (points: ReturnType<typeof point>[], selector = '') => ({ touches: points.map((p, identifier) => ({ ...p, identifier })), target: target(selector), cancelable: true, preventDefault: vi.fn(), stopPropagation: vi.fn() })
@@ -72,12 +74,28 @@ describe('Orbit native-hide gesture barrier', () => {
     for (const n of [1,2,3]) { const f = setup(Promise.resolve(true)); const pts = Array.from({length:n}, (_,i) => f.point(100+i*30)); f.touchStart(f.event(pts, selector)); await settle(); f.touchMove(f.event(pts.map(p => f.point(p.clientX-100,p.clientY-100)), selector)); await f.touchEnd(f.event([])); expect(f.nativeHome.suspend).not.toHaveBeenCalled(); expect(f.state.value.activeId).toBe('second'); expect(f.overview.value).toBe(false) }
   })
   it('reserves single-contact top and bottom system bands and keeps multi-contact enrollment everywhere else', () => {
-    // Home owns the full canvas for swipes (see the edge-band comment in
-    // HomeWorkspaceStudio): a lone finger in the search/app-drawer bands is
-    // ignored, while multifinger starts near any edge still enroll.
-    for (const y of [2, 140, 300, 620, 758]) { const f = setup(Promise.resolve(true)); f.touchStart(f.event([f.point(200, y)])); if (y <= 140 || y >= 620) expect(f.nativeHome.suspend).not.toHaveBeenCalled(); else expect(f.nativeHome.suspend).toHaveBeenCalledTimes(1) }
+    // The shared outer fifths are reserved for top/bottom shortcut gestures;
+    // multifinger Home gestures still enroll across the canvas.
+    for (const y of [2, 152, 300, 608, 758]) { const f = setup(Promise.resolve(true)); f.touchStart(f.event([f.point(200, y)])); if (y <= 152 || y >= 608) expect(f.nativeHome.suspend).not.toHaveBeenCalled(); else expect(f.nativeHome.suspend).toHaveBeenCalledTimes(1) }
     for (const pts of [[{ x: 4, y: 300 }, { x: 220, y: 300 }], [{ x: 200, y: 2 }, { x: 220, y: 300 }], [{ x: 200, y: 400 }, { x: 220, y: 758 }]]) { const f = setup(Promise.resolve(true)); f.touchStart(f.event(pts.map(p => f.point(p.x, p.y)))); expect(f.nativeHome.suspend).toHaveBeenCalledTimes(1) }
   })
+  it('keeps vertical one-finger motion scrollable and pages horizontally from an app shortcut', async () => {
+    const vertical = setup(Promise.resolve(true))
+    vertical.touchStart(vertical.event([vertical.point(200, 300)])); await settle()
+    const scrollMove = vertical.event([vertical.point(200, 420)])
+    vertical.touchMove(scrollMove); await vertical.touchEnd(vertical.event([]))
+    expect(vertical.state.value.activeId).toBe('second')
+    expect(scrollMove.preventDefault).not.toHaveBeenCalled()
+
+    const horizontal = setup(Promise.resolve(true))
+    const selector = '.workspace-launch,button'
+    horizontal.touchStart(horizontal.event([horizontal.point(240, 300, selector)], selector)); await settle()
+    const pageMove = horizontal.event([horizontal.point(120, 300, selector)], selector)
+    horizontal.touchMove(pageMove); await horizontal.touchEnd(horizontal.event([]))
+    expect(horizontal.state.value.activeId).toBe('third')
+    expect(pageMove.preventDefault).toHaveBeenCalled()
+  })
+
   it('ignores blocked and picker states; reset/cancel invalidates pending hide after touchEnd', async () => {
     const blocked=setup(Promise.resolve(true)); blocked.props.blocked=true; blocked.touchStart(blocked.event([blocked.point(200)])); expect(blocked.nativeHome.suspend).not.toHaveBeenCalled()
     const picked=setup(Promise.resolve(true)); picked.picker.value='apps'; picked.touchStart(picked.event([picked.point(200)])); expect(picked.nativeHome.suspend).not.toHaveBeenCalled()

@@ -3,13 +3,15 @@
 // Exports/Integrates: Vitest coverage for DesktopShell, MobileLauncher, HomeWorkspaceStudio, MobileNav, OrbNavigator, and AppWindow.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { isTouchFirstViewport, MOBILE_SHELL_MEDIA_QUERY } from '../../src/utils/mobileShell'
+import { isTouchFirstViewport, MOBILE_EDGE_GESTURE_RATIO, MOBILE_SHELL_MEDIA_QUERY } from '../../src/utils/mobileShell'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const shell = read('../../src/components/DesktopShell.vue')
 const launcher = read('../../src/components/MobileLauncher.vue')
+const home = read('../../src/components/HomeWorkspaceStudio.vue')
 const orb = read('../../src/components/OrbNavigator.vue')
 const nav = read('../../src/components/MobileNav.vue')
+const gestures = read('../../src/composables/useLauncherWorkspaceGestures.ts')
 const windowShell = read('../../src/components/AppWindow.vue')
 const globalCss = read('../../src/assets/ui.css')
 
@@ -24,7 +26,7 @@ describe('mobile launcher shell', () => {
     expect(globalCss).toContain('@media (max-width: 768px), (pointer: coarse) and (max-height: 600px)')
   })
 
-  it('pins an always-visible, theme-aware favorites dock and compact Orb above its safe area', () => {
+  it('pins a persistent, theme-aware favorites dock and compact Orb above its safe area', () => {
     expect(launcher).toContain('class="mobile-favorites-dock"')
     expect(launcher).toContain('!launcher.drawerOpen && !launcher.messagesOpen && !customHome')
     expect(launcher).toContain('position: fixed; z-index: 10001; left: var(--mobile-safe-inline-start, 3vw); right: var(--mobile-safe-inline-end, 3vw)')
@@ -35,6 +37,20 @@ describe('mobile launcher shell', () => {
     expect(orb).toContain('width: clamp(44px, 5.5vh, 56px)')
     expect(orb).toContain('var(--ui-accent, #78aaff)')
     expect(read('../../src/components/AppWindow.vue')).toContain('pinned.value ? 9999')
+  })
+
+  it('keeps tools above every screen and separates vertical scrolling from horizontal paging', () => {
+    const tools = home.indexOf('<slot v-if="!editing && !overview" name="home-tools" />')
+    const grid = home.indexOf('<div class="workspace-grid"')
+    expect(tools).toBeGreaterThan(-1)
+    expect(tools).toBeLessThan(grid)
+    expect(home).toContain("const appLaunch = target.closest('.workspace-launch')")
+    expect(home).toContain('MOBILE_EDGE_GESTURE_RATIO')
+    expect(gestures).toContain('MOBILE_EDGE_GESTURE_RATIO')
+    expect(MOBILE_EDGE_GESTURE_RATIO).toBe(0.2)
+    expect(home).toContain('v-if="!orbHiddenOnDesktop && !props.blocked"')
+    expect(globalCss).toContain('--mobile-orb-size: clamp(44px, 5.5vh, 56px)')
+    expect(nav).toContain('min-height: 44px')
   })
 
   it('returns Home by minimizing tasks and supports selecting an open task', () => {

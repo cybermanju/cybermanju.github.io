@@ -36,7 +36,7 @@
       </template>
     </HomeWorkspaceStudio>
 
-    <!-- The app drawer is an overlay opened by double-activating the orb navigator. -->
+    <!-- The app drawer is opened from the Orb or the reserved bottom-edge gesture. -->
     <AppDrawer :reveal-progress="drawerProgress" :built-in-apps="apps" />
 
     <!-- Messages hub: top-right icon (header tray on open apps, floating
@@ -500,8 +500,8 @@ function resetHomeCustom() {
 </script>
 
 <style scoped>
-.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px calc(var(--mobile-favorites-dock-h, 7vh) + 12vh + env(safe-area-inset-bottom, 0px)); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
-.mla.with-app-nav { padding-bottom: calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-taskbar-h, 6vh) + 5vh + env(safe-area-inset-bottom, 0px)); }
+.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-orb-size, clamp(44px, 5.5vh, 56px)) + 2vh); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
+.mla.with-app-nav { padding-bottom: calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-taskbar-h, 6vh) + 2vh); }
 .mla :deep(.mla-screen-tools) { display: flex; flex-direction: column; flex: 0 0 auto; gap: 8px; }
 .mla :deep(.mla-home-toolbar), .mla :deep(.mla-toolbar-actions) { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .mla :deep(.mla-home-toolbar) { flex-shrink: 0; }
@@ -526,8 +526,8 @@ function resetHomeCustom() {
   .mla :deep(.mla-search-tools) { gap: 8px; }
 }
 .mla-count { color: var(--ui-accent); font-size: 11px; }
-.mobile-favorites-dock { position: fixed; z-index: 10001; left: 50vw; bottom: calc(env(safe-area-inset-bottom, 0px) + 1vh); transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: clamp(2px, 1.2vw, 8px); width: max-content; max-width: 94vw; height: var(--mobile-favorites-dock-h, 7vh); min-height: 44px; max-height: 60px; box-sizing: border-box; padding: 0 1vw; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border: 1px solid var(--ui-border); border-radius: 18px; background: color-mix(in srgb, var(--ui-surface) 92%, transparent); box-shadow: 0 0.8vh 2.4vh color-mix(in srgb, var(--ui-shadow-color, #000) 18%, transparent); }
-.mobile-favorite { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: clamp(38px, 11vw, 48px); min-width: 38px; min-height: 40px; padding: 0; border: 0; background: transparent; color: var(--favorite-tint, var(--ui-accent)); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.mobile-favorites-dock { position: fixed; z-index: 10001; left: var(--mobile-safe-inline-start, 3vw); right: var(--mobile-safe-inline-end, 3vw); bottom: calc(env(safe-area-inset-bottom, 0px) + 1vh); transform: none; display: flex; align-items: center; justify-content: center; gap: clamp(2px, 1.2vw, 8px); width: max-content; max-width: min(560px, calc(100vw - var(--mobile-safe-inline-start, 3vw) - var(--mobile-safe-inline-end, 3vw))); height: var(--mobile-favorites-dock-h, 7vh); min-height: 48px; max-height: 60px; margin-inline: auto; box-sizing: border-box; padding: 0 1vw; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border: 1px solid var(--ui-border); border-radius: 18px; background: color-mix(in srgb, var(--ui-surface) 92%, transparent); box-shadow: 0 0.8vh 2.4vh color-mix(in srgb, var(--ui-shadow-color, #000) 18%, transparent); }
+.mobile-favorite { position: relative; display: grid; place-items: center; flex: 0 0 auto; width: clamp(44px, 11vw, 48px); min-width: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--favorite-tint, var(--ui-accent)); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .mobile-favorite-icon { display: grid; place-items: center; width: clamp(32px, 9vw, 40px); height: clamp(32px, 9vw, 40px); overflow: hidden; border: 1px solid color-mix(in srgb, var(--favorite-tint, var(--ui-accent)) 34%, var(--ui-border)); border-radius: 12px; background: color-mix(in srgb, var(--favorite-tint, var(--ui-accent)) 14%, var(--ui-surface)); color: var(--favorite-tint, var(--ui-accent)); }
 .mobile-favorite-icon img { width: 100%; height: 100%; object-fit: cover; }
 .mobile-favorite-indicator { position: absolute; bottom: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--favorite-tint, var(--ui-accent)); box-shadow: 0 0 1vw color-mix(in srgb, var(--favorite-tint, var(--ui-accent)) 55%, transparent); }

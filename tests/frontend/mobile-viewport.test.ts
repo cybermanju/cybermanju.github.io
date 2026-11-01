@@ -29,7 +29,7 @@ describe('mobile shell interaction contracts', () => {
     const launcher = read('src/components/MobileLauncher.vue')
     expect(launcher).toContain('<HomeWorkspaceStudio')
     expect(launcher).toContain('class="mobile-favorites-dock"')
-    expect(launcher).toContain('position: fixed; z-index: 10001; left: 50vw;')
+    expect(launcher).toContain('position: fixed; z-index: 10001; left: var(--mobile-safe-inline-start, 3vw); right: var(--mobile-safe-inline-end, 3vw)')
     expect(launcher).toContain('bottom: calc(env(safe-area-inset-bottom, 0px) + 1vh)')
     expect(launcher).not.toContain('class="mla-dock"')
     expect(launcher).toContain('min-height: 0')

@@ -86,7 +86,7 @@ export const HOME_WORKSPACE_KEY = 'cybermanju.home.workspaces.v1'
 export const MAX_WORKSPACES = 24
 export const MAX_ITEMS_PER_WORKSPACE = 32
 
-/** One-finger orb/home drag step: horizontal pages linearly, vertical pages by grid row. */
+/** Home paging uses horizontal one-finger swipes; the Orb keeps four-direction direct navigation. */
 export type HomeGridDelta = { dx: -1 | 0 | 1; dy: -1 | 0 | 1 }
 
 /**
@@ -248,11 +248,10 @@ export function classifyHomeGesture(dx: number, dy: number, fingers: number): 'o
   if (fingers === 1) {
     const absX = Math.abs(dx)
     const absY = Math.abs(dy)
-    // Every cardinal or diagonal one-finger swipe can page Home; choose its
-    // nearest axis after the distance threshold instead of dropping diagonals.
-    if (Math.max(absX, absY) < 64) return null
-    if (absX > absY) return dx > 0 ? 'previous' : 'next'
-    return dy > 0 ? 'previous' : 'next'
+    // A vertical one-finger movement belongs to the scrollable Home canvas;
+    // page only when horizontal intent is clear, including horizontal-led diagonals.
+    if (absX < 64 || absX < absY * 1.25) return null
+    return dx > 0 ? 'previous' : 'next'
   }
   if (fingers === 2) {
     const absX = Math.abs(dx)
