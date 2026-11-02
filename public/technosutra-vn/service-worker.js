@@ -1,6 +1,6 @@
 var cacheName = 'the-stem-array-technosutra-vn';
 
-/* Start the service worker and cache all of the app's content or use the existing one */
+/* Offline storage is opt-in; the game runs normally without a persistent cache. */
 self.addEventListener('install', function (e) {
     console.log('Service worker installed.');
     self.skipWaiting();
@@ -17,12 +17,14 @@ self.addEventListener('activate', function (e) {
 let addToCache = false;
 
 /**
- * Serves the cached version of the request if it exists, otherwise fetches the
- * request from the network and caches it. Fetch is used in the default mode,
- * which will use the cache for most network requests, freshening the cache
- * as required.
+ * Keep normal Web requests as pass-through unless a client explicitly enables
+ * the optional offline cache with a `loadCache` message.
  */
 async function fetchAndCache(request) {
+    if (!addToCache) {
+        return fetch(request);
+    }
+
     const cache = await caches.open(cacheName);
     const cachedResponse = await cache.match(request);
 
@@ -75,7 +77,7 @@ async function fetchAndCache(request) {
 }
 
 
-/* Serve cached content when offline */
+/* Serve cached content only when optional offline storage is enabled. */
 self.addEventListener('fetch', function (e) {
     e.respondWith(fetchAndCache(e.request));
 });

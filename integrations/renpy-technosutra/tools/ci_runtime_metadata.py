@@ -12,7 +12,7 @@ import json
 import re
 from pathlib import Path
 
-RUNTIME_FILES = ("index.html", "game.zip", "renpy-pre.js", "renpy.js", "renpy.wasm", "renpy.data")
+RUNTIME_FILES = ("index.html", "game.zip", "renpy-pre.js", "renpy.js", "renpy.wasm", "renpy.data", "service-worker.js")
 METADATA_NAME = "build-metadata.json"
 
 
@@ -28,6 +28,14 @@ def validate_run_pair(run_id: str, run_attempt: str) -> tuple[str, str]:
     if not re.fullmatch(r"[1-9][0-9]*", run_attempt):
         raise ValueError("Expected a positive GitHub run attempt")
     return run_id, run_attempt
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def zip_facts(runtime: Path) -> tuple[int, str]:
@@ -60,6 +68,7 @@ def export_metadata(report_path: Path, runtime: Path, sha: str, run_id: str, run
     if report.get("buildId") != expected_build_id:
         raise ValueError("Ren'Py build ID does not match the current workflow run and attempt")
     size, digest = zip_facts(runtime)
+    service_worker_digest = file_sha256(runtime / "service-worker.js")
     if size != report.get("gameZipBytes") or digest != report.get("gameZipSha256"):
         raise ValueError("Runtime game.zip differs from the validated build report")
     version = re.search(r"\d+\.\d+\.\d+(?:\.\d+)?", str(report.get("engine", "")))
@@ -78,6 +87,7 @@ def export_metadata(report_path: Path, runtime: Path, sha: str, run_id: str, run
         "runtimeSpriteCount": report["runtimeSpriteCount"],
         "gameZipBytes": size,
         "gameZipSha256": digest,
+        "serviceWorkerSha256": service_worker_digest,
         "webOutputBytes": report["webOutputBytes"],
     }
     (runtime / METADATA_NAME).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
@@ -100,6 +110,9 @@ def stage_typescript(runtime: Path, output: Path, expected_sha: str, expected_ru
     size, digest = zip_facts(runtime)
     if size != metadata.get("gameZipBytes") or digest != metadata.get("gameZipSha256"):
         raise ValueError("Downloaded game.zip differs from its CI runtime metadata")
+    service_worker_digest = file_sha256(runtime / "service-worker.js")
+    if service_worker_digest != metadata.get("serviceWorkerSha256"):
+        raise ValueError("Downloaded service-worker.js differs from its CI runtime metadata")
     if metadata.get("validationCommit") != expected_sha[:7] or metadata.get("assetBasePath") != "technosutra-vn/":
         raise ValueError("Invalid runtime commit/path metadata")
     output.parent.mkdir(parents=True, exist_ok=True)

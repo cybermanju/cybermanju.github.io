@@ -37,10 +37,18 @@ def main() -> int:
     packaged_images = candidate / "game" / "images"
     zip_path = candidate / "game.zip"
 
-    for name in ("index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data"):
+    for name in ("index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data", "service-worker.js"):
         path = candidate / name
         if not path.is_file() or path.stat().st_size == 0:
             fail(f"missing required web runtime file {name}")
+
+    worker_source = project / "web" / "service-worker.js"
+    worker_candidate = candidate / "service-worker.js"
+    if not worker_source.is_file() or worker_candidate.read_bytes() != worker_source.read_bytes():
+        fail("candidate service worker differs from the reviewed project source")
+    worker_text = worker_candidate.read_text(encoding="utf-8")
+    if "let addToCache = false;" not in worker_text or "if (!addToCache)" not in worker_text:
+        fail("service worker must leave persistent offline caching disabled by default")
 
     opening_background = images / "bg_intro_scene.jpg"
     presplash_source = project / "web-presplash.jpg"

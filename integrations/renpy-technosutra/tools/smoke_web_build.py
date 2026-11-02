@@ -52,7 +52,7 @@ def main() -> int:
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     web_directory = args.web_directory.resolve()
-    for name in ("index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data", "web-presplash.jpg"):
+    for name in ("index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data", "web-presplash.jpg", "service-worker.js"):
         if not (web_directory / name).is_file():
             raise SystemExit(f"Missing web runtime file: {web_directory / name}")
 
@@ -150,6 +150,21 @@ def main() -> int:
         if presplash_http_status != 200:
             raise SystemExit(f"Web presplash did not return HTTP 200: {presplash_http_status}")
 
+        worker_source = Path(__file__).resolve().parents[1] / "web" / "service-worker.js"
+        worker_candidate = web_directory / "service-worker.js"
+        if worker_candidate.read_bytes() != worker_source.read_bytes():
+            raise SystemExit("Web candidate service worker differs from the reviewed project source")
+        worker_text = worker_candidate.read_text(encoding="utf-8")
+        if "let addToCache = false;" not in worker_text or "if (!addToCache)" not in worker_text:
+            raise SystemExit("Web candidate must keep persistent offline caching disabled by default")
+        try:
+            with urlopen(Request(base_url + "service-worker.js", method="HEAD"), timeout=30) as response:
+                service_worker_http_status = response.status
+        except Exception as error:
+            raise SystemExit(f"Web service worker was not served: {error}") from error
+        if service_worker_http_status != 200:
+            raise SystemExit(f"Web service worker did not return HTTP 200: {service_worker_http_status}")
+
         with sync_playwright() as playwright:
             launch_args = [
                 "--no-sandbox",
@@ -175,7 +190,7 @@ def main() -> int:
             page.on(
                 "response",
                 lambda response: resource_status.__setitem__(Path(urlparse(response.url).path).name, response.status)
-                if Path(urlparse(response.url).path).name in {"index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data", "web-presplash.jpg"}
+                if Path(urlparse(response.url).path).name in {"index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data", "web-presplash.jpg", "service-worker.js"}
                 else None,
             )
             response = page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
@@ -227,6 +242,12 @@ def main() -> int:
             "sha256MatchesOpeningLandscape": True,
             "headStatus": presplash_http_status,
             "browserStatus": resource_status.get("web-presplash.jpg"),
+        },
+        "serviceWorker": {
+            "file": str(worker_candidate),
+            "headStatus": service_worker_http_status,
+            "matchesReviewedSource": True,
+            "persistentCacheDisabledByDefault": True,
         },
         "progressiveImageAssets": {
             "count": len(progressive_asset_status),

@@ -90,6 +90,8 @@ fi
 cp "$ROOT/chapters.json" "$ROOT/project.json" "$PROJECT/"
 mkdir -p "$PROJECT/tools"
 cp "$ROOT/tools/"*.py "$PROJECT/tools/"
+mkdir -p "$PROJECT/web"
+cp "$ROOT/web/service-worker.js" "$PROJECT/web/service-worker.js"
 find "$PROJECT/game" -type f -name '*.rpyc' -delete
 rm -rf "$PROJECT/game/cache" "$PROJECT/game/saves"
 
@@ -138,7 +140,9 @@ if [[ -z "$INDEX" ]]; then
   exit 3
 fi
 WEB_DIR="$(dirname "$INDEX")"
-for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data; do
+# Ren'Py's SDK worker is opt-in-cache, so carry the reviewed source into every candidate.
+cp "$PROJECT/web/service-worker.js" "$WEB_DIR/service-worker.js"
+for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data service-worker.js; do
   if [[ ! -s "$WEB_DIR/$required" ]]; then
     echo "Ren'Py candidate is missing required web artifact: $WEB_DIR/$required" >&2
     exit 4

@@ -26,6 +26,7 @@ from urllib.request import Request, urlopen
 SCHEMA_VERSION = "1.0"
 RUNTIME_METADATA_PATH = "technosutra-vn/build-metadata.json"
 RUNTIME_GAME_ZIP_PATH = "technosutra-vn/game.zip"
+RUNTIME_SERVICE_WORKER_PATH = "technosutra-vn/service-worker.js"
 EXPECTED_SPRITE_TAG = "master_ch01_provisional"
 EXPECTED_BACKGROUND_TAG = "bg_ch01"
 OPENING_NARRATION_MARKER = "Esta abertura usa um cenário original independente."
@@ -90,6 +91,7 @@ def verify_deployment(
     deploy_url = urljoin(base_url, "deployment-info.json")
     runtime_url = urljoin(base_url, RUNTIME_METADATA_PATH)
     zip_url = urljoin(base_url, RUNTIME_GAME_ZIP_PATH)
+    service_worker_url = urljoin(base_url, RUNTIME_SERVICE_WORKER_PATH)
     deadline = time.monotonic() + timeout
     attempts = 0
     last_deployment: dict[str, Any] | None = None
@@ -101,6 +103,7 @@ def verify_deployment(
     expected_build_id = f"ci-{expected_run_id}-{expected_run_attempt}"
     zip_retry_delay = 1.0
     last_zip: dict[str, Any] | None = None
+    last_service_worker: dict[str, Any] | None = None
 
     while True:
         attempts += 1
@@ -149,7 +152,24 @@ def verify_deployment(
                 "expectedSha256": expected_zip_digest,
                 "matchesMetadata": zip_matches,
             }
-            if zip_matches:
+            worker_status, worker_size, worker_digest, worker_error = fetch_sha256(
+                service_worker_url, min(10.0, max(timeout, 1.0))
+            )
+            expected_worker_digest = str(runtime.get("serviceWorkerSha256", "")).strip().lower()
+            worker_matches = (
+                worker_status == 200
+                and bool(expected_worker_digest)
+                and worker_digest == expected_worker_digest
+            )
+            last_service_worker = {
+                "url": service_worker_url,
+                "httpStatus": worker_status,
+                "bytes": worker_size,
+                "sha256": worker_digest,
+                "expectedSha256": expected_worker_digest,
+                "matchesMetadata": worker_matches,
+            }
+            if zip_matches and worker_matches:
                 return {
                     "verified": True,
                     "attempts": attempts,
@@ -160,20 +180,31 @@ def verify_deployment(
                     "runtimeMetadataHttpStatus": runtime_status,
                     "runtimeMetadata": runtime,
                     "runtimeZip": last_zip,
+                    "runtimeServiceWorker": last_service_worker,
                     "sourceShaMatchesExpected": True,
                     "runIdMatchesExpected": True,
                     "runAttemptMatchesExpected": True,
                     "runtimeZipMatchesMetadata": True,
+                    "runtimeServiceWorkerMatchesMetadata": True,
                     "error": None,
                 }
-            if zip_error:
+            if not zip_matches and zip_error:
                 last_errors = [f"published game.zip: {zip_error}"]
-            elif zip_status != 200:
+            elif not zip_matches and zip_status != 200:
                 last_errors = [f"published game.zip returned HTTP {zip_status}"]
-            elif zip_size != expected_zip_size:
+            elif not zip_matches and zip_size != expected_zip_size:
                 last_errors = [f"published game.zip is {zip_size} bytes, expected {expected_zip_size}"]
-            else:
+            elif not zip_matches:
                 last_errors = [f"published game.zip SHA-256 is {zip_digest!r}, expected {expected_zip_digest!r}"]
+            elif worker_error:
+                last_errors = [f"published service-worker.js: {worker_error}"]
+            elif worker_status != 200:
+                last_errors = [f"published service-worker.js returned HTTP {worker_status}"]
+            else:
+                last_errors = [
+                    f"published service-worker.js SHA-256 is {worker_digest!r}, "
+                    f"expected {expected_worker_digest!r}"
+                ]
             if time.monotonic() >= deadline:
                 break
             time.sleep(min(zip_retry_delay, max(0.0, deadline - time.monotonic())))
@@ -228,10 +259,14 @@ def verify_deployment(
         "runtimeMetadataHttpStatus": runtime_status,
         "runtimeMetadata": last_runtime,
         "runtimeZip": last_zip,
+        "runtimeServiceWorker": last_service_worker,
         "sourceShaMatchesExpected": bool(last_runtime and str(last_runtime.get("sourceSha", "")).strip().lower() == expected),
         "runIdMatchesExpected": bool(last_runtime and str(last_runtime.get("runId", "")).strip() == expected_run_id),
         "runAttemptMatchesExpected": bool(last_runtime and str(last_runtime.get("runAttempt", "")).strip() == expected_run_attempt),
         "runtimeZipMatchesMetadata": bool(last_zip and last_zip.get("matchesMetadata")),
+        "runtimeServiceWorkerMatchesMetadata": bool(
+            last_service_worker and last_service_worker.get("matchesMetadata")
+        ),
         "error": "; ".join(last_errors) or "deployment metadata did not become available before timeout",
     }
 
@@ -268,6 +303,7 @@ def write_outputs(output_dir: Path, report: dict[str, Any]) -> None:
         f"- **Base URL:** {report.get('baseUrl', '')}",
         f"- **Deployment metadata:** {'verified' if report.get('deployment', {}).get('verified') else 'not verified'}",
         f"- **Published game.zip SHA-256:** {'matches runtime metadata' if checks.get('publishedGameZipMatchesMetadata') else 'not verified'}",
+        f"- **Published service worker SHA-256:** {'matches runtime metadata' if report.get('deployment', {}).get('runtimeServiceWorkerMatchesMetadata') else 'not verified'}",
         f"- **Gameplay evidence:** dialogue={checks.get('dialogueObserved', False)}, scene={checks.get('chapterBackgroundVisible', False)}, sprite={checks.get('characterSpriteVisible', False)}, changed after real input={checks.get('dialogueChangedAfterInput', False)}",
     ]
     if report.get("blocker"):

@@ -24,6 +24,8 @@ RUN_ID = "12345"
 RUN_ATTEMPT = "2"
 ZIP_BYTES = b"published game.zip bytes"
 ZIP_SHA = hashlib.sha256(ZIP_BYTES).hexdigest()
+SERVICE_WORKER_BYTES = b"published service worker bytes"
+SERVICE_WORKER_SHA = hashlib.sha256(SERVICE_WORKER_BYTES).hexdigest()
 
 
 class RuntimeMetadataTests(unittest.TestCase):
@@ -95,6 +97,13 @@ class RuntimeMetadataTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "differs"):
             self.stage()
 
+    def test_modified_service_worker_is_rejected_after_export(self):
+        metadata = self.export()
+        self.assertEqual(metadata["serviceWorkerSha256"], hashlib.sha256((self.runtime / "service-worker.js").read_bytes()).hexdigest())
+        (self.runtime / "service-worker.js").write_bytes(b"modified service worker")
+        with self.assertRaisesRegex(ValueError, "service-worker.js differs"):
+            self.stage()
+
     def test_stale_commit_and_missing_runtime_are_rejected(self):
         self.export()
         with self.assertRaisesRegex(ValueError, "this OS source commit"):
@@ -125,7 +134,15 @@ class RuntimeMetadataTests(unittest.TestCase):
 
 
 class PostDeployProvenanceTests(unittest.TestCase):
-    def verify(self, *, deployment_attempt=RUN_ATTEMPT, runtime_attempt=RUN_ATTEMPT, published_sha=ZIP_SHA, timeout=1.0):
+    def verify(
+        self,
+        *,
+        deployment_attempt=RUN_ATTEMPT,
+        runtime_attempt=RUN_ATTEMPT,
+        published_sha=ZIP_SHA,
+        published_service_worker_sha=SERVICE_WORKER_SHA,
+        timeout=1.0,
+    ):
         deployment = {"sha": SHA, "runId": RUN_ID, "runAttempt": deployment_attempt, "ref": "refs/heads/main"}
         runtime = {
             "sourceSha": SHA,
@@ -134,6 +151,7 @@ class PostDeployProvenanceTests(unittest.TestCase):
             "buildId": f"ci-{RUN_ID}-{runtime_attempt}",
             "gameZipBytes": len(ZIP_BYTES),
             "gameZipSha256": ZIP_SHA,
+            "serviceWorkerSha256": SERVICE_WORKER_SHA,
         }
 
         def fake_fetch_json(url, _timeout):
@@ -141,8 +159,13 @@ class PostDeployProvenanceTests(unittest.TestCase):
                 return 200, deployment, None
             return 200, runtime, None
 
+        def fake_fetch_sha256(url, _timeout):
+            if url.endswith("game.zip"):
+                return 200, len(ZIP_BYTES), published_sha, None
+            return 200, len(SERVICE_WORKER_BYTES), published_service_worker_sha, None
+
         with patch.object(SMOKE, "fetch_json", side_effect=fake_fetch_json), patch.object(
-            SMOKE, "fetch_sha256", return_value=(200, len(ZIP_BYTES), published_sha, None)
+            SMOKE, "fetch_sha256", side_effect=fake_fetch_sha256
         ):
             return SMOKE.verify_deployment("https://example.test/", SHA, RUN_ID, RUN_ATTEMPT, timeout, 0.001)
 
@@ -150,6 +173,7 @@ class PostDeployProvenanceTests(unittest.TestCase):
         result = self.verify()
         self.assertTrue(result["verified"], result["error"])
         self.assertTrue(result["runtimeZipMatchesMetadata"])
+        self.assertTrue(result["runtimeServiceWorkerMatchesMetadata"])
         self.assertEqual(result["runtimeMetadata"]["runAttempt"], RUN_ATTEMPT)
 
     def test_other_deployment_attempt_is_rejected(self):
@@ -168,8 +192,32 @@ class PostDeployProvenanceTests(unittest.TestCase):
         self.assertFalse(result["runtimeZipMatchesMetadata"])
         self.assertIn("SHA-256", result["error"])
 
+    def test_mismatched_published_service_worker_is_rejected(self):
+        result = self.verify(published_service_worker_sha="0" * 64, timeout=0.002)
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["runtimeServiceWorkerMatchesMetadata"])
+        self.assertIn("service-worker.js SHA-256", result["error"])
+
 
 class RenpyWorkflowContractTests(unittest.TestCase):
+    def test_service_worker_source_is_versioned_and_disables_persistent_cache_by_default(self):
+        root = ROOT / "integrations/renpy-technosutra"
+        worker_source = (root / "web/service-worker.js").read_bytes()
+        self.assertEqual(worker_source, (ROOT / "public/technosutra-vn/service-worker.js").read_bytes())
+        worker_text = worker_source.decode("utf-8")
+        self.assertIn("let addToCache = false;", worker_text)
+        self.assertIn("if (!addToCache) {", worker_text)
+        self.assertIn("return fetch(request);", worker_text)
+
+        build_script = (root / "build_web.sh").read_text(encoding="utf-8")
+        validator = (root / "tools/validate_web_candidate.py").read_text(encoding="utf-8")
+        smoke = (root / "tools/smoke_web_build.py").read_text(encoding="utf-8")
+        self.assertIn('cp "$ROOT/web/service-worker.js" "$PROJECT/web/service-worker.js"', build_script)
+        self.assertIn('cp "$PROJECT/web/service-worker.js" "$WEB_DIR/service-worker.js"', build_script)
+        self.assertIn("service-worker.js", validator)
+        self.assertIn("persistent offline caching disabled by default", validator)
+        self.assertIn("service-worker.js", smoke)
+
     def test_only_checksum_pinned_official_downloads_and_playwright_browsers_are_cached(self):
         workflow = (ROOT / ".github/workflows/renpy-ci.yml").read_text(encoding="utf-8")
         installer = (ROOT / "integrations/renpy-technosutra/tools/install_renpy_sdk.sh").read_text(encoding="utf-8")
@@ -198,7 +246,7 @@ class RenpyWorkflowContractTests(unittest.TestCase):
         self.assertIn("RENPY_SDK: ${{ runner.temp }}/renpy-8.5.3-sdk", workflow)
 
     def test_complete_engine_runtime_is_smoke_tested_and_exported_to_the_app_bundle(self):
-        expected = {"index.html", "game.zip", "renpy-pre.js", "renpy.js", "renpy.wasm", "renpy.data"}
+        expected = {"index.html", "game.zip", "renpy-pre.js", "renpy.js", "renpy.wasm", "renpy.data", "service-worker.js"}
         self.assertTrue(expected.issubset(set(MODULE.RUNTIME_FILES)))
 
         build_script = (ROOT / "integrations/renpy-technosutra/build_web.sh").read_text(encoding="utf-8")
@@ -206,7 +254,7 @@ class RenpyWorkflowContractTests(unittest.TestCase):
         ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/renpy-ci.yml").read_text(encoding="utf-8")
 
-        self.assertIn("for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data; do", build_script)
+        self.assertIn("for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data service-worker.js; do", build_script)
         self.assertIn('cp -a "$WEB_DIR"/. "$OUTPUT"/', build_script)
         self.assertIn("progressive_assets", smoke_script)
         self.assertIn("name: renpy-web-runtime", workflow)
