@@ -9,7 +9,7 @@ describe('Home widget library', () => {
     expect(homeWidgetCatalog.filter(w => w.kind === 'local').map(w => w.id).sort()).toEqual(['checklist','clock','counter','focus','notes','pixel-pet'])
   })
   it('uses real panel IDs for app cards and keeps native/concept capabilities explicit', () => {
-    const panels = ['files','search','agent','storage','accounts','terminal','editor','sync','map','collections','settings','trash']
+    const panels = ['files','search','agent','storage','accounts','terminal','editor','sync','map','collections','settings','trash','notes','archive']
     for (const widget of homeWidgetCatalog.filter(w => w.kind === 'app-link')) expect(panels).toContain(widget.appId)
     expect(homeWidgetCatalog.some(w => w.kind === 'native')).toBe(true)
     expect(homeWidgetCatalog.some(w => w.kind === 'concept')).toBe(true)
@@ -24,5 +24,20 @@ describe('Home widget library', () => {
   it('keeps accessible alternatives and reduced-motion support', () => {
     const ui = fs.readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
     for (const marker of ['aria-modal="true"','dialogKeys','<OrbNavigator','prefers-reduced-motion','Overview of home screens']) expect(ui).toContain(marker)
+  })
+  it('backs Notes with managed Markdown files and shares tasks between the widget and Archive', () => {
+    const widget = fs.readFileSync('src/components/HomeLocalWidget.vue', 'utf8')
+    const notes = fs.readFileSync('src/components/NotesApp.vue', 'utf8')
+    const archive = fs.readFileSync('src/components/ArchivePanel.vue', 'utf8')
+    const todos = fs.readFileSync('src/composables/useTodos.ts', 'utf8')
+    expect(widget).toContain("useTodos()")
+    expect(widget).toContain("write_file_content")
+    expect(notes).toContain("'upload_file'")
+    expect(notes).toContain("'write_file_content'")
+    expect(notes).toContain('store.startSync')
+    expect(notes).toContain('container itself is not a sync target')
+    expect(notes).toContain('Overwrite with draft')
+    expect(archive).toContain('const todos = todoState.todos')
+    expect(todos).toContain("cybermanju.todos.v1")
   })
 })

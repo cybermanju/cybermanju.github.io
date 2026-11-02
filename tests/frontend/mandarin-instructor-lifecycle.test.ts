@@ -129,7 +129,7 @@ describe('Mandarin instructor UI and voice lifecycle', () => {
 
   it('makes text the default and requires explicit voice mode before a mic start', () => {
     expect(template).toContain('O modo texto é completo e não pede permissão de microfone.')
-    expect(template).toContain('selecionar Voz não inicia a captura')
+    expect(template).toContain('Escolher Voz não liga o microfone.')
     expect(template).toContain('Iniciar conversa por voz')
     expect(instructor).toContain("interactionMode: normalizeCourseInteractionMode(input.interactionMode)")
     expect(instructor).toContain('canStartCourseVoice(progress.value.interactionMode, voice.supported)')

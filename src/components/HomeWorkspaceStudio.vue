@@ -246,7 +246,7 @@ const filteredNativeProviders = computed(() => native.providers.value.filter(p =
 const nativePending = computed(() => native.records.value.some(r => r.state !== 'ready'))
 const categories = computed(() => ['All', ...new Set(homeWidgetCatalog.map(w => w.category))])
 const pickerWidgets = computed(() => homeWidgetCatalog.filter(w => (widgetType.value === 'All types' || widgetType.value === 'CyberManju' && ['local', 'app-link'].includes(w.kind) || widgetType.value === 'Android widgets' && w.kind === 'native' || widgetType.value === 'Service concepts' && w.kind === 'concept') && (widgetCategory.value === 'All' || w.category === widgetCategory.value) && `${w.title} ${w.description}`.toLowerCase().includes(pickerQuery.value.toLowerCase())))
-function widgetReady(widget: typeof homeWidgetCatalog[number]) { return ['clock', 'notes', 'counter', 'pixel-pet', 'focus', 'checklist'].includes(widget.id) && widget.kind === 'local' || widget.kind === 'app-link' && !!widget.appId && props.apps.some(a => a.id === widget.appId) }
+function widgetReady(widget: typeof homeWidgetCatalog[number]) { return widget.kind === 'local' || widget.kind === 'app-link' && !!widget.appId && props.apps.some(a => a.id === widget.appId) }
 const emptyPress = useHomeEmptyPress(() => { void openPicker('apps') }, () => !props.blocked && !picker.value && !overview.value)
 function workspaceKeys(event: KeyboardEvent) {
   if (props.blocked || picker.value || event.isComposing || (event.target as HTMLElement).closest('input,textarea,select,[contenteditable],.workspace-widget')) return

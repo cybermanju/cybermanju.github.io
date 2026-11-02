@@ -36,6 +36,13 @@ describe('isKnownPanel', () => {
       expect(isKnownPanel(id), id).toBe(true)
     }
   })
+
+  it('names the Mandarin course as Language Learn and describes upcoming languages', () => {
+    expect(MODULE_METADATA.mandarin.id).toBe('mandarin')
+    expect(MODULE_METADATA.mandarin.label).toBe('LANGUAGE LEARN')
+    expect(MODULE_METADATA.mandarin.description).toContain('Mandarin is the first available language')
+    expect(MODULE_METADATA.mandarin.description).toContain('Japanese, Portuguese, English, German, Tupi and Latin are coming soon')
+  })
 })
 
 describe('applyUiRequest', () => {

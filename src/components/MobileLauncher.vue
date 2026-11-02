@@ -265,8 +265,10 @@ const apps = computed<LauncherApp[]>(() => {
   const definitions: LauncherApp[] = [
   { panel: 'files', label: 'Files', icon: 'solar:folder-bold', tint: '#3984e8', badge: count(store.files.length), hint: 'Browse and manage files' },
   { panel: 'search', label: 'Search', icon: 'solar:magnifier-bold', tint: '#727be8', hint: 'Full-text search' },
+  { panel: 'notes', label: 'Notes', icon: 'solar:notes-bold', tint: '#9b7ee8', hint: 'Markdown notes in the vault; provider sync is explicit' },
+  { panel: 'archive', label: 'Archive', icon: 'solar:notebook-bold', tint: '#45a987', hint: 'Timeline, people, tasks, bookmarks and datasets' },
   { panel: 'agent', label: 'Agents', icon: 'solar:bot-bold', tint: '#8b5ad8', dot: store.activeAgentJob?.status === 'running', hint: 'Agents, profiles and conversations' },
-  { panel: 'mandarin', label: 'Mandarin', icon: 'solar:book-bookmark-bold', tint: '#d99b43', hint: 'Mandarin course, handwriting and voice practice' },
+  { panel: 'mandarin', label: 'Language Learn', icon: 'solar:book-bookmark-bold', tint: '#d99b43', hint: 'Mandarin is the first available language; Japanese, Portuguese, English, German, Tupi and Latin coming soon' },
   { panel: 'shortcuts', label: 'Shortcuts', icon: 'solar:code-bold', tint: '#697ad8', hint: 'Editor visual de ações e condições' },
   { panel: 'storage', label: 'Vaults', icon: 'solar:diskette-bold', tint: '#2198c3', badge: count(store.disks.length), hint: 'Private vaults and disks' },
   { panel: 'accounts', label: 'Accounts', icon: 'solar:user-circle-bold', tint: '#38a87b', hint: 'Providers and users' },

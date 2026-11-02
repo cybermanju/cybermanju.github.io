@@ -3,7 +3,7 @@
 // Exports: Vitest suite.
 // Integrates: voiceCall controller with deterministic speech/agent ports.
 // Contracts: no send after hang-up; no microphone while TTS; no permission auto-approval.
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { VoiceCallController, speechText, type VoiceCallPorts } from '../../src/utils/voiceCall'
 
 function fixture() {
@@ -16,6 +16,7 @@ function fixture() {
   const ports: VoiceCallPorts = {
     listen: vi.fn((onFinal, onError) => { final = onFinal; recognitionError = onError }),
     stopListening: vi.fn(),
+    finishListening: vi.fn(),
     speak: vi.fn((_text, done, failed) => { spokenEnd = done; spokenError = failed }),
     stopSpeaking: vi.fn(),
     send: vi.fn(() => new Promise<string>((yes, no) => { resolve = yes; reject = no })),
@@ -94,6 +95,57 @@ describe('VozPonte foreground voice call', () => {
   it('resumes listening for an empty response without starting TTS', async () => {
     const f = fixture(); f.call.start(); f.final('test'); f.resolve(''); await flush()
     expect(f.call.state).toBe('listening'); expect(f.ports.speak).not.toHaveBeenCalled()
+  })
+  it('singleTurn finishes idle after speech and does not listen for another turn', async () => {
+    const f = fixture(); f.call.start({ singleTurn: true }); f.final('test')
+    f.resolve('answer'); await flush()
+    expect(f.call.state).toBe('speaking')
+    f.spokenEnd()
+    expect(f.call.state).toBe('idle')
+    expect(f.ports.listen).toHaveBeenCalledTimes(1)
+  })
+  it('singleTurn finishes idle on an empty answer without TTS or relistening', async () => {
+    const f = fixture(); f.call.start({ singleTurn: true }); f.final('test')
+    f.resolve(''); await flush()
+    expect(f.call.state).toBe('idle')
+    expect(f.ports.speak).not.toHaveBeenCalled()
+    expect(f.ports.listen).toHaveBeenCalledTimes(1)
+  })
+  it('release asks for natural finalization and ignores finishHold after capture ended', async () => {
+    const f = fixture(); f.call.start({ singleTurn: true })
+    const stopsBeforeRelease = vi.mocked(f.ports.stopListening).mock.calls.length
+    f.call.finishHold()
+    expect(f.ports.finishListening).toHaveBeenCalledOnce()
+    expect(f.ports.stopListening).toHaveBeenCalledTimes(stopsBeforeRelease)
+    f.final('late final'); f.resolve('answer'); await flush()
+    expect(f.call.state).toBe('speaking')
+    f.call.finishHold()
+    expect(f.ports.finishListening).toHaveBeenCalledOnce()
+  })
+  it('release during thinking or speaking does not cancel the answer', async () => {
+    const f = fixture(); f.call.start({ singleTurn: true }); f.final('test')
+    const stopsDuringThinking = vi.mocked(f.ports.stopListening).mock.calls.length
+    f.call.finishHold()
+    expect(f.call.state).toBe('thinking')
+    expect(vi.mocked(f.ports.stopListening).mock.calls.length).toBe(stopsDuringThinking)
+    f.resolve('answer'); await flush()
+    const stopsBeforeSpeakingRelease = vi.mocked(f.ports.stopSpeaking).mock.calls.length
+    f.call.finishHold()
+    expect(f.call.state).toBe('speaking')
+    expect(f.ports.stopSpeaking).toHaveBeenCalledTimes(stopsBeforeSpeakingRelease)
+  })
+  it('release watchdog terminates a recognizer that never finalizes and end clears the watchdog', () => {
+    vi.useFakeTimers()
+    try {
+      const timed = fixture(); timed.call.start({ singleTurn: true }); timed.call.finishHold()
+      vi.advanceTimersByTime(2_000)
+      expect(timed.call.state).toBe('error')
+      expect(timed.ports.stopListening).toHaveBeenCalled()
+
+      const cancelled = fixture(); cancelled.call.start({ singleTurn: true }); cancelled.call.finishHold()
+      cancelled.call.end(); vi.advanceTimersByTime(2_000)
+      expect(cancelled.call.state).toBe('idle')
+    } finally { vi.useRealTimers() }
   })
   it('rejects previous-turn recognizer callbacks after the microphone resumes', async () => {
     const f = fixture(); f.call.start()

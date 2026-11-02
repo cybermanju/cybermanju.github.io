@@ -117,6 +117,7 @@ const AccountManagerPanel = asyncPanel(() => import('@/components/AccountManager
 const TransferGraph = asyncPanel(() => import('@/components/TransferGraph.vue'))
 const InstallPanel = asyncPanel(() => import('@/components/InstallPanel.vue'))
 const ArchivePanel = asyncPanel(() => import('@/components/ArchivePanel.vue'))
+const NotesApp = asyncPanel(() => import('@/components/NotesApp.vue'))
 const ShortcutsPanel = asyncPanel(() => import('@/components/ShortcutsHostPanel.vue'))
 const TechnosutraPanel = asyncPanel(() => import('@/components/TechnosutraPanel.vue'))
 const TechnosutraNovelStudio = asyncPanel(() => import('@/components/TechnosutraStudio.vue'))
@@ -188,6 +189,7 @@ const defaultSizes: SizeMap = {
   secrets: { width: 860, height: 600 },
   install: { width: 880, height: 620 },
   archive: { width: 720, height: 580 },
+  notes: { width: 960, height: 720 },
   shortcuts: { width: 1040, height: 740 },
   technosutra: { width: 1080, height: 740 },
   'technosutra-novel': { width: 980, height: 720 },
@@ -234,6 +236,7 @@ const panelComponentMap: Record<string, Component> = {
   secrets: SecretsPanel,
   install: InstallPanel,
   archive: ArchivePanel,
+  notes: NotesApp,
   shortcuts: ShortcutsPanel,
   technosutra: TechnosutraPanel,
   'technosutra-novel': TechnosutraNovelStudio,

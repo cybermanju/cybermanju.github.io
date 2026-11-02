@@ -1441,12 +1441,14 @@ export const useAppStore = defineStore('cybermanju', () => {
     }
   }
 
-  async function startSync(configId: string, fileIds: string[]) {
+  async function startSync(configId: string, fileIds: string[]): Promise<boolean> {
     try {
       await invoke('start_sync', { configId, fileIds })
       await pollSyncProgress()
+      return true
     } catch (e) {
       notifyError('Failed to start sync', e)
+      return false
     }
   }
 

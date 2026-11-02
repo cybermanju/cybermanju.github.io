@@ -219,6 +219,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useWindowManager } from '@/composables/useWindowManager'
 import { buildNoteIndex, isNoteFile, type NoteDoc } from '@/utils/notes'
+import { useTodos } from '@/composables/useTodos'
 import { groupByDay, onThisDay, timelineRange } from '@/utils/timeline'
 import {
   addAlias,
@@ -229,13 +230,13 @@ import {
   setContactNotes,
   type ContactRecord,
 } from '@/utils/contacts'
-import { addTodo, clearDone, parseTodosStore, removeTodo, serializeTodosStore, toggleTodo, type TodoItem } from '@/utils/tasks'
 import { addBookmark, markImported, parseBookmarksStore, removeBookmark, serializeBookmarksStore, type BookmarkItem } from '@/utils/bookmarks'
 import { inferColumnType, parseDelimited } from '@/utils/csv'
 import { getLocale, t } from '@/utils/i18n'
 
 const store = useAppStore()
 const wm = useWindowManager()
+const todoState = useTodos()
 
 type ArchiveTab = 'NOTES' | 'TIMELINE' | 'PEOPLE' | 'TASKS' | 'BOOKMARKS' | 'DATA'
 const TABS: ArchiveTab[] = ['NOTES', 'TIMELINE', 'PEOPLE', 'TASKS', 'BOOKMARKS', 'DATA']
@@ -417,18 +418,10 @@ async function removeGroup() {
 }
 
 /* ── TASKS (local + server shared list, §4.9) ── */
-const TODOS_KEY = 'cybermanju.todos.v1'
-const todos = ref<TodoItem[]>([])
+const todos = todoState.todos
 const todoDraft = ref('')
 // Server list when a dashboard answers, else null → local-only mode.
 const serverTodos = computed(() => store.serverTodos)
-function persistTodos() {
-  try {
-    localStorage.setItem(TODOS_KEY, serializeTodosStore(todos.value))
-  } catch {
-    /* private mode */
-  }
-}
 async function pushTodo() {
   if (serverTodos.value !== null) {
     if (!todoDraft.value.trim()) return
@@ -436,11 +429,8 @@ async function pushTodo() {
     todoDraft.value = ''
     return
   }
-  const res = addTodo(todos.value, todoDraft.value)
-  if (!res) return
-  todos.value = res.list
+  if (!todoState.add(todoDraft.value)) return
   todoDraft.value = ''
-  persistTodos()
 }
 async function flipServerTodo(id: string, done: boolean) {
   await store.toggleServerTodo(id, done)
@@ -449,16 +439,13 @@ async function dropServerTodo(id: string) {
   await store.deleteServerTodo(id)
 }
 function flipTodo(id: string) {
-  todos.value = toggleTodo(todos.value, id)
-  persistTodos()
+  todoState.toggle(id)
 }
 function dropTodo(id: string) {
-  todos.value = removeTodo(todos.value, id)
-  persistTodos()
+  todoState.remove(id)
 }
 function pruneTodos() {
-  todos.value = clearDone(todos.value).list
-  persistTodos()
+  todoState.clearDone()
 }
 
 /* ── BOOKMARKS ── */
@@ -529,7 +516,6 @@ watch(datasetId, async (id) => {
 
 function loadPersisted() {
   try {
-    todos.value = parseTodosStore(localStorage.getItem(TODOS_KEY))
     bookmarks.value = parseBookmarksStore(localStorage.getItem(BOOKMARKS_KEY))
     contacts.value = parseContactsStore(localStorage.getItem(CONTACTS_KEY))
   } catch {

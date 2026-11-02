@@ -231,8 +231,10 @@ const overviewRef = ref<HTMLElement | null>(null)
 const shortcuts: { panel: PanelType; label: string; icon: string }[] = [
   { panel: 'files', label: 'Files', icon: 'solar:folder-bold' },
   { panel: 'collections', label: 'Collections', icon: 'solar:library-bold' },
+  { panel: 'notes', label: 'Notes', icon: 'solar:notes-bold' },
+  { panel: 'archive', label: 'Archive', icon: 'solar:notebook-bold' },
   { panel: 'map', label: 'Map', icon: 'solar:map-bold' },
-  { panel: 'mandarin', label: 'Mandarin', icon: 'solar:book-bookmark-bold' },
+  { panel: 'mandarin', label: 'Language Learn', icon: 'solar:book-bookmark-bold' },
   { panel: 'technosutra-novel', label: MODULE_METADATA['technosutra-novel'].label, icon: 'solar:library-bold' },
   { panel: 'editor', label: 'Code Studio', icon: 'solar:code-square-bold' },
   { panel: 'devices', label: 'Devices', icon: 'solar:plug-circle-bold' },

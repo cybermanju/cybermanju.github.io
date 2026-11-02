@@ -20,11 +20,13 @@ interface Recognition {
   onerror: ((event: { error: string }) => void) | null
   onend: (() => void) | null
   start(): void
+  stop?(): void
   abort(): void
 }
-type SpeechWindow = Window & {
-  SpeechRecognition?: new () => Recognition
-  webkitSpeechRecognition?: new () => Recognition
+type RecognitionConstructor = new () => Recognition
+interface SpeechWindow extends Window {
+  SpeechRecognition?: RecognitionConstructor
+  webkitSpeechRecognition?: RecognitionConstructor
 }
 
 export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promise<string>, lang: () => string) {
@@ -40,6 +42,9 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
     speechSynthesis: !!speechWindow?.speechSynthesis,
   })
   const supported = provider !== null
+  // AndroidVoiceAudio.stopListening aborts its session, so it cannot satisfy PTT's
+  // release-and-deliver-final contract. Only browser recognition with stop() can.
+  const pushToTalkSupported = supported && !nativeAudio && !!RecognitionClass && typeof RecognitionClass.prototype?.stop === 'function'
   let recognition: Recognition | null = null
   let utterance: SpeechSynthesisUtterance | null = null
   let restart: ReturnType<typeof setTimeout> | undefined
@@ -56,6 +61,11 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
       old.abort()
     }
   }
+  function finishListening() {
+    clearTimeout(restart)
+    const current = recognition
+    if (current?.stop) current.stop()
+  }
   function stopSpeaking() {
     nativeAudio?.stopSpeaking()
     if (utterance) { utterance.onend = utterance.onerror = null; utterance = null }
@@ -64,13 +74,15 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
   const controller = new VoiceCallController({
     changed(next, detail) { state.value = next; error.value = detail },
     stopListening,
+    finishListening,
     stopSpeaking,
     send,
-    listen(final, failed) {
+    listen(final, failed, ended, singleTurn = false) {
       if (nativeAudio) { nativeAudio.listen(lang(), final, failed); return }
       if (!RecognitionClass) throw new Error('Speech recognition is unavailable in this browser/WebView. Use text or the Android VozPonte app.')
       stopListening()
       const epoch = listenEpoch
+      let releaseRequested = false
       function begin() {
         if (epoch !== listenEpoch) return
         const rec = new RecognitionClass!()
@@ -95,7 +107,9 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
         }
         rec.onend = () => {
           if (epoch !== listenEpoch) return
-          // Some engines stop after silence. Bound restarts to avoid a hot permission loop.
+          // Release and single-turn sessions are terminal; continuous calls keep
+          // their existing bounded silence-restart behavior.
+          if (releaseRequested || singleTurn) { ended?.(); return }
           if (++emptyEnds > 5) { failed('No speech detected. Start the call again when ready.'); return }
           restart = setTimeout(begin, 350)
         }
@@ -114,10 +128,21 @@ export function useVoiceCall(send: (text: string, signal: AbortSignal) => Promis
     },
   })
   function end() { controller.end(); muted.value = false }
-  function start() { emptyEnds = 0; muted.value = false; controller.start() }
+  function start(options: { singleTurn?: boolean } = {}) { emptyEnds = 0; muted.value = false; controller.start(options) }
+  function startHold() {
+    if (!pushToTalkSupported) return
+    emptyEnds = 0
+    muted.value = false
+    controller.start({ singleTurn: true })
+  }
+  function finishHold() { controller.finishHold() }
   function toggleMute() { muted.value = !muted.value; controller.setMuted(muted.value) }
   function visibility() { if (document.hidden) end() }
   onMounted(() => document.addEventListener('visibilitychange', visibility))
   onBeforeUnmount(() => { end(); document.removeEventListener('visibilitychange', visibility) })
-  return { state, error, muted, supported, provider, active: computed(() => state.value !== 'idle' && state.value !== 'error'), start, end, toggleMute, interrupt: () => controller.interrupt() }
+  return {
+    state, error, muted, supported, pushToTalkSupported, provider,
+    active: computed(() => state.value !== 'idle' && state.value !== 'error'),
+    start, startHold, finishHold, end, toggleMute, interrupt: () => controller.interrupt(),
+  }
 }
