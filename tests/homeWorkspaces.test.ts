@@ -35,8 +35,8 @@ describe('home workspaces', () => {
 
   it('roundtrips valid state and does not drop unknown Android app references', () => {
     const input: HomeWorkspaceState = { version: 1, activeId: 'page', theme: 'pixel', pages: [
-      { id: 'page', title: 'Apps', items: [{ id: 'a', kind: 'app', ref: 'com.vendor.android.special' }], columns: 4, rows: 4 },
-      { id: 'empty', title: '', items: [], columns: 4, rows: 4 },
+      { id: 'page', title: 'Apps', items: [{ id: 'a', kind: 'app', ref: 'com.vendor.android.special' }], columns: 4, rows: 4, x: 0, y: 0 },
+      { id: 'empty', title: '', items: [], columns: 4, rows: 4, x: 1, y: 0 },
     ] }
     expect(normalizeHomeState(JSON.parse(JSON.stringify(input)), [])).toEqual(input)
   })

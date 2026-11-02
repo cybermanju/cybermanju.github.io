@@ -28,7 +28,7 @@
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
       <slot v-if="!editing && !overview" name="home-tools" />
       <nav class="screen-nav" aria-label="Home screen navigation">
-        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop && !props.blocked" @navigate="navigateOrb" @open-apps="emit('openApps')" />
+        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :screen-positions="screenPositions" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop && !props.blocked" @navigate="navigateOrb" @open-apps="emit('openApps')" />
       </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -63,7 +63,7 @@
           <p v-if="editing" class="studio-hint">Removing an app only unpins it. Removing an Android widget also deletes its host placement, not the app. Move tiles using the screen selector or Eagle view.</p>
         </div>
 
-      <p class="studio-hint gesture-hint">Swipe left/right: screens · Scroll vertically: content · Top/bottom edge: search/apps · Orb: screens · Three fingers: overview</p>
+      <p class="studio-hint gesture-hint">Swipe left/right: screens · Scroll vertically: content · Top/bottom edge: search/apps · Orb: eight directions · Three fingers: overview</p>
     </div>
     </div>
     </div>
@@ -97,7 +97,7 @@ import { useAndroidApps } from '@/composables/useAndroidApps'
 import { useHomeNativeWidgets } from '@/composables/useHomeNativeWidgets'
 import { widgetConfirmation, type NativeWidgetProvider, type NativeWidgetRecord } from '@/composables/useAndroidWidgets'
 import { homeWidgetCatalog } from '@/data/homeWidgetCatalog'
-import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, homeGridCols, homeItemPlacement, placeHomeItems, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeGridDelta, type HomeWorkspace } from '@/utils/homeWorkspaces'
+import { HOME_WORKSPACE_KEY, MAX_ITEMS_PER_WORKSPACE, MAX_WORKSPACES, homeGridTarget, homeItemPlacement, homeWorkspacePosition, isHomeGridPosition, placeHomeItems, normalizeHomeState, createHomeWorkspace, addHomeItem, moveHomeItem, removeHomeItem, classifyHomeGesture, type HomeItem, type HomeGridDelta, type HomeGridPoint, type HomeWorkspace } from '@/utils/homeWorkspaces'
 import { MOBILE_EDGE_GESTURE_RATIO } from '@/utils/mobileShell'
 type HomeApp = { id: string; label: string; icon: string; tint?: string; image?: string }
 const props = defineProps<{ apps: HomeApp[]; initialIds: string[]; blocked?: boolean }>()
@@ -116,6 +116,7 @@ let screenMotionTimer: ReturnType<typeof setTimeout> | null = null
 const root = ref<HTMLElement>(), dialog = ref<HTMLElement>(), addButton = ref<HTMLButtonElement>(), overviewButton = ref<HTMLButtonElement>()
 const activeIndex = computed(() => Math.max(0, state.value.pages.findIndex(p => p.id === state.value.activeId)))
 const activePage = computed(() => state.value.pages[activeIndex.value]!)
+const screenPositions = computed<HomeGridPoint[]>(() => state.value.pages.map((page, index) => homeWorkspacePosition(page, index, state.value.pages.length)))
 function pageFits(page: HomeWorkspace, items = page.items) { return items.length <= MAX_ITEMS_PER_WORKSPACE && placeHomeItems(items, page.columns || 4, page.rows || 4).overflow.length === 0 }
 function arrangeOverflow(pageId: string) {
   const source = state.value.pages.find(page => page.id === pageId)
@@ -188,13 +189,34 @@ async function navigate(index: number, epoch = gestureEpoch) {
     message.value = ''
   }
 }
-/**
- * Directional orb step. Horizontal deltas page the linear list exactly like before;
- * vertical deltas jump by homeGridCols rows (the shared square-ish grid the orb also uses).
- */
+let orbNavigationPending = false
 function navigateOrb(delta: HomeGridDelta) {
-  if (delta.dx) void navigate(activeIndex.value + delta.dx)
-  else void navigate(activeIndex.value + delta.dy * homeGridCols(state.value.pages.length))
+  if (orbNavigationPending) return
+  orbNavigationPending = true
+  void (async () => {
+    try {
+      if (props.blocked) return
+      const origin = homeWorkspacePosition(activePage.value, activeIndex.value, state.value.pages.length)
+      const target = homeGridTarget(origin, delta)
+      if (!isHomeGridPosition(target)) return
+      const neighborIndex = screenPositions.value.findIndex(point => point.x === target.x && point.y === target.y)
+      if (neighborIndex >= 0) { await navigate(neighborIndex); return }
+      if (state.value.pages.length >= MAX_WORKSPACES) { message.value = '24-screen limit reached.'; return }
+      if (!await suspendHome() || props.blocked) return
+      if (!motion.reduced.value) {
+        screenMotion.value = null
+        if (screenMotionTimer) clearTimeout(screenMotionTimer)
+        await nextTick()
+        screenMotion.value = 'next'
+        screenMotionTimer = setTimeout(() => { screenMotion.value = null; screenMotionTimer = null }, 320)
+      }
+      const id = createHomeWorkspace(state.value, target)
+      if (id) message.value = ''
+      else message.value = '24-screen limit reached.'
+    } finally {
+      orbNavigationPending = false
+    }
+  })()
 }
 async function launch(id: string) { const epoch = gestureEpoch; if (props.blocked || !await suspendHome('Could not safely hide native widgets. Unlock and return to this app, then try again. No app was opened.') || props.blocked || epoch !== gestureEpoch) return; if (id.startsWith('android:')) { try { await androidApps.openApp(id.slice(8)) } catch { message.value = 'This Android app is unavailable. Try refreshing All apps.' } } else if (props.apps.some(app => app.id === id)) emit('open', id); else message.value = 'This app is unavailable. Open All apps to choose another.' }
 async function customize(id: string) { if (props.blocked || !await suspendHome()) return; if (!id.startsWith('android:')) emit('customize', id); else message.value = 'Customize Android apps in All apps.' }
@@ -255,7 +277,9 @@ function workspaceKeys(event: KeyboardEvent) {
   if ((event.target as HTMLElement).closest('button,a')) return
   if (event.key === 'ContextMenu' || event.shiftKey && event.key === 'F10') { event.preventDefault(); event.stopPropagation(); void openPicker('apps'); return }
   if (overview.value || editing.value || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
-  const index = ['ArrowRight', 'ArrowDown'].includes(event.key) ? activeIndex.value + 1 : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? activeIndex.value - 1 : event.key === 'Home' ? 0 : event.key === 'End' ? state.value.pages.length - 1 : null
+  const arrowDirections: Record<string, HomeGridDelta> = { ArrowRight: { dx: 1, dy: 0 }, ArrowLeft: { dx: -1, dy: 0 }, ArrowDown: { dx: 0, dy: 1 }, ArrowUp: { dx: 0, dy: -1 } }
+  if (arrowDirections[event.key]) { event.preventDefault(); event.stopPropagation(); navigateOrb(arrowDirections[event.key]!); return }
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? state.value.pages.length - 1 : null
   if (index !== null) { event.preventDefault(); event.stopPropagation(); void navigate(index) }
 }
 async function closeOverview() { if (!await suspendHome()) return; overview.value = false; resetTouch(); await nextTick(); overviewButton.value?.focus({ preventScroll: true }) }

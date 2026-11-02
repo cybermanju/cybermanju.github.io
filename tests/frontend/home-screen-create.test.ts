@@ -13,7 +13,13 @@ describe('explicit Home screen creation', () => {
   })
   it('stops at the explicit screen cap without changing selection', () => {
     const state = createHomeState([])
-    while (state.pages.length < MAX_WORKSPACES) expect(createHomeWorkspace(state)).toBeTruthy()
+    while (state.pages.length < MAX_WORKSPACES) {
+      const id = createHomeWorkspace(state)
+      expect(id).toBeTruthy()
+      expect(addHomeItem(state, id!, { id: `cap-item-${state.pages.length}`, kind: 'app', ref: 'cap-app' })).toBe(true)
+    }
+    const emptyTail = state.pages.at(-1)!
+    expect(addHomeItem(state, emptyTail.id, { id: 'cap-item-final', kind: 'app', ref: 'cap-app' })).toBe(true)
     const previous = JSON.stringify(state)
     expect(createHomeWorkspace(state)).toBeNull()
     expect(JSON.stringify(state)).toBe(previous)

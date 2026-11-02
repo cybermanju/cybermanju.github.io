@@ -7,11 +7,14 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_WORKSPACES,
   addHomeItem,
+  classifyOrbDragDirection,
   classifyHomeGesture,
   createHomeState,
   createHomeWorkspace,
   homeGridCols,
   homeGridNeighbors,
+  homeGridPosition,
+  homeGridTarget,
   homeHueForScreen,
   homeItemPlacement,
   homeItemSpan,
@@ -188,17 +191,46 @@ describe('home workspace model', () => {
       expect(homeGridCols(Number.NaN)).toBe(1)
     })
 
-    it('gives linear left/right neighbors and row-jump up/down neighbors', () => {
-      // 7 pages → cols 3 → rows of 3, 3, 1
-      const neighborsOf = (index: number) => {
-        const n = homeGridNeighbors(index, 7)
-        return [n.left, n.right, n.up, n.down]
-      }
-      expect(neighborsOf(0)).toEqual([-1, 1, -1, 3])
-      expect(neighborsOf(2)).toEqual([1, 3, -1, 5]) // right crosses into the next row (linear paging)
-      expect(neighborsOf(3)).toEqual([2, 4, 0, 6])
-      expect(neighborsOf(6)).toEqual([5, -1, 3, -1]) // last page: left wall and floor
-      expect(homeGridNeighbors(-1, 3).left).toBe(-1) // out-of-range reads as all walls
+    it('maps all eight directions to exact adjacent cells without row wrapping', () => {
+      // 7 legacy pages → cols 3 → positions (0,0)..(2,0), (0,1)..(0,2).
+      const first = homeGridNeighbors(0, 7)
+      expect(first).toMatchObject({ right: 1, down: 3, downRight: 4, left: -1, up: -1, upLeft: -1, upRight: -1, downLeft: -1 })
+      const edge = homeGridNeighbors(2, 7)
+      expect(edge).toMatchObject({ left: 1, right: -1, down: 5, downLeft: 4, up: -1, upLeft: -1, upRight: -1, downRight: -1 })
+      expect(homeGridNeighbors(3, 7)).toMatchObject({ right: 4, up: 0, upRight: 1, down: 6 })
+      expect(homeGridNeighbors(6, 7)).toMatchObject({ up: 3, right: -1, down: -1, left: -1 })
+      expect(Object.values(homeGridNeighbors(-1, 3)).every(index => index === -1)).toBe(true)
+    })
+
+    it('keeps screen coordinates stable and computes all diagonals from persisted positions', () => {
+      const positions = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: -1 }, { x: 1, y: -1 }]
+      expect(homeGridPosition(4, 7)).toEqual({ x: 1, y: 1 })
+      expect(homeGridTarget(positions[0]!, { dx: 1, dy: -1 })).toEqual({ x: 1, y: -1 })
+      expect(homeGridNeighbors(0, positions.length, positions)).toMatchObject({ right: 1, up: 2, upRight: 3 })
+      expect(homeGridNeighbors(3, positions.length, positions)).toMatchObject({ left: 2, downLeft: 0, down: 1, right: -1 })
+    })
+
+    it('classifies cardinal and diagonal Orb drags into distinct neighboring cells', () => {
+      expect(classifyOrbDragDirection(-40, 0)).toEqual({ dx: 1, dy: 0 })
+      expect(classifyOrbDragDirection(40, 0)).toEqual({ dx: -1, dy: 0 })
+      expect(classifyOrbDragDirection(0, -40)).toEqual({ dx: 0, dy: -1 })
+      expect(classifyOrbDragDirection(0, 40)).toEqual({ dx: 0, dy: 1 })
+      expect(classifyOrbDragDirection(-40, -40)).toEqual({ dx: 1, dy: -1 })
+      expect(classifyOrbDragDirection(40, -40)).toEqual({ dx: -1, dy: -1 })
+      expect(classifyOrbDragDirection(-40, 40)).toEqual({ dx: 1, dy: 1 })
+      expect(classifyOrbDragDirection(40, 40)).toEqual({ dx: -1, dy: 1 })
+      expect(classifyOrbDragDirection(10, 0)).toBeNull()
+      expect(classifyOrbDragDirection(Number.NaN, 40)).toBeNull()
+    })
+
+    it('creates a missing screen at its requested position without moving the default right neighbor', () => {
+      const state = createHomeState([])
+      const rightScreenId = state.pages[1]!.id
+      const createdId = createHomeWorkspace(state, { x: 0, y: -1 })
+      expect(createdId).not.toBeNull()
+      expect(state.pages[1]!.id).toBe(rightScreenId)
+      expect(state.pages.find(page => page.id === createdId)).toMatchObject({ x: 0, y: -1 })
+      expect(state.activeId).toBe(createdId)
     })
 
     it('assigns stable per-screen hues on the color wheel', () => {

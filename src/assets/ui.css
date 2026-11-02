@@ -417,7 +417,7 @@ body.cybermanju-offline .server-only {
   --mobile-header-h: clamp(44px, 6vh, 52px);
   --mobile-favorites-dock-h: clamp(48px, 7vh, 60px);
   --mobile-taskbar-h: clamp(44px, 6vh, 54px);
-  --mobile-orb-size: clamp(44px, 5.5vh, 56px);
+  --mobile-orb-size: clamp(68px, 10vh, 88px);
   --mobile-safe-inline-start: max(3vw, env(safe-area-inset-left, 0px));
   --mobile-safe-inline-end: max(3vw, env(safe-area-inset-right, 0px));
   --mobile-nav-h: 64px;

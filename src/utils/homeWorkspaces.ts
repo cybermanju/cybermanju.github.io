@@ -73,6 +73,8 @@ export interface HomeWorkspace {
   items: HomeItem[]
   columns?: number
   rows?: number
+  x?: number
+  y?: number
 }
 
 export interface HomeWorkspaceState {
@@ -86,28 +88,87 @@ export const HOME_WORKSPACE_KEY = 'cybermanju.home.workspaces.v1'
 export const MAX_WORKSPACES = 24
 export const MAX_ITEMS_PER_WORKSPACE = 32
 
-/** Home paging uses horizontal one-finger swipes; the Orb keeps four-direction direct navigation. */
+/** Orb drags target adjacent screens in the full eight-way neighborhood. */
 export type HomeGridDelta = { dx: -1 | 0 | 1; dy: -1 | 0 | 1 }
+export type HomeGridPoint = { x: number; y: number }
+export type HomeGridDirection = 'right' | 'downRight' | 'down' | 'downLeft' | 'left' | 'upLeft' | 'up' | 'upRight'
+export type HomeGridNeighborMap = Record<HomeGridDirection, number>
+export const HOME_GRID_DIRECTIONS: readonly HomeGridDirection[] = ['right', 'downRight', 'down', 'downLeft', 'left', 'upLeft', 'up', 'upRight']
+const HOME_GRID_OFFSETS: Record<HomeGridDirection, HomeGridDelta> = {
+  right: { dx: 1, dy: 0 }, downRight: { dx: 1, dy: 1 }, down: { dx: 0, dy: 1 }, downLeft: { dx: -1, dy: 1 },
+  left: { dx: -1, dy: 0 }, upLeft: { dx: -1, dy: -1 }, up: { dx: 0, dy: -1 }, upRight: { dx: 1, dy: -1 },
+}
 
-/**
- * The orb navigator reads the linear page list as a square-ish row-major grid so
- * drags can also step up/down between rows. Both the orb and the studio call
- * this, so both sides always agree on the same layout.
- */
+/** Legacy row-major fallback for saved screens that do not have persisted coordinates. */
 export function homeGridCols(count: number): number {
   if (!Number.isFinite(count) || count <= 1) return 1
   return Math.min(MAX_WORKSPACES, Math.ceil(Math.sqrt(count)))
 }
 
-/** Neighbor page indexes (-1 = wall) in the row-major grid; up/down jump ±cols. */
-export function homeGridNeighbors(index: number, count: number): { left: number; right: number; up: number; down: number } {
+/** Stable legacy placement for saved screens that predate persisted coordinates. */
+export function homeGridPosition(index: number, count: number): HomeGridPoint {
   const cols = homeGridCols(count)
-  return {
-    left: index > 0 ? index - 1 : -1,
-    right: index >= 0 && index + 1 < count ? index + 1 : -1,
-    up: index - cols >= 0 ? index - cols : -1,
-    down: index + cols < count ? index + cols : -1,
+  if (!Number.isInteger(index) || index < 0) return { x: 0, y: 0 }
+  return { x: index % cols, y: Math.floor(index / cols) }
+}
+
+export function isHomeGridPosition(point: HomeGridPoint): boolean {
+  return Number.isInteger(point.x) && Number.isInteger(point.y) && Math.abs(point.x) <= MAX_WORKSPACES && Math.abs(point.y) <= MAX_WORKSPACES
+}
+
+export function homeWorkspacePosition(page: HomeWorkspace, index: number, count: number): HomeGridPoint {
+  const point = { x: page.x, y: page.y }
+  return Number.isInteger(point.x) && Number.isInteger(point.y) && isHomeGridPosition(point as HomeGridPoint)
+    ? point as HomeGridPoint
+    : homeGridPosition(index, count)
+}
+
+export function homeGridTarget(point: HomeGridPoint, delta: HomeGridDelta): HomeGridPoint {
+  return { x: point.x + delta.dx, y: point.y + delta.dy }
+}
+
+/** Map a drag to one of eight neighboring cells; horizontal drags retain page-swipe direction. */
+export function classifyOrbDragDirection(dx: number, dy: number): HomeGridDelta | null {
+  if (![dx, dy].every(Number.isFinite) || Math.hypot(dx, dy) < 16) return null
+  const absX = Math.abs(dx), absY = Math.abs(dy)
+  const useX = absX >= absY * 0.55
+  const useY = absY >= absX * 0.55
+  return { dx: useX ? (dx < 0 ? 1 : -1) : 0, dy: useY ? (dy < 0 ? -1 : 1) : 0 }
+}
+
+function pointKey(point: HomeGridPoint) { return `${point.x},${point.y}` }
+
+function findFreeGridPosition(occupied: Set<string>, anchor: HomeGridPoint = { x: 0, y: 0 }): HomeGridPoint {
+  const origin = isHomeGridPosition(anchor) ? anchor : { x: 0, y: 0 }
+  for (let radius = 0; radius <= MAX_WORKSPACES; radius++) {
+    const ring: HomeGridPoint[] = radius === 0 ? [origin] : [
+      ...Array.from({ length: radius + 1 }, (_, i) => ({ x: origin.x + radius, y: origin.y + i })),
+      ...Array.from({ length: radius * 2 }, (_, i) => ({ x: origin.x + radius - 1 - i, y: origin.y + radius })),
+      ...Array.from({ length: radius * 2 }, (_, i) => ({ x: origin.x - radius, y: origin.y + radius - 1 - i })),
+      ...Array.from({ length: radius * 2 }, (_, i) => ({ x: origin.x - radius + 1 + i, y: origin.y - radius })),
+      ...Array.from({ length: radius - 1 }, (_, i) => ({ x: origin.x + radius, y: origin.y - radius + 1 + i })),
+    ]
+    for (const point of ring) if (isHomeGridPosition(point) && !occupied.has(pointKey(point))) return point
   }
+  return { x: 0, y: 0 }
+}
+
+/** Neighbor indexes by exact screen coordinates; missing directions are -1. */
+export function homeGridNeighbors(index: number, count: number, positions?: readonly HomeGridPoint[]): HomeGridNeighborMap {
+  const result = Object.fromEntries(HOME_GRID_DIRECTIONS.map(direction => [direction, -1])) as HomeGridNeighborMap
+  if (!Number.isInteger(index) || index < 0 || index >= count) return result
+  const points = positions?.length === count
+    ? positions
+    : Array.from({ length: Math.max(0, count) }, (_, i) => homeGridPosition(i, count))
+  const current = points[index]
+  if (!current || !isHomeGridPosition(current)) return result
+  const byPosition = new Map<string, number>()
+  points.forEach((point, i) => { if (isHomeGridPosition(point) && !byPosition.has(pointKey(point))) byPosition.set(pointKey(point), i) })
+  for (const direction of HOME_GRID_DIRECTIONS) {
+    const offset = HOME_GRID_OFFSETS[direction]
+    result[direction] = byPosition.get(pointKey(homeGridTarget(current, offset))) ?? -1
+  }
+  return result
 }
 
 /** Deterministic tint hue per screen index (0-359), stable across sessions. */
@@ -134,8 +195,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
-function makePage(title: string): HomeWorkspace {
-  return { id: uniqueId(), title, items: [], columns: 4, rows: 4 }
+function makePage(title: string, position: HomeGridPoint): HomeWorkspace {
+  return { id: uniqueId(), title, items: [], columns: 4, rows: 4, x: position.x, y: position.y }
 }
 
 export function createHomeState(appIds: string[]): HomeWorkspaceState {
@@ -146,9 +207,9 @@ export function createHomeState(appIds: string[]): HomeWorkspaceState {
     seen.add(ref)
     items.push({ id: uniqueId(), kind: 'app', ref })
   }
-  const first = makePage('Home')
+  const first = makePage('Home', { x: 0, y: 0 })
   first.items = items
-  const trailing = makePage('Screen 2')
+  const trailing = makePage('Screen 2', { x: 1, y: 0 })
   return { version: 1, activeId: first.id, pages: [first, trailing], theme: 'aurora' }
 }
 
@@ -184,9 +245,19 @@ export function normalizeHomeState(input: unknown, appIds: string[]): HomeWorksp
       items.push(item)
     }
     const boundedGrid = (value: unknown, fallback: number) => Number.isInteger(value) ? Math.max(2, Math.min(8, value as number)) : fallback
-    pages.push({ id: raw.id, title: typeof raw.title === 'string' ? raw.title.slice(0, 40) : 'Screen', items, columns: boundedGrid(raw.columns, 4), rows: boundedGrid(raw.rows, 4) })
+    pages.push({ id: raw.id, title: typeof raw.title === 'string' ? raw.title.slice(0, 40) : 'Screen', items, columns: boundedGrid(raw.columns, 4), rows: boundedGrid(raw.rows, 4), x: raw.x as number | undefined, y: raw.y as number | undefined })
   }
   if (pages.length === 0) return createHomeState(appIds)
+  const occupied = new Set<string>()
+  pages.forEach((page, index) => {
+    let point = isHomeGridPosition({ x: page.x as number, y: page.y as number })
+      ? { x: page.x as number, y: page.y as number }
+      : homeGridPosition(index, pages.length)
+    if (occupied.has(pointKey(point))) point = findFreeGridPosition(occupied, homeGridPosition(index, pages.length))
+    page.x = point.x
+    page.y = point.y
+    occupied.add(pointKey(point))
+  })
   const theme = input.theme === 'pixel' || input.theme === 'mono' ? input.theme : 'aurora'
   const activeId = typeof input.activeId === 'string' && pages.some(page => page.id === input.activeId) ? input.activeId : pages[0].id
   const state: HomeWorkspaceState = { version: 1, activeId, pages, theme }
@@ -194,14 +265,29 @@ export function normalizeHomeState(input: unknown, appIds: string[]): HomeWorksp
   return state
 }
 
-export function createHomeWorkspace(state: HomeWorkspaceState): string | null {
+export function createHomeWorkspace(state: HomeWorkspaceState, position?: HomeGridPoint): string | null {
+  if (position) {
+    if (!isHomeGridPosition(position)) return null
+    const existing = state.pages.find((page, index) => {
+      const point = homeWorkspacePosition(page, index, state.pages.length)
+      return point.x === position.x && point.y === position.y
+    })
+    if (existing) { state.activeId = existing.id; return existing.id }
+    if (state.pages.length >= MAX_WORKSPACES) return null
+    const page = makePage(`Screen ${state.pages.length + 1}`, position)
+    state.pages.push(page)
+    state.activeId = page.id
+    return page.id
+  }
   const trailing = state.pages[state.pages.length - 1]
   if (trailing?.items.length === 0) {
     state.activeId = trailing.id
     return trailing.id
   }
   if (state.pages.length >= MAX_WORKSPACES) return null
-  const page = makePage(`Screen ${state.pages.length + 1}`)
+  const occupied = new Set(state.pages.map((page, index) => pointKey(homeWorkspacePosition(page, index, state.pages.length))))
+  const anchor = trailing ? homeWorkspacePosition(trailing, state.pages.length - 1, state.pages.length) : { x: 0, y: 0 }
+  const page = makePage(`Screen ${state.pages.length + 1}`, findFreeGridPosition(occupied, anchor))
   state.pages.push(page)
   state.activeId = page.id
   return page.id
@@ -209,7 +295,18 @@ export function createHomeWorkspace(state: HomeWorkspaceState): string | null {
 
 export function ensureTrailingWorkspace(state: HomeWorkspaceState): void {
   if (state.pages.length >= MAX_WORKSPACES) return
-  if (state.pages.length === 0 || state.pages[state.pages.length - 1].items.length !== 0) state.pages.push(makePage(`Screen ${state.pages.length + 1}`))
+  if (state.pages.length === 0) {
+    const page = makePage('Home', { x: 0, y: 0 })
+    state.pages.push(page)
+    state.activeId = page.id
+    return
+  }
+  if (state.pages[state.pages.length - 1].items.length !== 0) {
+    const occupied = new Set(state.pages.map((page, index) => pointKey(homeWorkspacePosition(page, index, state.pages.length))))
+    const last = state.pages[state.pages.length - 1]
+    const anchor = homeWorkspacePosition(last, state.pages.length - 1, state.pages.length)
+    state.pages.push(makePage(`Screen ${state.pages.length + 1}`, findFreeGridPosition(occupied, anchor)))
+  }
 }
 
 export function addHomeItem(state: HomeWorkspaceState, pageId: string, item: HomeItem): boolean {

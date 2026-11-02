@@ -502,7 +502,7 @@ function resetHomeCustom() {
 </script>
 
 <style scoped>
-.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-orb-size, clamp(44px, 5.5vh, 56px)) + 2vh); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
+.mla { position: absolute; inset: 0; z-index: 0; isolation: isolate; display: flex; flex-direction: column; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; box-sizing: border-box; overflow: hidden; padding: 8px 16px calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-orb-size, clamp(68px, 10vh, 88px)) + 2vh); background: var(--ui-bg); color: var(--ui-text); font-family: var(--ui-font); }
 .mla.with-app-nav { padding-bottom: calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-taskbar-h, 6vh) + 2vh); }
 .mla :deep(.mla-screen-tools) { display: flex; flex-direction: column; flex: 0 0 auto; gap: 8px; }
 .mla :deep(.mla-home-toolbar), .mla :deep(.mla-toolbar-actions) { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

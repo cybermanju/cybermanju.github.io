@@ -2,11 +2,11 @@
 // Role: local-only appreciation page mounting the real OrbNavigator at display size.
 // Exports: nothing (dev entry served at /orb-showcase.html by Vite; not in production builds).
 // Integrates: src/components/OrbNavigator.vue + the shared home grid model, fully mocked screens.
-// Contracts: fake studio behavior only — left/right page linearly, up/down jump grid rows,
-// walls bump the orb without moving; keyboard arrows mirror the same model.
+// Contracts: fake studio behavior only — all eight directions navigate or create an adjacent screen;
+// the maximum screen count bumps the Orb, and keyboard arrows mirror the same model.
 import { computed, createApp, defineComponent, h, ref } from 'vue'
 import OrbNavigator from '@/components/OrbNavigator.vue'
-import { homeGridCols, homeGridNeighbors, homeHueForScreen, type HomeGridDelta } from '@/utils/homeWorkspaces'
+import { HOME_GRID_DIRECTIONS, MAX_WORKSPACES, homeGridNeighbors, homeGridPosition, homeGridTarget, homeHueForScreen, type HomeGridDelta, type HomeGridDirection } from '@/utils/homeWorkspaces'
 import './style.css'
 
 const SCREENS = ['Home', 'Mail', 'Notes', 'Music', 'Play', 'Maps', 'Ideas']
@@ -15,17 +15,29 @@ const App = defineComponent({
   setup() {
     const active = ref(0)
     const lastMove = ref('')
-    const cols = computed(() => homeGridCols(SCREENS.length))
-    const neighbors = computed(() => homeGridNeighbors(active.value, SCREENS.length))
-    const nameOf = (i: number) => (i >= 0 && i < SCREENS.length ? SCREENS[i] : '—')
+    const screens = ref([...SCREENS])
+    const positions = ref(SCREENS.map((_, index) => homeGridPosition(index, SCREENS.length)))
+    const neighbors = computed(() => homeGridNeighbors(active.value, screens.value.length, positions.value))
+    const nameOf = (i: number) => (i >= 0 && i < screens.value.length ? screens.value[i] : '—')
+    function directionName(delta: HomeGridDelta) {
+      if (delta.dx > 0) return delta.dy < 0 ? 'up-right' : delta.dy > 0 ? 'down-right' : 'right'
+      if (delta.dx < 0) return delta.dy < 0 ? 'up-left' : delta.dy > 0 ? 'down-left' : 'left'
+      return delta.dy < 0 ? 'up' : 'down'
+    }
 
     function navigate(delta: HomeGridDelta) {
-      const colsNow = homeGridCols(SCREENS.length)
-      const target = delta.dy ? active.value + delta.dy * colsNow : active.value + delta.dx
-      if (target < 0 || target > SCREENS.length - 1) { lastMove.value = 'wall — bumped, stayed'; return }
-      const dirName = delta.dy ? delta.dy < 0 ? 'up' : 'down' : delta.dx > 0 ? 'right' : 'left'
+      const origin = positions.value[active.value]!
+      const targetPoint = homeGridTarget(origin, delta)
+      let target = positions.value.findIndex(point => point.x === targetPoint.x && point.y === targetPoint.y)
+      const direction = directionName(delta)
+      if (target < 0) {
+        if (screens.value.length >= MAX_WORKSPACES) { lastMove.value = 'screen limit — bumped, stayed'; return }
+        screens.value.push(`Screen ${screens.value.length + 1}`)
+        positions.value.push(targetPoint)
+        target = screens.value.length - 1
+      }
       active.value = target
-      lastMove.value = `navigated ${dirName} → ${SCREENS[target]}`
+      lastMove.value = `navigated ${direction} → ${screens.value[target]}`
     }
     function keydown(event: KeyboardEvent) {
       const map: Record<string, HomeGridDelta> = {
@@ -41,30 +53,29 @@ const App = defineComponent({
 
     const hue = (i: number) => `hsl(${homeHueForScreen(i)} 60% 60%)`
     const hint = (i: number) => ({ color: i >= 0 ? hue(i) : 'transparent', opacity: i >= 0 ? 0.85 : 0.25 })
+    const symbols: Record<HomeGridDirection, string> = { right: '→', downRight: '↘', down: '↓', downLeft: '↙', left: '←', upLeft: '↖', up: '↑', upRight: '↗' }
 
     return () =>
       h('main', { class: 'stage' }, [
         h('div', { class: 'orb-wrap' }, [
           h(OrbNavigator, {
             screenIndex: active.value,
-            screenCount: SCREENS.length,
-            'aria-label': `Showcase orb. Screen ${active.value + 1} of ${SCREENS.length}: ${SCREENS[active.value]}.`,
+            screenCount: screens.value.length,
+            screenPositions: positions.value,
+            'aria-label': `Showcase orb. Screen ${active.value + 1} of ${screens.value.length}: ${screens.value[active.value]}.`,
             onNavigate: navigate,
             onOpenApps: () => { lastMove.value = 'drawer would open here' },
           }),
         ]),
         h('section', { class: 'readout' }, [
-          h('h1', null, `Screen ${active.value + 1} / ${SCREENS.length} — ${SCREENS[active.value]}`),
+          h('h1', null, `Screen ${active.value + 1} / ${screens.value.length} — ${screens.value[active.value]}`),
           h('p', { class: 'neighbors' }, [
-            h('span', { style: hint(neighbors.value.left) }, `← ${nameOf(neighbors.value.left)}   `),
-            h('span', { style: hint(neighbors.value.right) }, `${nameOf(neighbors.value.right)} →   `),
-            h('span', { style: hint(neighbors.value.up) }, `↑ ${nameOf(neighbors.value.up)}   `),
-            h('span', { style: hint(neighbors.value.down) }, `${nameOf(neighbors.value.down)} ↓`),
+            ...HOME_GRID_DIRECTIONS.map(direction => h('span', { style: hint(neighbors.value[direction]) }, `${symbols[direction]} ${nameOf(neighbors.value[direction])}   `)),
           ]),
           h('p', { class: 'feedback' }, lastMove.value ? `last: ${lastMove.value}` : 'drag the orb in any direction · tap = next · double-tap = drawer · arrow keys work too'),
         ]),
         h('footer', { class: 'screens' },
-          SCREENS.map((title, i) =>
+          screens.value.map((title, i) =>
             h('button', {
               key: i,
               class: ['screen-chip', i === active.value ? 'active' : ''],

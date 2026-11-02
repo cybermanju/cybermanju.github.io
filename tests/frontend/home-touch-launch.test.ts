@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
+import OrbNavigator from '@/components/OrbNavigator.vue'
+import { HOME_WORKSPACE_KEY } from '@/utils/homeWorkspaces'
 
 const native = vi.hoisted(() => ({ suspend: vi.fn<() => Promise<boolean>>() }))
 const android = vi.hoisted(() => ({ openApp: vi.fn() }))
@@ -51,6 +53,32 @@ function dispatchTouch(target: Element, type: string, touches: ReturnType<typeof
 }
 
 describe('Home app icon launch on touch/click', () => {
+  it('routes Orb moves to existing neighbors and creates the requested diagonal screens', async () => {
+    const wrapper = mountStudio()
+    const orb = wrapper.findComponent(OrbNavigator)
+    const saved = () => JSON.parse(localStorage.getItem(HOME_WORKSPACE_KEY) || 'null')
+    expect(orb.exists()).toBe(true)
+
+    orb.vm.$emit('navigate', { dx: 1, dy: 0 })
+    await flushPromises()
+    let state = saved()
+    expect(state.pages).toHaveLength(2)
+    expect(state.pages.find((page: { id: string }) => page.id === state.activeId)).toMatchObject({ x: 1, y: 0 })
+
+    orb.vm.$emit('navigate', { dx: -1, dy: -1 })
+    await flushPromises()
+    state = saved()
+    expect(state.pages).toHaveLength(3)
+    expect(state.pages.find((page: { id: string }) => page.id === state.activeId)).toMatchObject({ x: 0, y: -1 })
+
+    orb.vm.$emit('navigate', { dx: 1, dy: -1 })
+    await flushPromises()
+    state = saved()
+    expect(state.pages).toHaveLength(4)
+    expect(state.pages.find((page: { id: string }) => page.id === state.activeId)).toMatchObject({ x: 1, y: -2 })
+    wrapper.unmount()
+  })
+
   it('emits the existing open event from a real home app icon click', async () => {
     const wrapper = mountStudio()
     await wrapper.get('.workspace-launch').trigger('click')
@@ -105,9 +133,19 @@ describe('Home app icon launch on touch/click', () => {
     await wrapper.get('.workspace-launch').trigger('contextmenu')
     await flushPromises()
     expect(wrapper.emitted('customize')).toBeUndefined()
+    native.suspend.mockResolvedValueOnce(true)
+    await (wrapper.vm as unknown as { editScreen: () => Promise<void> }).editScreen()
+    if (outcome === 'false') native.suspend.mockResolvedValue(false)
+    else native.suspend.mockRejectedValue(new Error('host unavailable'))
     await wrapper.get('button[aria-label="Add apps or widgets to home"]').trigger('click')
     await flushPromises()
     expect(document.body.querySelector('.studio-picker')).toBeNull()
+    native.suspend.mockResolvedValueOnce(true)
+    const done = wrapper.findAll('button').find(button => button.text() === 'Done')
+    expect(done).toBeDefined()
+    await done!.trigger('click')
+    if (outcome === 'false') native.suspend.mockResolvedValue(false)
+    else native.suspend.mockRejectedValue(new Error('host unavailable'))
     // The orb navigator is the only paging surface now; navigation is
     // suspend-gated, so the screen keeps its place on a failed suspend
     // (its single activation advances after its deliberate 450 ms delay).

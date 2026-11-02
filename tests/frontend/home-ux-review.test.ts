@@ -37,7 +37,8 @@ describe('home and Settings UX regressions', () => {
 
   it('uses the full Home viewport with a separately reserved app navigation inset', () => {
     expect(home).toMatch(/\.mla \{[^}]*inset: 0;[^}]*min-height: 0;[^}]*overflow: hidden;/)
-    expect(home).toContain('padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px))')
+    expect(home).toContain('padding: 8px 16px calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-orb-size, clamp(68px, 10vh, 88px)) + 2vh)')
+    expect(home).toContain('.mla.with-app-nav { padding-bottom: calc(var(--mobile-favorites-dock-h, 7vh) + var(--mobile-taskbar-h, 6vh) + 2vh); }')
     expect(home).not.toContain('mla-layout-free')
     expect(studio).toContain('.is-editing .workspace-content { flex: 1 0 180px; }')
     // The surface clips; the canvas inside is what scrolls.
@@ -45,15 +46,15 @@ describe('home and Settings UX regressions', () => {
     expect(studio).toMatch(/\.workspace-content \{[^}]*flex: 1 1 0;[^}]*overflow-y: auto/)
   })
 
-  it('uses a responsive canonical grid and centers the independently pinned dock', () => {
+  it('uses the canonical workspace grid and centers the fixed favorites dock', () => {
     expect(studio).toContain('grid-template-columns: repeat(4, minmax(0, 1fr))')
-    expect(studio).toMatch(/@media\(min-width:600px\)[\s\S]*grid-template-columns: repeat\(5,minmax\(0,1fr\)\)/)
-    expect(home).toMatch(/\.mla-dock \{[^}]*flex-shrink: 0;[^}]*align-self: center;[^}]*max-width: 100%/)
+    expect(home).toContain('class="mobile-favorites-dock"')
+    expect(home).toMatch(/\.mobile-favorites-dock \{[^}]*justify-content: center;[^}]*width: max-content;[^}]*height: var\(--mobile-favorites-dock-h, 7vh\)/)
     // The orb navigator owns the active-screen surface the old screen-dots
     // row represented; the overview's eagle cards still carry aria-current.
     // It is a touch-first control: `orbHiddenOnDesktop` unmounts it in the desktop shell.
     expect(studio).toContain('<OrbNavigator :screen-index="activeIndex"')
-    expect(studio).toContain('v-if="!orbHiddenOnDesktop"')
+    expect(studio).toContain('v-if="!orbHiddenOnDesktop && !props.blocked"')
     expect(studio).toContain('aria-current')
     expect(studio).toContain(':focus-visible')
   })

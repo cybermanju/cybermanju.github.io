@@ -2,10 +2,8 @@
 <!-- Role: Animated, accessible home-screen navigator with direct manipulation. -->
 <!-- Exports: OrbNavigator component. -->
 <!-- Integrates: HomeWorkspaceStudio via directional navigation and all-apps events. -->
-<!-- Contracts: A delayed single activation steps to the next screen; a double activation opens
-     the app drawer; drag steps are immediate — left/right page linearly, up/down jump grid rows
-     (the page list is read as a square-ish row-major grid shared with the studio via
-     homeGridCols/homeGridNeighbors, so both sides agree on the same screen map). -->
+<!-- Contracts: A delayed single activation steps right; a double activation opens the app drawer;
+     drag navigates or creates the exact adjacent screen in any of eight directions. -->
 <template>
   <div class="orb-navigator" :class="{ 'orb-navigator--teacher': teacherMode, 'motion-reduced': motionReduced }" :data-activity="teacherMode ? activity : undefined" :role="teacherMode ? 'img' : undefined" :aria-label="teacherMode ? teacherLabel : undefined">
     <button
@@ -43,20 +41,20 @@
 // Exports: OrbNavigator component.
 // Integrates: HomeWorkspaceStudio via directional navigation and all-apps events;
 // src/utils/homeWorkspaces.ts for the shared grid layout + per-screen hue.
-// Contracts: A delayed single activation steps to the next screen; a double activation opens the
-// app drawer; drag steps are immediate — left/right page linearly, up/down jump grid rows.
-// Emits: `navigate` carries {dx,dy} (not just ±1) so the studio can page rows; vertical walls are
-// decided here (an impossible step never emits, it only bumps the orb) so routing stays in one place.
+// Contracts: A delayed single activation steps right; a double activation opens the app drawer;
+// drag steps are immediate in all eight directions, including empty cells for screen creation.
+// Emits: `navigate` carries a neighboring {dx,dy}; only the screen limit or coordinate bounds bump.
 // Rendering: canvas 2D ASCII sphere — dense char ramp, spherical lighting + spin, eased state
 // weights (idle/pressed/drag), ripple + scanline one-shots, and per-direction neighbor tint wedges
 // drawn at low opacity (each neighbor screen keeps its own hue; drags focus the toward-sector).
 import { computed, onUnmounted, ref, watch } from 'vue'
-import { homeGridCols, homeGridNeighbors, homeHueForScreen, type HomeGridDelta } from '@/utils/homeWorkspaces'
+import { HOME_GRID_DIRECTIONS, MAX_WORKSPACES, classifyOrbDragDirection, homeGridNeighbors, homeGridPosition, homeGridTarget, homeHueForScreen, isHomeGridPosition, type HomeGridDelta, type HomeGridDirection, type HomeGridPoint } from '@/utils/homeWorkspaces'
 
 type OrbActivity = 'idle' | 'listening' | 'thinking' | 'speaking' | 'muted' | 'error'
 const props = defineProps<{
   screenIndex: number
   screenCount: number
+  screenPositions?: HomeGridPoint[]
   disabled?: boolean
   motionReduced?: boolean
   teacherMode?: boolean
@@ -83,16 +81,14 @@ const coreRef = ref<HTMLButtonElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
 const ariaLabel = computed(() => {
-  const n = homeGridNeighbors(props.screenIndex, props.screenCount)
-  const nearby = [
-    n.left >= 0 ? 'one screen left' : '',
-    n.right >= 0 ? 'one screen right' : '',
-    n.up >= 0 ? 'a screen above' : '',
-    n.down >= 0 ? 'a screen below' : '',
-  ].filter(Boolean).join(', ')
-  return `Orb navigator. Home screen ${props.screenIndex + 1} of ${props.screenCount}.` +
-    (nearby ? ` Nearby: ${nearby}.` : ' No nearby screens.') +
-    ' Activate for the next screen, activate twice for all apps, or drag toward a nearby screen.'
+  const n = homeGridNeighbors(props.screenIndex, props.screenCount, props.screenPositions)
+  const name = (direction: HomeGridDirection) => direction.replace(/([A-Z])/g, ' $1').toLowerCase()
+  const nearby = HOME_GRID_DIRECTIONS.filter(direction => n[direction] >= 0).map(name)
+  const canCreate = props.screenCount < MAX_WORKSPACES
+  const create = canCreate ? HOME_GRID_DIRECTIONS.filter(direction => n[direction] < 0).map(name) : []
+  const available = [nearby.length ? `Existing screens: ${nearby.join(', ')}.` : '', create.length ? `Drag toward an empty direction to create a screen: ${create.join(', ')}.` : '']
+    .filter(Boolean).join(' ')
+  return `Orb navigator. Home screen ${props.screenIndex + 1} of ${props.screenCount}. ${available} Tap to move right, double-tap for all apps.`
 })
 
 // ---------- gesture state (single/double activation contract unchanged) ----------
@@ -115,7 +111,12 @@ let hoverLive = false // true while the pointer is over the button (hover intera
 let gazeX = 0, gazeY = 0 // eased on-sphere display position of the aim
 
 function direction(dx: number, dy: number): HomeGridDelta {
-  return Math.abs(dx) > Math.abs(dy) ? { dx: dx < 0 ? 1 : -1, dy: 0 } : { dx: 0, dy: dy < 0 ? -1 : 1 }
+  return classifyOrbDragDirection(dx, dy) ?? { dx: 0, dy: 0 }
+}
+function directionName(delta: HomeGridDelta): HomeGridDirection {
+  if (delta.dx > 0) return delta.dy < 0 ? 'upRight' : delta.dy > 0 ? 'downRight' : 'right'
+  if (delta.dx < 0) return delta.dy < 0 ? 'upLeft' : delta.dy > 0 ? 'downLeft' : 'left'
+  return delta.dy < 0 ? 'up' : 'down'
 }
 function aim(event: PointerEvent) {
   const core = event.currentTarget as HTMLElement
@@ -183,26 +184,20 @@ function flashClicked(durationMs = 520) {
     clickTimer = setTimeout(() => { clicked.value = false; clickTimer = null }, durationMs)
   })
 }
-/**
- * Directional step. The target is resolved against the shared grid here: vertical drags only
- * emit when a row above/below exists (otherwise the orb just bumps — feedback, no navigation).
- */
+/** Resolve an adjacent cell; the studio creates it when empty, unless the bounded grid is full. */
 function step(delta: HomeGridDelta) {
-  // Vertical: rows cap at the real grid (no extension screens grow upward/down).
-  // Horizontal: one step past the last screen is permitted so the studio can resolve
-  // it as a single empty extension screen (its existing contract), never a blank chain.
-  const cols = homeGridCols(props.screenCount)
-  const rawTarget = delta.dy ? props.screenIndex + delta.dy * cols : props.screenIndex + delta.dx
-  const isHorizontalExtension = !delta.dy && rawTarget === props.screenCount
-  if (rawTarget < 0 || (rawTarget >= props.screenCount && !isHorizontalExtension)) {
-    // impossible step (a "wall"): bump the orb for feedback but never emit a move
+  const positions = props.screenPositions
+  const origin = positions?.[props.screenIndex] ?? homeGridPosition(props.screenIndex, props.screenCount)
+  const target = homeGridTarget(origin, delta)
+  const neighbors = homeGridNeighbors(props.screenIndex, props.screenCount, positions)
+  if (!isHomeGridPosition(target) || (neighbors[directionName(delta)] < 0 && props.screenCount >= MAX_WORKSPACES)) {
     wallBump = Math.max(wallBump, 1)
     if (staticMotion) drawStatic()
     return
   }
   scanBoost = Math.max(scanBoost, delta.dy ? 0.7 : 1)
   navPing = Math.max(navPing, 0.55)
-  if (staticMotion) { drawStatic(); return }
+  if (staticMotion) drawStatic()
   emit('navigate', delta)
 }
 function activate(event: MouseEvent) {
@@ -244,17 +239,18 @@ function hash(i: number, j: number, k: number) {
   return (x ^ (x >>> 16)) >>> 0
 }
 
-type Dir = 'left' | 'right' | 'up' | 'down'
-const DIRS: Dir[] = ['left', 'right', 'up', 'down']
+const DIRS = HOME_GRID_DIRECTIONS
+const DIRECTION_VECTORS: Record<HomeGridDirection, { x: number; y: number }> = {
+  right: { x: 1, y: 0 }, downRight: { x: Math.SQRT1_2, y: Math.SQRT1_2 }, down: { x: 0, y: 1 },
+  downLeft: { x: -Math.SQRT1_2, y: Math.SQRT1_2 }, left: { x: -1, y: 0 },
+  upLeft: { x: -Math.SQRT1_2, y: -Math.SQRT1_2 }, up: { x: 0, y: -1 }, upRight: { x: Math.SQRT1_2, y: -Math.SQRT1_2 },
+}
 // Neighbor tint ramps: per direction, a white→hue color ladder indexed by the char ramp
 // (chars keep their ramp detail but pick up the neighbor's hue as they brighten). Recomputed
 // only when the neighbor set changes — the render loop does lookups, never allocation.
-const tintRamps: Record<Dir, { neighbor: number; colors: string[] }> = {
-  left: { neighbor: -1, colors: [] },
-  right: { neighbor: -1, colors: [] },
-  up: { neighbor: -1, colors: [] },
-  down: { neighbor: -1, colors: [] },
-}
+const tintRamps: Record<HomeGridDirection, { neighbor: number; colors: string[] }> = Object.fromEntries(
+  HOME_GRID_DIRECTIONS.map(direction => [direction, { neighbor: -1, colors: [] }]),
+) as unknown as Record<HomeGridDirection, { neighbor: number; colors: string[] }>
 const RAMP_MAX = RAMP.length - 1
 const FONT = '700 6.4px ui-monospace, SFMono-Regular, Menlo, monospace'
 
@@ -267,7 +263,7 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)]
 }
 function refreshTints() {
-  const n = homeGridNeighbors(props.screenIndex, props.screenCount)
+  const n = homeGridNeighbors(props.screenIndex, props.screenCount, props.screenPositions)
   for (const dir of DIRS) {
     const neighbor = n[dir]
     const ramp = tintRamps[dir]
@@ -430,13 +426,15 @@ function render(c: CanvasRenderingContext2D, cv: HTMLCanvasElement, dt: number) 
       // at rest the sphere is pure white-on-black. Wide alpha swing for contrast.
       let alpha = 0.06 + 0.94 * limb
       const deg = a * 180 / Math.PI
-      const sector = deg >= -45 && deg < 45 ? 'right' : deg >= 45 && deg < 135 ? 'down' : deg >= 135 || deg < -135 ? 'left' : 'up'
+      const sectorIndex = Math.round((((deg % 360) + 360) % 360) / 45) % 8
+      const sector = DIRS[sectorIndex]!
       const ramp = tintRamps[sector]
       if (ramp.neighbor >= 0) {
-        const center = sector === 'right' ? 0 : sector === 'down' ? 90 : sector === 'left' ? 180 : -90
-        const sq = clamp01(1 - Math.abs(((deg - center + 540) % 360) - 180) / 45)
-        const hoverF = Math.max(0, (sector === 'right' ? gazeX : sector === 'left' ? -gazeX : sector === 'down' ? gazeY : -gazeY) - 0.3) / 0.7
-        const dragF = Math.max(0, sector === 'right' ? dragDX : sector === 'left' ? -dragDX : sector === 'down' ? dragDY : -dragDY)
+        const center = sectorIndex * 45
+        const vector = DIRECTION_VECTORS[sector]
+        const sq = clamp01(1 - Math.abs(((deg - center + 540) % 360) - 180) / 22.5)
+        const hoverF = Math.max(0, (gazeX * vector.x + gazeY * vector.y - 0.3) / 0.7)
+        const dragF = Math.max(0, dragDX * vector.x + dragDY * vector.y)
         const f = Math.max(dragF, hoverF)
         if (f > 0.02) {
           c.fillStyle = ramp.colors[idx]
@@ -537,7 +535,7 @@ watch(
 )
 
 watch(
-  () => [props.screenIndex, props.screenCount, props.disabled, props.motionReduced],
+  () => [props.screenIndex, props.screenCount, props.disabled, props.motionReduced, props.screenPositions],
   (next, prev) => {
     if (next[2] && !prev?.[2]) navPing = Math.max(navPing, 0.35) // disabled: the orb goes quiet, not dark
     checkStatic()
@@ -577,9 +575,9 @@ onUnmounted(() => {
 .orb-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 /* pressed feedback stays CSS so it reads even when the render loop is frozen */
 .orb-caption { color: var(--ui-text-3, #9a9a9a); font: 600 8px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-align: center; }
-.orb-navigator:not(.orb-navigator--teacher) { position: relative; width: clamp(44px, 5.5vh, 56px); height: clamp(44px, 5.5vh, 56px); gap: 0; }
+.orb-navigator:not(.orb-navigator--teacher) { position: relative; width: var(--mobile-orb-size, clamp(68px, 10vh, 88px)); height: var(--mobile-orb-size, clamp(68px, 10vh, 88px)); gap: 0; }
 .orb-navigator:not(.orb-navigator--teacher)::before { content: ''; position: absolute; inset: -18%; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, color-mix(in srgb, var(--ui-accent, #78aaff) 32%, transparent) 0%, color-mix(in srgb, var(--ui-accent, #78aaff) 12%, transparent) 48%, transparent 74%); filter: blur(.7vh); opacity: .9; }
-.orb-navigator:not(.orb-navigator--teacher) .orb-core { z-index: 1; width: clamp(44px, 5.5vh, 56px); height: clamp(44px, 5.5vh, 56px); min-width: 0 !important; min-height: 0 !important; filter: drop-shadow(0 0 1vh color-mix(in srgb, var(--ui-accent, #78aaff) 48%, transparent)); }
+.orb-navigator:not(.orb-navigator--teacher) .orb-core { z-index: 1; width: var(--mobile-orb-size, clamp(68px, 10vh, 88px)); height: var(--mobile-orb-size, clamp(68px, 10vh, 88px)); min-width: 0 !important; min-height: 0 !important; filter: drop-shadow(0 0 1vh color-mix(in srgb, var(--ui-accent, #78aaff) 48%, transparent)); }
 .orb-navigator:not(.orb-navigator--teacher) .orb-caption { display: none; }
 .orb-navigator--teacher { gap: 6px; position: relative; isolation: isolate; }
 .orb-navigator--teacher::before, .orb-navigator--teacher::after {

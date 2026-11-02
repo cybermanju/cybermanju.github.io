@@ -52,7 +52,17 @@ function stroke(target: Element, id: number, x: number, y1: number, y2: number) 
   dispatch(target, 'touchmove', [last], [last])
   dispatch(target, 'touchend', [], [last])
 }
-function screen(wrapper: ReturnType<typeof mount>) { return wrapper.get('.studio-kicker').text() }
+function screen(wrapper: ReturnType<typeof mount>) {
+  const state = JSON.parse(localStorage.getItem(HOME_WORKSPACE_KEY) || 'null')
+  const index = state.pages.findIndex((page: { id: string }) => page.id === state.activeId)
+  return `SCREEN ${index + 1} / ${state.pages.length}`
+}
+async function openOverview(wrapper: ReturnType<typeof mount>) {
+  await (wrapper.findComponent(HomeWorkspaceStudio).vm as unknown as { editScreen: () => Promise<void> }).editScreen()
+  await flushPromises()
+  await wrapper.get('button[aria-label="Overview of home screens"]').trigger('click')
+  await flushPromises()
+}
 
 beforeEach(() => { localStorage.clear(); Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 }) })
 afterEach(() => { vi.clearAllMocks(); localStorage.clear(); document.body.innerHTML = '' })
@@ -109,8 +119,7 @@ describe('HomeWorkspaceStudio inside launcher capture routing (simulated touch e
   })
   it.each(['complete', 'multitouch', 'touchcancel', 'pointercancel', 'blur', 'blocked'])('keeps Pointer drag ownership, with safe %s termination', async mode => {
     const wrapper = mountHarness()
-    wrapper.get('[aria-label="Overview of home screens"]').element.click()
-    await flushPromises()
+    await openOverview(wrapper)
     const chip = wrapper.get('.eagle-chip').element as HTMLElement
     const details = wrapper.get('.eagle-move-list').element as HTMLDetailsElement
     details.open = true
@@ -166,11 +175,11 @@ describe('HomeWorkspaceStudio inside launcher capture routing (simulated touch e
     }
     const wrapper = mountHarness()
     if (mode === 'edit') {
-      wrapper.findAll('.studio-tools button').find(button => button.text() === 'Edit')!.element.click()
+      await (wrapper.findComponent(HomeWorkspaceStudio).vm as unknown as { editScreen: () => Promise<void> }).editScreen()
       await flushPromises()
       expect(wrapper.get('.home-studio').classes()).toContain('is-editing')
     }
-    if (mode === 'overview') { wrapper.get('button[aria-label^="Overview of home screens"]').element.click(); await flushPromises() }
+    if (mode === 'overview') await openOverview(wrapper)
     let target: Element
     if (mode === 'widget') target = wrapper.get('[data-native-placement="native-exclusion-slot"]').element
     else if (mode === 'edit') target = wrapper.get('.studio-stage').element
