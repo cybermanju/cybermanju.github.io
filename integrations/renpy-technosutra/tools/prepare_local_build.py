@@ -9,6 +9,8 @@ import re
 import shutil
 from pathlib import Path
 
+from PIL import Image
+
 EXPECTED_IDS = list(range(1, 43)) + list(range(44, 52)) + list(range(53, 57))
 MISSING_IDS = [43, 52]
 
@@ -62,6 +64,30 @@ def main() -> int:
     project = args.project.resolve()
     game = project / "game"
     images = game / "images"
+    narrator_dir = images / "narrator"
+    narrator_manifest_path = narrator_dir / "manifest.json"
+    if not narrator_manifest_path.is_file():
+        raise SystemExit(f"Missing narrator asset manifest: {narrator_manifest_path}")
+    narrator_asset = json.loads(narrator_manifest_path.read_text(encoding="utf-8"))
+    if (
+        narrator_asset.get("file") != "orb.png"
+        or narrator_asset.get("relativePath") != "images/narrator/orb.png"
+        or narrator_asset.get("format") != "PNG"
+        or narrator_asset.get("width") != 512
+        or narrator_asset.get("height") != 512
+    ):
+        raise SystemExit("Narrator orb manifest must describe the approved 512x512 PNG at images/narrator/orb.png")
+    narrator_path = narrator_dir / "orb.png"
+    if (
+        not narrator_path.is_file()
+        or narrator_path.stat().st_size != narrator_asset.get("sizeBytes")
+        or sha256(narrator_path) != narrator_asset.get("sha256")
+        or {path.name for path in narrator_dir.iterdir()} != {"manifest.json", "orb.png"}
+    ):
+        raise SystemExit("Narrator orb files differ from the dedicated asset manifest")
+    with Image.open(narrator_path) as orb:
+        if orb.format != "PNG" or orb.size != (512, 512):
+            raise SystemExit("Narrator orb image format or dimensions differ from its manifest")
     story_path = game / "script.rpy"
     gallery_path = game / "technosutra_masters.rpy"
 
@@ -163,21 +189,27 @@ def main() -> int:
                 child.unlink()
 
     for child in list(images.iterdir()):
-        if child.name in {"optimized", "bg_intro_scene.jpg", "masters", "ui"}:
+        if child.name in {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator"}:
             continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
         else:
             child.unlink()
 
-    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters", "ui"}
+    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator"}
     if {path.name for path in images.iterdir()} != expected_top_level:
         raise SystemExit("Unexpected game/images files remain after local-build preparation")
     if list(source_root.glob("*.png")):
         raise SystemExit("Raw source captures remain in the local package staging tree")
     if len(list(provisional_dir.glob("*.png"))) != 54:
         raise SystemExit("Expected exactly 54 approved runtime sprites after staging cleanup")
-    print("Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites + 8 UI texture tiles.")
+    opening_background = images / "bg_intro_scene.jpg"
+    web_presplash = project / "web-presplash.jpg"
+    shutil.copy2(opening_background, web_presplash)
+    if sha256(web_presplash) != sha256(opening_background):
+        raise SystemExit("Web presplash must be an exact copy of the approved opening landscape")
+    print("Prepared web presplash from the approved opening landscape; SHA-256 verified.")
+    print("Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites + narrator orb + 8 UI texture tiles.")
     print("Retained sprite/capture provenance manifests; excluded raw source-capture PNGs from the package.")
     print("Slots 43 and 52 remain absent; no missing renders were generated.")
     return 0

@@ -42,12 +42,28 @@ def main() -> int:
         if not path.is_file() or path.stat().st_size == 0:
             fail(f"missing required web runtime file {name}")
 
+    opening_background = images / "bg_intro_scene.jpg"
+    presplash_source = project / "web-presplash.jpg"
+    presplash_candidate = candidate / "web-presplash.jpg"
+    if (
+        not opening_background.is_file()
+        or not presplash_source.is_file()
+        or not presplash_candidate.is_file()
+        or sha256_file(presplash_source) != sha256_file(opening_background)
+        or sha256_file(presplash_candidate) != sha256_file(presplash_source)
+    ):
+        fail("Web presplash must preserve the opening landscape from staging through the candidate")
+    if "web-presplash.jpg" not in (candidate / "index.html").read_text(encoding="utf-8"):
+        fail("Web index does not reference the custom opening-landscape presplash")
+
     sprite_manifest_path = images / "masters" / "sprites" / "manifest.json"
     capture_manifest_path = images / "masters" / "source" / "capture_manifest.json"
     optimized_manifest_path = images / "optimized" / "manifest.json"
+    narrator_manifest_path = images / "narrator" / "manifest.json"
     sprite_manifest = json.loads(sprite_manifest_path.read_text(encoding="utf-8"))
     capture_manifest = capture_manifest_path.read_bytes()
     optimized_manifest = json.loads(optimized_manifest_path.read_text(encoding="utf-8"))
+    narrator_manifest = json.loads(narrator_manifest_path.read_text(encoding="utf-8"))
     if (
         sprite_manifest.get("status") != "provisional"
         or sprite_manifest.get("temporaryUseApprovedByOwner") is not True
@@ -76,6 +92,24 @@ def main() -> int:
         expected_files["images/bg_intro_scene.jpg"] = (
             sha256_file(intro), intro.stat().st_size, "JPEG", opening.width, opening.height
         )
+    narrator_file = images / "narrator" / "orb.png"
+    if (
+        narrator_manifest.get("file") != "orb.png"
+        or narrator_manifest.get("relativePath") != "images/narrator/orb.png"
+        or narrator_manifest.get("format") != "PNG"
+        or narrator_manifest.get("width") != 512
+        or narrator_manifest.get("height") != 512
+        or not narrator_file.is_file()
+        or narrator_file.stat().st_size != narrator_manifest.get("sizeBytes")
+        or sha256_file(narrator_file) != narrator_manifest.get("sha256")
+    ):
+        fail("narrator orb differs from its dedicated asset manifest")
+    with Image.open(narrator_file) as orb:
+        if orb.format != "PNG" or orb.size != (512, 512):
+            fail("narrator orb format or dimensions differ from its manifest")
+    expected_files["images/narrator/orb.png"] = (
+        narrator_manifest["sha256"], narrator_manifest["sizeBytes"], "PNG", 512, 512
+    )
 
     runtime_sprite_dir = packaged_images / "masters" / "sprites" / "provisional"
     runtime_sprite_files = sorted(runtime_sprite_dir.glob("*.png"))
@@ -122,6 +156,7 @@ def main() -> int:
             "game/images/masters/sprites/manifest.json": sprite_manifest_path.read_bytes(),
             "game/images/masters/source/capture_manifest.json": capture_manifest,
             "game/images/optimized/manifest.json": optimized_manifest_path.read_bytes(),
+            "game/images/narrator/manifest.json": narrator_manifest_path.read_bytes(),
         }
         for member, expected_bytes in manifest_members.items():
             if member not in names or archive.read(member) != expected_bytes:
@@ -153,7 +188,7 @@ def main() -> int:
     sprite_bytes = sum(path.stat().st_size for path in runtime_sprite_files)
     print("PASS: ZIP integrity and all three manifests; no raw source-capture PNGs or GLB files in package")
     print("PASS: 56 optimized JPEGs and 54 authorized runtime sprites match progressive SHA-256/size/dimensions")
-    print("PASS: remote-file list and Ren'Py placeholders map all 111 runtime images; slots 43/52 absent")
+    print("PASS: remote-file list and Ren'Py placeholders map all 112 runtime images; slots 43/52 absent")
     print(f"Payloads: optimized backgrounds {optimized_manifest['optimizedBytes']:,} bytes; sprites {sprite_bytes:,} bytes")
     return 0
 

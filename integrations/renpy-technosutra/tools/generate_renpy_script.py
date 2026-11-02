@@ -60,6 +60,18 @@ def quoted(text: str) -> str:
     return json.dumps(str(text), ensure_ascii=False)
 
 
+def narrative_segments(text: str) -> list[str]:
+    """Split only very long narration at existing blank-paragraph boundaries."""
+    if len(text) <= 850:
+        return [text]
+    paragraphs = text.split("\n\n")
+    if len(paragraphs) > 1 and all(paragraph.strip() for paragraph in paragraphs):
+        if "\n\n".join(paragraphs) != text:
+            raise AssertionError("Narration split must reconstruct the exact source string")
+        return paragraphs
+    return [text]
+
+
 def title(chapter: dict) -> str:
     return f"Capítulo {chapter['number']} — {chapter['title']}"
 
@@ -88,11 +100,15 @@ lines = [
     "# Adaptation permission was separately confirmed by the project owner.",
     "# Original chapter environments; no Google Street View imagery or derivatives are used.",
     "",
-    'define narrator = Character("Narrador")',
+    'define narrator = Character("ORBE // NARRADOR")',
 ]
 for name in speakers:
     lines.append(f"define {speaker_ids[name]} = Character({quoted(name)})")
-lines.extend(["", 'image bg_intro_scene = "images/bg_intro_scene.jpg"'])
+lines.extend([
+    "",
+    'image narrator_orb = "images/narrator/orb.png"',
+    'image bg_intro_scene = "images/bg_intro_scene.jpg"',
+])
 for chapter in CHAPTERS:
     number = chapter["number"]
     lines.append(f'image bg_ch{number:02d} = "images/{chapter["background"]}"')
@@ -117,8 +133,8 @@ lines.extend([
     '        background Solid("#101326ee")',
     "        vbox:",
     "            spacing 3",
-    '            text "PROVISÓRIO" size 24 color "#ffd35a" bold True',
-    '            text "render frontal estático · sem fundo" size 16 color "#edf1ff"',
+    '            text "ARTE DE REFERÊNCIA" size 24 color "#ffd35a" bold True',
+    '            text "render provisório · não indica presença na cena" size 16 color "#edf1ff"',
 ])
 
 lines.extend([
@@ -127,8 +143,9 @@ lines.extend([
     "    hide screen master_provisional_badge",
     "    scene bg_intro_scene with fade",
     '    centered "The Stem Array — visual novel"',
-    '    narrator "Esta abertura usa um cenário original independente. A imagem enviada pelo projeto não foi incluída porque sua origem ainda precisa ser confirmada."',
-    '    narrator "As cenas recontam os capítulos com base no texto integral autorizado. As falas da VN são criações de adaptação, não citações da tradução."',
+    '    narrator "Um arquivo se abre. À margem, uma pequena luz desperta. Sou Orbe, teu guia nesta leitura: não pertenço ao mundo narrado e não altero seus acontecimentos."',
+    '    narrator "Este prólogo usa um cenário original; a imagem recebida pelo projeto ficou de fora, pois sua origem ainda não foi confirmada."',
+    '    narrator "Percorreremos os 56 capítulos com base no texto autorizado. As falas e reflexões desta VN são adaptação original — não citações da tradução."',
     "    menu:",
     f"        {quoted(gallery_choice)}:",
     "            jump technosutra_master_gallery",
@@ -179,6 +196,8 @@ for start in range(1, 57, 10):
         "",
     ])
 
+split_narration_blocks = 0
+split_narration_parts = 0
 for chapter in CHAPTERS:
     number = chapter["number"]
     quiz = chapter["minigame"]
@@ -195,8 +214,13 @@ for chapter in CHAPTERS:
         scene_title = scene.get("scene_title_pt", f"Cena {scene_index}")
         lines.extend([
             f"    centered {quoted(f'Cena {scene_index} — {scene_title}')}",
-            f"    narrator {quoted(scene['narration_pt'])}",
         ])
+        segments = narrative_segments(scene["narration_pt"])
+        if len(segments) > 1:
+            split_narration_blocks += 1
+            split_narration_parts += len(segments)
+        for segment in segments:
+            lines.append(f"    narrator {quoted(segment)}")
         for dialogue in scene.get("dialogue", []):
             speaker = dialogue.get("speaker", "Narrador").strip() or "Narrador"
             speaker_id = "narrator" if speaker == "Narrador" else speaker_ids[speaker]
@@ -254,3 +278,4 @@ for chapter in CHAPTERS:
 
 (GAME / "script.rpy").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 print(f"Wrote {GAME / 'script.rpy'}: {len(CHAPTERS)} chapters, {sum(len(c['scenes']) for c in CHAPTERS)} scenes, {len(speakers)} authored speakers, 56 choices, 56 quizzes.")
+print(f"Split {split_narration_blocks} long scene narrations into {split_narration_parts} pages at original paragraph boundaries.")

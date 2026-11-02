@@ -52,7 +52,7 @@ def main() -> int:
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
     web_directory = args.web_directory.resolve()
-    for name in ("index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data"):
+    for name in ("index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data", "web-presplash.jpg"):
         if not (web_directory / name).is_file():
             raise SystemExit(f"Missing web runtime file: {web_directory / name}")
 
@@ -60,18 +60,24 @@ def main() -> int:
         with zipfile.ZipFile(web_directory / "game.zip") as archive:
             background_manifest = json.loads(archive.read("game/images/optimized/manifest.json"))
             sprite_manifest = json.loads(archive.read("game/images/masters/sprites/manifest.json"))
+            narrator_manifest = json.loads(archive.read("game/images/narrator/manifest.json"))
             compiled_story_bytes = archive.getinfo("game/script.rpyc").file_size
             if compiled_story_bytes <= 0:
                 raise ValueError("compiled Ren'Py story script is empty")
     except (OSError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
         raise SystemExit(f"Could not read progressive image manifests from game.zip: {error}") from error
-    if len(background_manifest.get("assets", [])) != 56 or len(sprite_manifest.get("assets", [])) != 54:
-        raise SystemExit("Expected 56 progressive backgrounds and 54 progressive sprites in the manifests")
-    progressive_assets = ["game/images/bg_intro_scene.jpg"]
+    if (
+        len(background_manifest.get("assets", [])) != 56
+        or len(sprite_manifest.get("assets", [])) != 54
+        or narrator_manifest.get("relativePath") != "images/narrator/orb.png"
+        or narrator_manifest.get("file") != "orb.png"
+    ):
+        raise SystemExit("Expected 56 progressive backgrounds, 54 progressive sprites and the narrator orb manifest")
+    progressive_assets = ["game/images/bg_intro_scene.jpg", "game/images/narrator/orb.png"]
     progressive_assets.extend(f"game/images/optimized/{asset['file']}" for asset in background_manifest["assets"])
     progressive_assets.extend(f"game/images/{asset['file']}" for asset in sprite_manifest["assets"])
-    if len(set(progressive_assets)) != 111:
-        raise SystemExit("Expected exactly 111 unique progressive runtime image paths")
+    if len(set(progressive_assets)) != 112:
+        raise SystemExit("Expected exactly 112 unique progressive runtime image paths")
 
     image_root = web_directory / "game" / "images"
     verified_backgrounds = 0
@@ -96,6 +102,18 @@ def main() -> int:
         verified_sprites += 1
     if not (image_root / "bg_intro_scene.jpg").is_file():
         raise SystemExit("Independent opening background is missing from the real progressive files")
+    presplash_path = web_directory / "web-presplash.jpg"
+    if sha256_file(presplash_path) != sha256_file(image_root / "bg_intro_scene.jpg"):
+        raise SystemExit("Web presplash differs from the approved opening landscape")
+    if "web-presplash.jpg" not in (web_directory / "index.html").read_text(encoding="utf-8"):
+        raise SystemExit("Web index does not reference web-presplash.jpg")
+    narrator_path = image_root / "narrator" / "orb.png"
+    if (
+        not narrator_path.is_file()
+        or narrator_path.stat().st_size != narrator_manifest.get("sizeBytes")
+        or sha256_file(narrator_path) != narrator_manifest.get("sha256")
+    ):
+        raise SystemExit("Narrator orb failed SHA-256/size verification in the real progressive files")
 
     try:
         from playwright.sync_api import sync_playwright
@@ -124,6 +142,13 @@ def main() -> int:
                 raise SystemExit(f"Progressive runtime image was not served: {relative_path}: {error}") from error
         if any(status != 200 for status in progressive_asset_status.values()):
             raise SystemExit(f"Progressive runtime images did not all return HTTP 200: {progressive_asset_status}")
+        try:
+            with urlopen(Request(base_url + "web-presplash.jpg", method="HEAD"), timeout=30) as response:
+                presplash_http_status = response.status
+        except Exception as error:
+            raise SystemExit(f"Web presplash was not served: {error}") from error
+        if presplash_http_status != 200:
+            raise SystemExit(f"Web presplash did not return HTTP 200: {presplash_http_status}")
 
         with sync_playwright() as playwright:
             launch_args = [
@@ -150,7 +175,7 @@ def main() -> int:
             page.on(
                 "response",
                 lambda response: resource_status.__setitem__(Path(urlparse(response.url).path).name, response.status)
-                if Path(urlparse(response.url).path).name in {"index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data"}
+                if Path(urlparse(response.url).path).name in {"index.html", "game.zip", "renpy.js", "renpy.wasm", "renpy.data", "web-presplash.jpg"}
                 else None,
             )
             response = page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
@@ -173,7 +198,7 @@ def main() -> int:
         server.shutdown()
         server.server_close()
 
-    required = {"game.zip", "renpy.js", "renpy.wasm", "renpy.data"}
+    required = {"game.zip", "renpy.js", "renpy.wasm", "renpy.data", "web-presplash.jpg"}
     missing = sorted(name for name in required if resource_status.get(name) != 200)
     if missing:
         raise SystemExit(f"Required runtime resources were not fetched successfully: {missing}; got {resource_status}")
@@ -197,6 +222,12 @@ def main() -> int:
         "url": base_url,
         "canvas": canvas_size,
         "resources": resource_status,
+        "webPresplash": {
+            "file": str(presplash_path),
+            "sha256MatchesOpeningLandscape": True,
+            "headStatus": presplash_http_status,
+            "browserStatus": resource_status.get("web-presplash.jpg"),
+        },
         "progressiveImageAssets": {
             "count": len(progressive_asset_status),
             "backgroundCount": len(background_manifest["assets"]),
@@ -207,6 +238,7 @@ def main() -> int:
             "backgroundsSha256Verified": verified_backgrounds,
             "spritesSha256Verified": verified_sprites,
             "openingBackgroundPresent": True,
+            "webPresplashMatchesOpeningLandscape": True,
             "placeholderFilesUsedAsEvidence": False,
         },
         "compiledRenpyStory": {
@@ -223,7 +255,7 @@ def main() -> int:
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
-    print(f"PASS: Ren'Py Web canvas {canvas_size}; HTTP 200 for game.zip/runtime and all {len(progressive_asset_status)} progressive images; Enter input accepted; no browser errors.")
+    print(f"PASS: Ren'Py Web canvas {canvas_size}; HTTP 200 for game.zip/runtime, web-presplash.jpg and all {len(progressive_asset_status)} progressive images; Enter input accepted; no browser errors.")
     return 0
 
 
