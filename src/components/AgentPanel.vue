@@ -1761,6 +1761,7 @@ function localSystemPrompt(config: AgentConfig): string {
     `- secret_get {id}: reveal ONE stored secret's plaintext. The result carries the plaintext to you — ` +
     `default permission is ASK (the approval card shows the title, never the value). Only call it when ` +
     `the user explicitly asked you to use this credential.\n` +
+    `- mcp__xerj__*: XERJ AI search engine (xerj_search for code search, xerj_def for AST definitions, xerj_code_search for reference coding).\n` +
     `- mcp__server__tool: attached HTTP MCP servers only; stdio servers answer unsupported:.\n` +
     `- memory_recall {query, top_k?}: search long-term memory (past sessions, stored facts). ` +
     `Bounded and possibly stale — verify before acting.\n` +

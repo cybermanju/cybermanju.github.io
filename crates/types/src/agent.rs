@@ -382,6 +382,12 @@ pub const DEFAULT_EXA_MCP_NAME: &str = "exa";
 /// `web_search_exa` / `web_fetch_exa` tools; rate-limited free tier).
 pub const DEFAULT_EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";
 
+/// Default local search engine and reference-coding MCP server name (XERJ).
+pub const DEFAULT_XERJ_MCP_NAME: &str = "xerj";
+
+/// Default local XERJ HTTP endpoint (Elasticsearch/MCP-compatible dev node).
+pub const DEFAULT_XERJ_MCP_URL: &str = "http://localhost:9200";
+
 /// The default Exa MCP server config attached to every agent config.
 pub fn default_exa_mcp_server() -> McpServerConfig {
     McpServerConfig {
@@ -395,25 +401,52 @@ pub fn default_exa_mcp_server() -> McpServerConfig {
     }
 }
 
-/// Insert the default Exa MCP server when the map has no `exa` entry.
-/// Existing user entries (including a disabled `exa`) are never touched.
+/// The default local XERJ MCP server attached to agent configs.
+pub fn default_xerj_mcp_server() -> McpServerConfig {
+    McpServerConfig {
+        transport: "http".to_string(),
+        command: None,
+        args: Vec::new(),
+        env: std::collections::BTreeMap::new(),
+        url: Some(DEFAULT_XERJ_MCP_URL.to_string()),
+        headers: Vec::new(),
+        enabled: true,
+    }
+}
+
+/// Insert default MCP servers when the map is missing standard endpoints.
+/// Existing user entries are never overwritten.
 pub fn ensure_default_mcp_servers(
     servers: &mut std::collections::BTreeMap<String, McpServerConfig>,
 ) {
     if !servers.contains_key(DEFAULT_EXA_MCP_NAME) {
         servers.insert(DEFAULT_EXA_MCP_NAME.to_string(), default_exa_mcp_server());
     }
+    if !servers.contains_key(DEFAULT_XERJ_MCP_NAME) {
+        servers.insert(DEFAULT_XERJ_MCP_NAME.to_string(), default_xerj_mcp_server());
+    }
 }
 
-/// Default-allow the safe network-fetch commands and the default Exa
-/// search tools so a fresh config can search the web without an approval
-/// round-trip. Read-only research tools (`self_research`, `repo_analyze`)
-/// are allowed too — they never mutate. Only fills gaps: explicit user
-/// rules are never overwritten.
+/// Default-allow the safe network-fetch commands, default Exa search tools,
+/// and local XERJ search / reference-coding tools so a fresh config can search
+/// and retrieve mechanisms without approval round-trips. Read-only research tools
+/// (`self_research`, `repo_analyze`) are allowed too — they never mutate.
+/// Only fills gaps: explicit user rules are never overwritten.
 pub fn ensure_default_agent_permissions(rules: &mut PermissionRuleset) {
     for tool in [
         "mcp__exa__web_search_exa",
         "mcp__exa__web_fetch_exa",
+        "mcp__xerj__xerj_search",
+        "mcp__xerj__xerj_def",
+        "mcp__xerj__xerj_code_search",
+        "mcp__xerj__xerj_map",
+        "mcp__xerj__xerj_plan",
+        "mcp__xerj__xerj_batch_search",
+        "mcp__xerj__xerj_semantic_search",
+        "mcp__xerj__xerj_hybrid_search",
+        "mcp__xerj__xerj_hub_find",
+        "mcp__xerj__xerj_hub_def",
+        "mcp__xerj__xerj_hub_ask",
         "self_research",
         "repo_analyze",
         // UI tools are read-only from the volume's point of view — they

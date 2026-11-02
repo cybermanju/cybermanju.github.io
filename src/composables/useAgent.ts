@@ -407,7 +407,9 @@ export function splitMcpToolName(name: string): [string, string] | null {
 export function localMcpServers(configId: string): Record<string, McpServerConfig> {
   try {
     const all = JSON.parse(localStorage.getItem(CONFIGS_KEY) ?? '[]') as AgentConfig[]
-    return all.find(c => c.id === configId)?.mcpServers ?? {}
+    const cfg = all.find(c => c.id === configId)
+    if (!cfg) return {}
+    return { ...cfg.mcpServers }
   } catch {
     return {}
   }
