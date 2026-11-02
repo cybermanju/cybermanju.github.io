@@ -1,7 +1,31 @@
 <!-- CyberManju OS — Persistent, app-local Home workspaces. Not Android Recents. -->
 <!-- Role: app-local Home UI only. Integrates: Vue and bounded persisted workspace state. -->
 <template>
-  <section ref="root" class="home-studio" :class="{ 'motion-reduced': motion.reduced.value, 'is-editing': editing, 'is-overview': overview, 'screen-enter-next': screenMotion === 'next', 'screen-enter-previous': screenMotion === 'previous' }" data-ui-layout-ignore data-shell-gesture-exclude @pointerdown.capture="emptyPress.newPointer" @click.capture="homeClick" :inert="props.blocked" tabindex="0" @keydown="workspaceKeys" aria-label="Personal home workspaces" @touchstart.stop.passive="touchStart" @touchmove.stop="touchMove" @touchend.stop="touchEnd" @touchcancel.stop="cancelTouch">
+  <section ref="root" class="home-studio" :class="{ 
+    'motion-reduced': motion.reduced.value, 
+    'is-editing': editing, 
+    'is-overview': overview, 
+    'screen-enter-next': screenMotion === 'next', 
+    'screen-enter-previous': screenMotion === 'previous',
+    'screen-swiping': swipeProgress > 0,
+    'swipe-up': swipeDirection === 'up',
+    'swipe-down': swipeDirection === 'down',
+    'swipe-left': swipeDirection === 'left',
+    'swipe-right': swipeDirection === 'right',
+    'swipe-up-left': swipeDirection === 'upLeft',
+    'swipe-up-right': swipeDirection === 'upRight',
+    'swipe-down-left': swipeDirection === 'downLeft',
+    'swipe-down-right': swipeDirection === 'downRight'
+  }" data-ui-layout-ignore data-shell-gesture-exclude @pointerdown.capture="emptyPress.newPointer" @click.capture="homeClick" :inert="props.blocked" tabindex="0" @keydown="workspaceKeys" aria-label="Personal home workspaces" @touchstart.stop.passive="touchStart" @touchmove.stop="touchMove" @touchend.stop="touchEnd" @touchcancel.stop="cancelTouch">
+    <!-- Directional edge color overlays -->
+    <div class="swipe-edge-overlay swipe-edge-top" :style="edgeOverlayStyle('top')" />
+    <div class="swipe-edge-overlay swipe-edge-bottom" :style="edgeOverlayStyle('bottom')" />
+    <div class="swipe-edge-overlay swipe-edge-left" :style="edgeOverlayStyle('left')" />
+    <div class="swipe-edge-overlay swipe-edge-right" :style="edgeOverlayStyle('right')" />
+    <div class="swipe-edge-overlay swipe-edge-top-left" :style="edgeOverlayStyle('topLeft')" />
+    <div class="swipe-edge-overlay swipe-edge-top-right" :style="edgeOverlayStyle('topRight')" />
+    <div class="swipe-edge-overlay swipe-edge-bottom-left" :style="edgeOverlayStyle('bottomLeft')" />
+    <div class="swipe-edge-overlay swipe-edge-bottom-right" :style="edgeOverlayStyle('bottomRight')" />
     <div class="studio-surface" :inert="!!picker">
     <div v-if="editing || overview" class="studio-heading">
       <div><span class="studio-kicker">SCREEN {{ activeIndex + 1 }} / {{ state.pages.length }}</span><h2>{{ activePage.title }}</h2></div>
@@ -28,7 +52,15 @@
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
       <slot v-if="!editing && !overview" name="home-tools" />
       <nav class="screen-nav" aria-label="Home screen navigation">
-        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :screen-positions="screenPositions" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop && !props.blocked" @navigate="navigateOrb" @open-apps="emit('openApps')" />
+        <OrbNavigator 
+          :screen-index="activeIndex" 
+          :screen-count="state.pages.length" 
+          :screen-positions="screenPositions" 
+          :disabled="!!props.blocked || editing || !!picker || overview" 
+          :motion-reduced="motion.reduced.value" 
+          v-if="!orbHiddenOnDesktop && !props.blocked" 
+          @navigate="navigateOrb" 
+          @open-apps="emit('openApps')" />
       </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -113,6 +145,223 @@ const state = ref(normalizeHomeState(load(), props.initialIds))
 const overview = ref(false), editing = ref(false), zoom = ref(1), panX = ref(0), panY = ref(0)
 const screenMotion = ref<'next' | 'previous' | null>(null)
 let screenMotionTimer: ReturnType<typeof setTimeout> | null = null
+
+// ---------- 8-direction swipe gesture with momentum ----------
+type SwipeDirection = 'left' | 'right' | 'up' | 'down' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight' | null
+const swipeDirection = ref<SwipeDirection>(null)
+const swipeProgress = ref(0)
+let swipeGesture: { startX: number; startY: number; lastX: number; lastY: number; lastTime: number; velocityX: number; velocityY: number; claimed: boolean; fingers: number } | null = null
+let momentumRaf = 0
+
+// Direction to screen navigation mapping with screen hue colors
+const SWIPE_THRESHOLD = 40
+const MOMENTUM_DECAY = 0.92
+const MOMENTUM_THRESHOLD = 0.3
+
+const DIRECTION_COLORS: Record<SwipeDirection, string> = {
+  left: '#ff6b6b',
+  right: '#4ecdc4',
+  up: '#a29bfe',
+  down: '#fd79a8',
+  upLeft: '#fdcb6e',
+  upRight: '#74b9ff',
+  downLeft: '#e17055',
+  downRight: '#00b894',
+}
+
+function edgeOverlayStyle(edge: string): Record<string, string> {
+  if (swipeProgress.value <= 0) return { opacity: '0' }
+  const isActive = (
+    (edge === 'top' && swipeDirection.value === 'up') ||
+    (edge === 'bottom' && swipeDirection.value === 'down') ||
+    (edge === 'left' && swipeDirection.value === 'left') ||
+    (edge === 'right' && swipeDirection.value === 'right') ||
+    (edge === 'topLeft' && swipeDirection.value === 'upLeft') ||
+    (edge === 'topRight' && swipeDirection.value === 'upRight') ||
+    (edge === 'bottomLeft' && swipeDirection.value === 'downLeft') ||
+    (edge === 'bottomRight' && swipeDirection.value === 'downRight')
+  )
+  if (!isActive) return { opacity: '0' }
+  const color = DIRECTION_COLORS[swipeDirection.value] || 'var(--hw-accent)'
+  const opacity = Math.min(0.45, swipeProgress.value * 0.55)
+  return { 
+    opacity: String(opacity),
+    background: `linear-gradient(${edge.includes('Left') ? '135deg' : edge.includes('Right') ? -45 : edge === 'top' ? 180 : 0}deg, ${color} 0%, transparent 70%)`
+  }
+}
+
+function classifySwipeDirection(dx: number, dy: number): SwipeDirection {
+  const absX = Math.abs(dx)
+  const absY = Math.abs(dy)
+  
+  // Need at least threshold movement
+  if (Math.max(absX, absY) < SWIPE_THRESHOLD) return null
+  
+  // Check diagonal first (both axes significant)
+  const isDiagonal = absX > SWIPE_THRESHOLD * 0.6 && absY > SWIPE_THRESHOLD * 0.6
+  const ratio = Math.min(absX, absY) / Math.max(absX, absY)
+  
+  if (isDiagonal && ratio > 0.5) {
+    // Diagonal directions
+    if (dx < 0 && dy < 0) return 'upLeft'
+    if (dx > 0 && dy < 0) return 'upRight'
+    if (dx < 0 && dy > 0) return 'downLeft'
+    if (dx > 0 && dy > 0) return 'downRight'
+  }
+  
+  // Cardinal directions (one axis dominant)
+  if (absX > absY * 1.3) {
+    return dx < 0 ? 'left' : 'right'
+  }
+  if (absY > absX * 1.3) {
+    return dy < 0 ? 'up' : 'down'
+  }
+  
+  return null
+}
+
+function swipeNavigate(direction: SwipeDirection) {
+  const origin = homeWorkspacePosition(activePage.value, activeIndex.value, state.value.pages.length)
+  let delta: HomeGridDelta = { dx: 0, dy: 0 }
+  
+  switch (direction) {
+    case 'left': delta = { dx: -1, dy: 0 }; break
+    case 'right': delta = { dx: 1, dy: 0 }; break
+    case 'up': delta = { dx: 0, dy: -1 }; break
+    case 'down': delta = { dx: 0, dy: 1 }; break
+    case 'upLeft': delta = { dx: -1, dy: -1 }; break
+    case 'upRight': delta = { dx: 1, dy: -1 }; break
+    case 'downLeft': delta = { dx: -1, dy: 1 }; break
+    case 'downRight': delta = { dx: 1, dy: 1 }; break
+    default: return
+  }
+  
+  const target = homeGridTarget(origin, delta)
+  if (!isHomeGridPosition(target)) return
+  
+  const neighborIndex = screenPositions.value.findIndex(point => point.x === target.x && point.y === target.y)
+  if (neighborIndex >= 0) {
+    navigate(neighborIndex)
+    return
+  }
+  
+  if (state.value.pages.length >= MAX_WORKSPACES) {
+    message.value = '24-screen limit reached.'
+    return
+  }
+  
+  void (async () => {
+    if (!await suspendHome() || props.blocked) return
+    if (!motion.reduced.value) {
+      screenMotion.value = null
+      if (screenMotionTimer) clearTimeout(screenMotionTimer)
+      await nextTick()
+      screenMotion.value = direction === 'left' || direction === 'upLeft' || direction === 'downLeft' ? 'previous' : 'next'
+      screenMotionTimer = setTimeout(() => { screenMotion.value = null; screenMotionTimer = null }, 320)
+    }
+    const id = createHomeWorkspace(state.value, target)
+    if (id) message.value = ''
+    else message.value = '24-screen limit reached.'
+  })()
+}
+
+function startSwipeGesture(x: number, y: number) {
+  swipeGesture = { startX: x, startY: y, lastX: x, lastY: y, lastTime: performance.now(), velocityX: 0, velocityY: 0, claimed: false }
+}
+
+function updateSwipeGesture(x: number, y: number) {
+  if (!swipeGesture) return
+  const now = performance.now()
+  const dt = Math.max(1, now - swipeGesture.lastTime)
+  swipeGesture.velocityX = (x - swipeGesture.lastX) / dt * 16
+  swipeGesture.velocityY = (y - swipeGesture.lastY) / dt * 16
+  swipeGesture.lastX = x
+  swipeGesture.lastY = y
+  swipeGesture.lastTime = now
+  
+  const dx = x - swipeGesture.startX
+  const dy = y - swipeGesture.startY
+  const distance = Math.hypot(dx, dy)
+  const direction = classifySwipeDirection(dx, dy)
+  
+  if (direction && !swipeGesture.claimed) {
+    swipeGesture.claimed = true
+    swipeDirection.value = direction
+  }
+  
+  if (swipeGesture.claimed) {
+    swipeProgress.value = Math.min(1, distance / 180)
+  }
+}
+
+function endSwipeGesture() {
+  if (!swipeGesture) return
+  
+  const dx = swipeGesture.lastX - swipeGesture.startX
+  const dy = swipeGesture.lastY - swipeGesture.startY
+  const direction = classifySwipeDirection(dx, dy)
+  const velocity = Math.hypot(swipeGesture.velocityX, swipeGesture.velocityY)
+  const shouldCommit = direction && (swipeProgress.value > 0.25 || velocity > MOMENTUM_THRESHOLD)
+  
+  if (shouldCommit) {
+    swipeNavigate(direction)
+  }
+  
+  // Momentum throw effect
+  if (swipeGesture.claimed && velocity > MOMENTUM_THRESHOLD * 2) {
+    let momentumX = swipeGesture.velocityX
+    let momentumY = swipeGesture.velocityY
+    let momentumProgress = swipeProgress.value
+    
+    const momentumStep = () => {
+      momentumX *= MOMENTUM_DECAY
+      momentumY *= MOMENTUM_DECAY
+      momentumProgress *= MOMENTUM_DECAY
+      
+      if (momentumProgress < 0.01) {
+        swipeDirection.value = null
+        swipeProgress.value = 0
+        swipeGesture = null
+        return
+      }
+      
+      swipeProgress.value = momentumProgress
+      
+      const currentDx = swipeGesture ? swipeGesture.lastX - swipeGesture.startX + momentumX * 10 : dx
+      const currentDy = swipeGesture ? swipeGesture.lastY - swipeGesture.startY + momentumY * 10 : dy
+      const currentDir = classifySwipeDirection(currentDx, currentDy)
+      
+      if (currentDir && currentDir !== swipeDirection.value) {
+        swipeDirection.value = currentDir
+      }
+      
+      momentumRaf = requestAnimationFrame(momentumStep)
+    }
+    
+    momentumRaf = requestAnimationFrame(momentumStep)
+  } else {
+    // Smooth return animation
+    const startProgress = swipeProgress.value
+    const startTime = performance.now()
+    const animateReturn = () => {
+      const elapsed = performance.now() - startTime
+      const duration = 200
+      const t = Math.min(1, elapsed / duration)
+      const ease = 1 - Math.pow(1 - t, 3)
+      
+      swipeProgress.value = startProgress * (1 - ease)
+      
+      if (t < 1) {
+        requestAnimationFrame(animateReturn)
+      } else {
+        swipeDirection.value = null
+        swipeProgress.value = 0
+        swipeGesture = null
+      }
+    }
+    requestAnimationFrame(animateReturn)
+  }
+}
 const root = ref<HTMLElement>(), dialog = ref<HTMLElement>(), addButton = ref<HTMLButtonElement>(), overviewButton = ref<HTMLButtonElement>()
 const activeIndex = computed(() => Math.max(0, state.value.pages.findIndex(p => p.id === state.value.activeId)))
 const activePage = computed(() => state.value.pages[activeIndex.value]!)
@@ -297,9 +546,26 @@ function distance(touches: TouchList) { return touches.length >= 2 ? Math.hypot(
 function excludedTouchTarget(target: EventTarget | null) { const element = target as HTMLElement | null; if (element?.closest?.('.workspace-launch')) return false; return element?.closest?.('button,a,input,textarea,select,[contenteditable],[role="button"],.workspace-app,.workspace-widget,[data-native-placement],.studio-picker,.orb-navigator') }
 function touchStart(event: TouchEvent) {
   touchSafety.start(event)
+  // Cancel any ongoing swipe momentum
+  if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = 0 }
+  swipeDirection.value = null
+  swipeProgress.value = 0
+  swipeGesture = null
+  
   // A sequence ends only after all contacts lift; never re-enroll an invalid sequence.
   const starting = touchCount === 0
   touchCount = event.touches.length
+  
+  // Handle two-finger swipe UP for overview (must be before anything else)
+  if (touchCount === 2 && starting) {
+    const [p1, p2] = Array.from(event.touches)
+    const startY = (p1.clientY + p2.clientY) / 2
+    // Store for move tracking
+    startSwipeGesture((p1.clientX + p2.clientX) / 2, startY)
+    swipeGesture!.fingers = 2
+    return
+  }
+  
   if (starting) { gestureEpoch++; gesture = null }
   // Pointerdown precedes touchstart. A tile drag already has a Pointer owner;
   // do not erase it just because its corresponding touch event arrives.
@@ -333,6 +599,18 @@ function touchStart(event: TouchEvent) {
 function touchMove(event: TouchEvent) {
   touchSafety.move(event)
   touchCount = event.touches.length
+  
+  // Handle 8-direction swipe gesture - track independently from old gesture system
+  if (swipeGesture && touchCount === swipeGesture.fingers && !overview.value) {
+    const point = event.touches[0]
+    updateSwipeGesture(point.clientX, point.clientY)
+    if (swipeDirection.value && event.cancelable) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    return // Skip old gesture processing when swipe is active
+  }
+  
   if (dragging.value) { if (touchCount !== 1) resetTouch(); return }
   if (touchBlocked) return
   if (props.blocked || !gesture || picker.value || editing.value) { resetTouch(); return }
@@ -349,12 +627,81 @@ function touchMove(event: TouchEvent) {
     zoom.value = Math.max(.65, Math.min(1.4, gesture.zoom * distance(event.touches) / Math.max(1, gesture.distance)))
     panX.value = Math.max(-300, Math.min(300, gesture.panX + point.x - gesture.x))
     panY.value = Math.max(-300, Math.min(300, gesture.panY + point.y - gesture.y))
+  } else if (gesture.fingers === 1 && gesture.ready && !overview.value && !swipeGesture) {
+    // Single finger - check for 8-direction swipe before old system
+    const dx = point.x - gesture.x
+    const dy = point.y - gesture.y
+    if (Math.hypot(dx, dy) > 15) {
+      const dir = classifySwipeDirection(dx, dy)
+      if (dir) {
+        startSwipeGesture(point.clientX, point.clientY)
+        if (event.cancelable) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+        return
+      }
+    }
   } else if (gesture.ready && classifyHomeGesture(point.x - gesture.x, point.y - gesture.y, gesture.fingers) && event.cancelable) event.preventDefault()
 }
 function currentGesture(current: NonNullable<typeof gesture>) { return current.epoch === gestureEpoch && !props.blocked && !picker.value && !editing.value && !dragging.value }
+
+function handleTwoFingerSwipe(): boolean {
+  // Two-finger swipe UP opens overview, DOWN closes it
+  if (!swipeGesture || swipeGesture.fingers !== 2) return false
+  
+  const dy = swipeGesture.lastY - swipeGesture.startY
+  const dx = Math.abs(swipeGesture.lastX - swipeGesture.startX)
+  
+  // Swipe up with two fingers opens overview
+  if (dy < -50 && dx < Math.abs(dy) * 1.5) {
+    if (!overview.value) {
+      void (async () => {
+        if (!await suspendHome()) return
+        overview.value = true
+      })()
+    }
+    return true
+  }
+  
+  // Swipe down with two fingers closes overview
+  if (dy > 50 && dx < Math.abs(dy) * 1.5 && overview.value) {
+    overview.value = false
+    return true
+  }
+  
+  return false
+}
+
 async function touchEnd(event: TouchEvent) {
   touchSafety.end(event)
   touchCount = event.touches.length
+  
+  // Handle swipe gestures first - check two-finger overview swipe
+  if (swipeGesture && swipeGesture.fingers === 2) {
+    if (handleTwoFingerSwipe()) {
+      swipeDirection.value = null
+      swipeProgress.value = 0
+      swipeGesture = null
+      return
+    }
+  }
+  
+  // Handle 8-direction swipe gesture completion (single finger)
+  if (swipeGesture && (touchCount === 0 || (touchCount < swipeGesture.fingers))) {
+    endSwipeGesture()
+    // Don't process other gestures if swipe was claimed
+    if (swipeDirection.value && swipeProgress.value > 0.15) {
+      swipeDirection.value = null
+      swipeProgress.value = 0
+      swipeGesture = null
+      return
+    }
+    // Reset if swipe didn't commit
+    swipeDirection.value = null
+    swipeProgress.value = 0
+    swipeGesture = null
+  }
   if (gesture?.releasing && [...Array.from(event.touches), ...Array.from(event.changedTouches || [])].some(point => {
     const contact = gesture!.contacts.find(c => c.id === point.identifier)
     return !contact || Math.hypot(point.clientX - contact.x, point.clientY - contact.y) > 10
@@ -395,7 +742,24 @@ async function touchEnd(event: TouchEvent) {
   dragging.value = null
   nativeHome.schedule()
 }
-function cancelTouch(event: TouchEvent) { touchSafety.cancel(event); touchCount = event.touches.length; resetTouch() }
+function cancelTouch(event: TouchEvent) { 
+  touchSafety.cancel(event); 
+  touchCount = event.touches.length; 
+  // Cancel swipe gesture
+  if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = 0 }
+  swipeDirection.value = null
+  swipeProgress.value = 0
+  swipeGesture = null
+  resetTouch() 
+}
+
+// Ensure swipe is cancelled on overview toggle
+async function toggleOverview() { 
+  resetTouch()
+  if (props.blocked || !await suspendHome()) return
+  if (overview.value) await closeOverview()
+  else { editing.value = false; overview.value = true } 
+}
 function resetTouch(cancelDrag = true) { gestureEpoch++; gesture = null; if (cancelDrag) dragging.value = null; touchBlocked = touchCount > 0 }
 function invalidateTouch() { touchSafety.cancel(); resetTouch() }
 function importHomeState() { state.value = normalizeHomeState(load(), props.initialIds); for (const page of [...state.value.pages]) arrangeOverflow(page.id); overview.value = false; editing.value = false }
@@ -532,6 +896,93 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 @keyframes eagle-open { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
 @keyframes home-screen-next { from { opacity: .65; transform: translate3d(18px, 0, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
 @keyframes home-screen-previous { from { opacity: .65; transform: translate3d(-18px, 0, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+
+/* ---------- 8-direction swipe gesture overlays ---------- */
+.swipe-edge-overlay {
+  position: absolute;
+  pointer-events: none;
+  z-index: 100;
+  transition: opacity 0.15s cubic-bezier(.2, .8, .2, 1);
+}
+
+.swipe-edge-top { top: 0; left: 0; right: 0; height: 35%; }
+.swipe-edge-bottom { bottom: 0; left: 0; right: 0; height: 35%; }
+.swipe-edge-left { top: 0; bottom: 0; left: 0; width: 35%; }
+.swipe-edge-right { top: 0; bottom: 0; right: 0; width: 35%; }
+.swipe-edge-top-left { top: 0; left: 0; width: 50%; height: 50%; }
+.swipe-edge-top-right { top: 0; right: 0; width: 50%; height: 50%; }
+.swipe-edge-bottom-left { bottom: 0; left: 0; width: 50%; height: 50%; }
+.swipe-edge-bottom-right { bottom: 0; right: 0; width: 50%; height: 50%; }
+
+/* ---------- Enhanced screen transitions with momentum ---------- */
+.screen-swiping .studio-home {
+  transition: transform 0.12s cubic-bezier(.25, .46, .45, .94);
+}
+
+.screen-swiping.screen-enter-next .studio-home {
+  transform: translate3d(calc(-100% + var(--swipe-offset, 0px)), 0, 0);
+}
+
+.screen-swiping.screen-enter-previous .studio-home {
+  transform: translate3d(calc(100% - var(--swipe-offset, 0px)), 0, 0);
+}
+
+.screen-enter-next .studio-home {
+  animation: home-screen-next 320ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+.screen-enter-previous .studio-home {
+  animation: home-screen-previous 320ms cubic-bezier(.2, .8, .2, 1) both;
+}
+
+/* ---------- Larger orb on mobile ---------- */
+@media (max-width: 768px) {
+  .orb-navigator:not(.orb-navigator--teacher) {
+    --mobile-orb-size: clamp(88px, 14vh, 112px);
+  }
+  
+  .orb-navigator:not(.orb-navigator--teacher) .orb-core {
+    width: var(--mobile-orb-size, 112px);
+    height: var(--mobile-orb-size, 112px);
+  }
+  
+  .orb-navigator:not(.orb-navigator--teacher)::before {
+    inset: -22%;
+  }
+}
+
+/* ---------- Orb reset animation on screen change ---------- */
+@keyframes orb-reset-up {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(-8px); }
+  60% { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes orb-reset-down {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(8px); }
+  60% { transform: translateY(-2px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes orb-reset-left {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(-8px); }
+  60% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes orb-reset-right {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(8px); }
+  60% { transform: translateX(-2px); }
+  100% { transform: translateX(0); }
+}
+
+.orb-navigator.orb-resetting {
+  animation: orb-reset-up 0.4s cubic-bezier(.2, .8, .2, 1);
+}
 .motion-reduced .eagle-canvas,.motion-reduced .eagle-card { transition: none; } .motion-reduced .eagle-card:hover { transform: none; }.motion-reduced .eagle-viewport,.motion-reduced .studio-home { animation: none !important; }
 @media(prefers-reduced-motion:reduce) { .eagle-canvas,.eagle-card { transition: none; }.eagle-viewport { animation: none; }.eagle-card:hover { transform: none; } }
 @media(prefers-reduced-motion:reduce) { .app-shaking .workspace-launch { animation: none !important; } }
