@@ -102,16 +102,16 @@
     <div class="resize-handle nw" @pointerdown.prevent.stop="startResize('nw', $event)"></div>
     <div class="resize-handle se" @pointerdown.prevent.stop="startResize('se', $event)"></div>
     <div class="resize-handle sw" @pointerdown.prevent.stop="startResize('sw', $event)"></div>
+    <Teleport to="body">
+      <div
+        v-if="isSearchPalette && !isMobileApp && !isOverview && !win.minimized"
+        class="search-palette-backdrop"
+        :class="{ 'search-palette-backdrop--solid': theme.glass.value === 0, 'search-palette-backdrop--motion-reduced': theme.settings.motion === 'reduced' }"
+        aria-hidden="true"
+        @pointerdown.self="onClose"
+      />
+    </Teleport>
   </div>
-  <Teleport to="body">
-    <div
-      v-if="isSearchPalette && !isMobileApp && !isOverview && !win.minimized"
-      class="search-palette-backdrop"
-      :class="{ 'search-palette-backdrop--solid': theme.glass.value === 0, 'search-palette-backdrop--motion-reduced': theme.settings.motion === 'reduced' }"
-      aria-hidden="true"
-      @pointerdown.self="onClose"
-    />
-  </Teleport>
 </template>
 
 <script setup lang="ts">

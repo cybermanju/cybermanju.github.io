@@ -97,8 +97,8 @@ describe('stack navigation integration', () => {
 })
 
 describe('phone chrome: visible status and window headers', () => {
-  it('reserves a touch-friendly 48px status header', () => {
-    expect(ui).toContain('--mobile-header-h: 48px')
+  it('reserves a touch-friendly responsive status header', () => {
+    expect(ui).toContain('--mobile-header-h: clamp(44px, 6vh, 52px)')
     expect(topbar).toMatch(/height:\s*var\(--mobile-header-h\)/)
     expect(topbar).toMatch(/min-height:\s*var\(--mobile-header-h\)/)
     expect(topbar).not.toContain('calc(52px + env(safe-area-inset-top')
@@ -117,7 +117,8 @@ describe('phone chrome: visible status and window headers', () => {
   it('keeps the window titlebar visible for every mobile app', () => {
     expect(appWindow).not.toContain('app-window--bare-title')
     expect(appWindow).toMatch(/\.window-titlebar\s*\{[^}]*height:\s*48px/)
-    expect(appWindow).toContain('aria-label="Close window"')
-    expect(appWindow).toContain('aria-label="Minimize window"')
+    expect(appWindow).toContain('class="titlebar-mobile-close"')
+    expect(appWindow).toContain(':aria-label="`Close ${win.title}`"')
+    expect(appWindow).toContain(':aria-label="`Minimize ${win.title}`"')
   })
 })

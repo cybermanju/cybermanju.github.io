@@ -59,7 +59,7 @@ describe('unified search controller', () => {
     offB()
   })
 
-  it('does not fall back when local rows exist, but permits explicit web intent', async () => {
+  it('pairs local rows with web context and permits explicit web refresh', async () => {
     vi.useFakeTimers()
     const query = ref('local match')
     const searchLocal = vi.fn(async () => undefined)
@@ -69,10 +69,13 @@ describe('unified search controller', () => {
     await vi.advanceTimersByTimeAsync(100)
     await flush()
     await vi.advanceTimersByTimeAsync(200)
-    expect(fetchWeb).not.toHaveBeenCalled()
+    expect(fetchWeb).toHaveBeenCalledTimes(1)
+    expect(controller.localReadyQuery.value).toBe(query.value)
+    expect(controller.webQuery.value).toBe(query.value)
+    expect(controller.webResponse.value).toEqual(emptyResponse())
     controller.searchWeb(query.value)
     await flush()
-    expect(fetchWeb).toHaveBeenCalledTimes(1)
+    expect(fetchWeb).toHaveBeenCalledTimes(2)
     expect(controller.webResponse.value).toEqual(emptyResponse())
     stop()
   })

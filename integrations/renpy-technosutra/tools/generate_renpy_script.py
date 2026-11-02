@@ -60,16 +60,74 @@ def quoted(text: str) -> str:
     return json.dumps(str(text), ensure_ascii=False)
 
 
+NARRATION_PAGE_CHARS = 290
+DIALOGUE_PAGE_CHARS = 250
+
+
+def _sentence_units(text: str, limit: int) -> list[str]:
+    """Keep sentence beats intact; fall back to clause/word boundaries if needed."""
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?…])\s+", text.strip()) if part.strip()]
+    units: list[str] = []
+    for sentence in sentences:
+        if len(sentence) <= limit:
+            units.append(sentence)
+            continue
+        clauses = [part.strip() for part in re.split(r"(?<=[;:—–,])\s+", sentence) if part.strip()]
+        if len(clauses) > 1 and all(len(part) <= limit for part in clauses):
+            units.extend(clauses)
+            continue
+        # An unusually long sentence is wrapped at a word boundary as the last
+        # resort. Content is never clipped or discarded.
+        current = ""
+        for word in sentence.split():
+            candidate = f"{current} {word}".strip()
+            if current and len(candidate) > limit:
+                units.append(current)
+                current = word
+            else:
+                current = candidate
+        if current:
+            units.append(current)
+    return units
+
+
+def _pack(units: list[str], limit: int) -> list[str]:
+    pages: list[str] = []
+    current = ""
+    for unit in units:
+        candidate = f"{current} {unit}".strip()
+        if current and len(candidate) > limit:
+            pages.append(current)
+            current = unit
+        else:
+            current = candidate
+    if current:
+        pages.append(current)
+    return pages
+
+
 def narrative_segments(text: str) -> list[str]:
-    """Split only very long narration at existing blank-paragraph boundaries."""
-    if len(text) <= 850:
-        return [text]
-    paragraphs = text.split("\n\n")
-    if len(paragraphs) > 1 and all(paragraph.strip() for paragraph in paragraphs):
-        if "\n\n".join(paragraphs) != text:
-            raise AssertionError("Narration split must reconstruct the exact source string")
-        return paragraphs
-    return [text]
+    """Page at blank paragraphs and sentence beats, targeting 3–4 rendered lines."""
+    pages: list[str] = []
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text.strip()) if part.strip()]
+    for paragraph in paragraphs:
+        pages.extend(_pack(_sentence_units(paragraph, NARRATION_PAGE_CHARS), NARRATION_PAGE_CHARS))
+    return pages or [text.strip()]
+
+
+def dialogue_segments(text: str) -> list[str]:
+    """Keep spoken lines compact without splitting words or losing dialogue."""
+    return _pack(_sentence_units(text, DIALOGUE_PAGE_CHARS), DIALOGUE_PAGE_CHARS) or [text.strip()]
+
+
+def continued(text: str) -> str:
+    """Use one ellipsis as an explicit next-page cue, avoiding doubled periods."""
+    value = text.rstrip()
+    if value.endswith("…"):
+        return value
+    if value.endswith("."):
+        value = value[:-1]
+    return value + "…"
 
 
 def title(chapter: dict) -> str:
@@ -198,6 +256,8 @@ for start in range(1, 57, 10):
 
 split_narration_blocks = 0
 split_narration_parts = 0
+split_dialogue_blocks = 0
+split_dialogue_parts = 0
 for chapter in CHAPTERS:
     number = chapter["number"]
     quiz = chapter["minigame"]
@@ -219,12 +279,21 @@ for chapter in CHAPTERS:
         if len(segments) > 1:
             split_narration_blocks += 1
             split_narration_parts += len(segments)
-        for segment in segments:
+        for segment_index, segment in enumerate(segments):
+            if segment_index < len(segments) - 1:
+                segment = continued(segment)
             lines.append(f"    narrator {quoted(segment)}")
         for dialogue in scene.get("dialogue", []):
             speaker = dialogue.get("speaker", "Narrador").strip() or "Narrador"
             speaker_id = "narrator" if speaker == "Narrador" else speaker_ids[speaker]
-            lines.append(f"    {speaker_id} {quoted(dialogue['line_pt'])}")
+            spoken = dialogue_segments(dialogue["line_pt"])
+            if len(spoken) > 1:
+                split_dialogue_blocks += 1
+                split_dialogue_parts += len(spoken)
+            for spoken_index, segment in enumerate(spoken):
+                if spoken_index < len(spoken) - 1:
+                    segment = continued(segment)
+                lines.append(f"    {speaker_id} {quoted(segment)}")
     lines.extend([
         "    # Optional authored reflection; branches reconverge by design.",
         "    menu:",
@@ -278,4 +347,4 @@ for chapter in CHAPTERS:
 
 (GAME / "script.rpy").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 print(f"Wrote {GAME / 'script.rpy'}: {len(CHAPTERS)} chapters, {sum(len(c['scenes']) for c in CHAPTERS)} scenes, {len(speakers)} authored speakers, 56 choices, 56 quizzes.")
-print(f"Split {split_narration_blocks} long scene narrations into {split_narration_parts} pages at original paragraph boundaries.")
+print(f"Paged {split_narration_blocks} scene narrations into {split_narration_parts} pages and {split_dialogue_blocks} long dialogue lines into {split_dialogue_parts} pages.")

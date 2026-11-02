@@ -1,3 +1,6 @@
+// CyberManju OS — The Stem Array web service worker.
+// Role: manages service-worker lifecycle and optional offline asset caching.
+// Integrates: Ren’Py Web runtime install, activation, fetch, and client messages.
 var cacheName = 'the-stem-array-technosutra-vn';
 
 /* Offline storage is opt-in; the game runs normally without a persistent cache. */

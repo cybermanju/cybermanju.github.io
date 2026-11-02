@@ -29,8 +29,10 @@ RUNTIME_GAME_ZIP_PATH = "technosutra-vn/game.zip"
 RUNTIME_SERVICE_WORKER_PATH = "technosutra-vn/service-worker.js"
 EXPECTED_SPRITE_TAG = "master_ch01_provisional"
 EXPECTED_BACKGROUND_TAG = "bg_ch01"
-OPENING_NARRATION_MARKER = "Esta abertura usa um cenário original independente."
-CHAPTER_ONE_DIALOGUE_MARKER = "Em Śrāvastī, o Bhagavat está em Jetavana acompanhado por Samantabhadra"
+OPENING_NARRATION_MARKER = "Um arquivo se abre."
+SECOND_OPENING_NARRATION_MARKER = "Este prólogo usa um cenário original"
+FINAL_OPENING_NARRATION_MARKER = "Percorreremos os 56 capítulos"
+CHAPTER_ONE_DIALOGUE_MARKER = "Em Śrāvastī, no kūṭāgāra de Jetavana, o Bhagavat está acompanhado por Samantabhadra"
 
 
 def utc_now() -> str:
@@ -470,47 +472,37 @@ def drive_game_to_chapter_one(page: Any, frame: Any, report: dict[str, Any], tim
     report["canvas"] = dimensions
 
     initial_deadline = time.monotonic() + timeout_seconds
-    state: dict[str, Any] | None = None
-    for _ in range(10):
-        state = read_telemetry(frame)
-        if state and OPENING_NARRATION_MARKER in str(state.get("dialogue", "")):
-            break
-        click_canvas(page, canvas, 0.52, 0.50)
-        frame.wait_for_timeout(900)
-        state = read_telemetry(frame)
-        if state and OPENING_NARRATION_MARKER in str(state.get("dialogue", "")):
-            break
-        if time.monotonic() >= initial_deadline:
-            break
-    if not state or OPENING_NARRATION_MARKER not in str(state.get("dialogue", "")):
-        raise RuntimeError("Ren'Py canvas started but the known opening narrator line was not observed via show_done telemetry")
+    state: dict[str, Any] | None = read_telemetry(frame)
+    opening_markers = (
+        ("first opening narrator line", OPENING_NARRATION_MARKER),
+        ("second opening narrator line", SECOND_OPENING_NARRATION_MARKER),
+        ("final opening narrator line", FINAL_OPENING_NARRATION_MARKER),
+    )
+    for label, marker in opening_markers:
+        marker_deadline = min(initial_deadline, time.monotonic() + 20)
+        for _ in range(10):
+            if state and marker in str(state.get("dialogue", "")):
+                break
+            if time.monotonic() >= marker_deadline:
+                break
+            previous = state
+            # The title and narrator text are dismissible from the lower dialogue panel.
+            click_canvas(page, canvas, 0.52, 0.88)
+            state = wait_for_new_telemetry(frame, previous, min(4, max(1, marker_deadline - time.monotonic())))
+        if not state or marker not in str(state.get("dialogue", "")):
+            raise RuntimeError(f"The current authored {label} was not observed via show_done telemetry; refusing to guess the next screen")
 
-    # A real click advances through the second opening narration and to the
-    # story's menu. Click the visible second option to enter chapter 1.
-    second_opening: dict[str, Any] | None = None
-    for _ in range(3):
-        if state and "As cenas recontam os capítulos" in str(state.get("dialogue", "")):
-            second_opening = state
-            break
-        click_canvas(page, canvas, 0.52, 0.88)
-        frame.wait_for_timeout(900)
-        second_opening = read_telemetry(frame)
-        if second_opening and "As cenas recontam os capítulos" in str(second_opening.get("dialogue", "")):
-            break
-    if not second_opening or "As cenas recontam os capítulos" not in str(second_opening.get("dialogue", "")):
-        raise RuntimeError("The second authored opening narration was not observed; refusing to guess the game's menu position")
-    # Advance from the second introductory narration to the visible menu.
+    # Advance from the final introductory narration to the visible menu.
     click_canvas(page, canvas, 0.52, 0.88)
     frame.wait_for_timeout(500)
 
-    # Click the visible second menu choice. Its first centered title is shown
-    # immediately, but the callback publishes it only after the next input.
-    click_canvas(page, canvas, 0.08, 0.83)
+    # Select the visible second menu row: “Começar a jornada — capítulo 1”.
+    click_canvas(page, canvas, 0.52, 0.49)
     frame.wait_for_timeout(500)
     target = read_telemetry(frame)
 
     deadline = time.monotonic() + timeout_seconds
-    for _ in range(4):
+    for _ in range(8):
         tags = set(target.get("showingTags", [])) if target else set()
         if target and CHAPTER_ONE_DIALOGUE_MARKER in str(target.get("dialogue", "")) and EXPECTED_SPRITE_TAG in tags and EXPECTED_BACKGROUND_TAG in tags:
             break

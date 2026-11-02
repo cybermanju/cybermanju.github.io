@@ -83,17 +83,21 @@ describe('iOS status bar + icons + dock', () => {
     expect(launcher).toContain('HomeWorkspaceStudio')
   })
 
-  it('shows a flex-pinned favorites dock without fixed positioning', () => {
-    expect(launcher).toContain('class="mla-dock"')
-    expect(launcher).toMatch(/\.mla-dock\s*\{[^}]*flex-shrink:\s*0/)
-    expect(launcher).not.toMatch(/\.mla-dock\s*\{[^}]*position:\s*fixed/)
+  it('shows a fixed, safe-area-aware favorites dock outside the home surface', () => {
+    expect(launcher).toContain('class="mobile-favorites-dock"')
+    expect(launcher).toContain('aria-label="Favorite apps"')
+    expect(launcher).toMatch(/\.mobile-favorites-dock\s*\{[^}]*position:\s*fixed/)
+    expect(launcher).toMatch(/\.mobile-favorites-dock\s*\{[^}]*bottom:\s*calc\(env\(safe-area-inset-bottom/)
+    expect(launcher).toMatch(/\.mobile-favorites-dock\s*\{[^}]*display:\s*flex/)
   })
 })
 
 describe('iOS tab bar', () => {
-  it('adds a home indicator and haptics on every tab', () => {
-    expect(nav).toContain('mn-home')
-    // Both goHome and go vibrate.
+  it('keeps the Home control and haptics on Home and task selection', () => {
+    expect(nav).toContain('aria-label="Open tasks"')
+    expect(nav).toContain('aria-label="Home"')
+    expect(nav).toContain('v-for="win in taskWindows"')
+    // Both goHome and showTask vibrate.
     const vibrateCount = (nav.match(/vibrate\?\.?\(/g) ?? []).length
     expect(vibrateCount).toBeGreaterThanOrEqual(2)
     expect(nav).toMatch(/blur\(28px\)/)

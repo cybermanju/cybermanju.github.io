@@ -38,34 +38,26 @@ default quick_menu = True
 default stem_last_dialogue_text = ""
 default stem_theme_mode = "flat"
 default stem_theme_accent = "#55edff"
+default stem_theme_override = False
+define stem_speaker_portraits = {}
 
-image stem_ui_panel = ConditionSwitch(
-    "stem_theme_mode == 'glass'",
-    Solid("#101b21e8"),
-    True,
-    Solid("#0b1118f2")
-)
-
-image stem_ui_panel_hover = ConditionSwitch(
-    "stem_theme_mode == 'glass'",
-    Solid("#17272deF"),
-    True,
-    Solid("#151f27f5")
-)
-
-image stem_ui_button = ConditionSwitch(
-    "stem_theme_mode == 'glass'",
-    Solid("#1b2b31e8"),
-    True,
-    Solid("#17212af5")
-)
-
-image stem_ui_button_hover = ConditionSwitch(
-    "stem_theme_mode == 'glass'",
-    Solid("#25443feF"),
-    True,
-    Solid("#263840f5")
-)
+image stem_ui_panel = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_panel_glass.png"), True, Tile("images/ui/velvet_panel_flat.png"))
+image stem_ui_panel_hover = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_menu_glass.png"), True, Tile("images/ui/velvet_menu_flat.png"))
+image stem_ui_button = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_button_glass.png"), True, Tile("images/ui/velvet_button_flat.png"))
+image stem_ui_button_hover = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_tabs_glass.png"), True, Tile("images/ui/velvet_tabs_flat.png"))
+image stem_ui_dialogue = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_dialogue_glass.png"), True, Tile("images/ui/velvet_dialogue_flat.png"))
+image stem_ui_interstitial = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_interstitial_glass.png"), True, Tile("images/ui/velvet_interstitial_flat.png"))
+image stem_ui_choice = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_choice_glass.png"), True, Tile("images/ui/velvet_choice_flat.png"))
+image stem_ui_question = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_question_glass.png"), True, Tile("images/ui/velvet_question_flat.png"))
+image stem_ui_quick = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_controls_glass.png"), True, Tile("images/ui/velvet_controls_flat.png"))
+image stem_ui_slots = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_slots_glass.png"), True, Tile("images/ui/velvet_slots_flat.png"))
+image stem_ui_tabs = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_tabs_glass.png"), True, Tile("images/ui/velvet_tabs_flat.png"))
+image stem_ui_controls = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_controls_glass.png"), True, Tile("images/ui/velvet_controls_flat.png"))
+image stem_ui_menu = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_menu_glass.png"), True, Tile("images/ui/velvet_menu_flat.png"))
+image stem_ui_nav = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_panel_glass.png"), True, Tile("images/ui/velvet_panel_flat.png"))
+image stem_ui_frame = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_interstitial_glass.png"), True, Tile("images/ui/velvet_interstitial_flat.png"))
+image stem_ui_nameplate = ConditionSwitch("stem_theme_mode == 'glass'", Tile("images/ui/velvet_nameplate_glass.png"), True, Tile("images/ui/velvet_nameplate_flat.png"))
+image stem_generic_speaker = "images/speakers/generic_speaker_shadow.png"
 
 
 ################################################################################
@@ -99,13 +91,14 @@ style button_text:
 
 style button_text:
     variant "small"
-    size 36
+    size 32
 
 style say_label:
     font "DejaVuSans.ttf"
     size 24
-    color "#b4e5d7"
+    color "#effff9"
     bold True
+    outlines [(1, "#07131d", 1, 1)]
 style say_label:
     variant "small"
     size 28
@@ -136,11 +129,14 @@ style choice_button_text:
     text_align 0.0
 style choice_button_text:
     variant "small"
-    size 36
+    size 32
 
 style navigation_button is button
 style navigation_button_text is button_text
 style navigation_button:
+    background "stem_ui_nav"
+    hover_background "stem_ui_button_hover"
+    selected_background "stem_ui_button_hover"
     xfill True
     yminimum 56
 style navigation_button_text:
@@ -150,7 +146,35 @@ style navigation_button_text:
     text_align 0.0
 style navigation_button_text:
     variant "small"
-    size 36
+    size 32
+
+style stem_tab_button is button
+style stem_tab_button_text is button_text
+style stem_tab_button:
+    background "stem_ui_tabs"
+    hover_background "stem_ui_button_hover"
+    selected_background "stem_ui_button_hover"
+    xfill True
+    yminimum 68
+    xpadding 14
+style stem_tab_button_text:
+    size 17
+    bold True
+    text_align 0.5
+style stem_tab_button_text:
+    variant "small"
+    size 24
+
+style stem_tab_selected is stem_tab_button
+style stem_tab_selected:
+    background "stem_ui_question"
+    hover_background "stem_ui_question"
+    selected_background "stem_ui_question"
+style stem_tab_selected_text is stem_tab_button_text
+style stem_tab_selected_text:
+    color "#ffffff"
+    hover_color "#ffffff"
+    bold True
 
 style stem_control_button is button
 style stem_control_button_text is button_text
@@ -161,7 +185,7 @@ style stem_control_button:
     ypadding 10
 style stem_control_button:
     variant "small"
-    yminimum 68
+    yminimum 88
     xpadding 18
     ypadding 10
 style stem_control_button_text:
@@ -176,8 +200,8 @@ style stem_control_button_text:
 style quick_button is button
 style quick_button_text is button_text
 style quick_button:
-    background "stem_ui_panel"
-    hover_background "stem_ui_panel_hover"
+    background "stem_ui_quick"
+    hover_background "stem_ui_button_hover"
     xpadding 16
     ypadding 7
     yminimum 48
@@ -187,7 +211,7 @@ style quick_button_text:
     hover_color "#ffffff"
 style quick_button_text:
     variant "small"
-    size 30
+    size 28
 
 style stem_ascii:
     font "DejaVuSans.ttf"
@@ -215,11 +239,15 @@ screen say(who, what):
     $ _stem_message_length = len(str(what))
     $ _stem_small = stem_compact_layout()
     $ _stem_orb_narrator = who is None or who == "ORBE // NARRADOR"
-    $ _stem_ratio = 0.34 if _stem_message_length <= 180 else (0.44 if _stem_message_length <= 600 else 0.56)
-    $ _stem_panel_height = min(config.screen_height - 40, 540 if _stem_small else 490, max(320 if _stem_small else 290, int(config.screen_height * _stem_ratio)))
-    $ _stem_avatar_size = 112 if _stem_small else 136
-    $ _stem_text_height = _stem_panel_height - (126 if _stem_orb_narrator else 90)
-    $ _stem_font_size = (30 if _stem_message_length > 600 else 34) if _stem_small else (24 if _stem_message_length > 800 else 28)
+    $ _stem_has_speaker = who is not None and not _stem_orb_narrator
+    $ _stem_speaker_displayable = stem_speaker_portraits.get(str(who), "stem_generic_speaker") if _stem_has_speaker else None
+    $ _stem_has_avatar = _stem_orb_narrator or _stem_has_speaker
+    $ _stem_ratio = 0.31 if _stem_message_length <= 180 else 0.38
+    $ _stem_panel_height = min(config.screen_height - 32, 470 if _stem_small else 410, max(250 if _stem_small else 230, int(config.screen_height * _stem_ratio)))
+    $ _stem_avatar_size = 88 if _stem_small else 112
+    $ _stem_text_height = _stem_panel_height - (112 if _stem_has_avatar else 82)
+    $ _stem_font_size = 30 if _stem_small else 27
+    $ _stem_name_size = 20 if len(str(who or "NARRADOR")) > 32 else (22 if _stem_small else 24)
 
     if not _stem_choice_open:
         window:
@@ -227,29 +255,44 @@ screen say(who, what):
             xalign 0.5
             yalign 1.0
             xfill True
-            xmaximum (config.screen_width - 40 if _stem_small else 1640)
+            xmaximum (config.screen_width - 56 if _stem_small else 1600)
             ysize _stem_panel_height
-            padding (24 if _stem_small else 34, 18 if _stem_small else 24)
-            background "stem_ui_panel"
+            padding (20 if _stem_small else 32, 16 if _stem_small else 22)
+            background "stem_ui_dialogue"
 
             vbox:
                 xfill True
                 yfill True
-                spacing (14 if _stem_small else 18)
+                spacing (10 if _stem_small else 14)
 
                 hbox:
                     xfill True
-                    spacing 12
+                    spacing 10
                     frame:
                         padding (12, 6)
-                        background Solid("#193b3a")
-                        text ("ORBE // ARQUIVISTA" if _stem_orb_narrator else "A JORNADA") size (16 if _stem_small else 14) color "#c6ecdc" bold True
-                    if who is not None:
-                        text who id "who" style "say_label" size (22 if _stem_small else 23) xmaximum (config.screen_width - 520)
-                    else:
-                        text "NARRADOR" id "who" style "say_label" size (22 if _stem_small else 23)
+                        background "stem_ui_controls"
+                        text ("ORBE · ARQUIVISTA" if _stem_orb_narrator else "A JORNADA") size (16 if _stem_small else 14) color "#e0eee6" bold True
+                    frame:
+                        yminimum (46 if _stem_small else 50)
+                        xmaximum (config.screen_width - (570 if _stem_small else 640))
+                        padding (12, 6)
+                        background "stem_ui_nameplate"
+                        hbox:
+                            spacing 8
+                            fixed:
+                                xsize 16
+                                ysize 16
+                                yalign 0.5
+                                add Solid("#20dbd0") xsize 6 ysize 6 xpos 0 ypos 0
+                                add Solid("#f252d0") xsize 6 ysize 6 xpos 8 ypos 0
+                                add Solid("#f2cd5f") xsize 6 ysize 6 xpos 0 ypos 8
+                                add Solid("#7af08b") xsize 6 ysize 6 xpos 8 ypos 8
+                            if who is not None:
+                                text who id "who" style "say_label" size _stem_name_size xmaximum (config.screen_width - (720 if _stem_small else 800))
+                            else:
+                                text "NARRADOR" id "who" style "say_label" size _stem_name_size xmaximum (config.screen_width - 720)
                     null width 1 xfill True
-                    text ("TOQUE / ENTER" if _stem_small else "ENTER / CLIQUE") size 14 color "#9eadae" yalign 0.5
+                    text ("TOQUE · REVELAR / AVANÇAR" if _stem_small else "CLIQUE / ENTER · REVELAR E AVANÇAR") size (14 if _stem_small else 13) color "#d3b4cc" yalign 0.5
 
                 hbox:
                     xfill True
@@ -260,13 +303,30 @@ screen say(who, what):
                             xsize _stem_avatar_size + 18
                             ysize _stem_avatar_size + 18
                             padding (8, 8)
-                            background Solid("#17272deF")
+                            background "stem_ui_panel"
                             add "narrator_orb":
                                 xsize _stem_avatar_size
                                 ysize _stem_avatar_size
                                 xalign 0.5
                                 yalign 0.5
-                    text what id "what" style "say_dialogue" size _stem_font_size xalign 0.0 yalign 0.0 text_align 0.0 xfill True xmaximum (config.screen_width - (300 if _stem_orb_narrator else 120)) ymaximum _stem_text_height
+                    elif _stem_has_speaker:
+                        frame:
+                            xsize _stem_avatar_size + 18
+                            ysize _stem_avatar_size + 18
+                            padding (6, 6)
+                            background "stem_ui_interstitial"
+                            frame:
+                                xsize _stem_avatar_size
+                                ysize _stem_avatar_size
+                                background Solid("#c9d6cd")
+                                add _stem_speaker_displayable:
+                                    xsize _stem_avatar_size
+                                    ysize _stem_avatar_size
+                                    xalign 0.5
+                                    yalign 0.5
+                    text what id "what" style "say_dialogue" size _stem_font_size xalign 0.0 yalign 0.0 text_align 0.0 xfill True xmaximum (config.screen_width - (260 if _stem_has_avatar else 180)) ymaximum _stem_text_height
+
+    key "dismiss" action Return()
 
 
 screen centered(message):
@@ -280,7 +340,7 @@ screen centered(message):
         xfill True
         xmaximum (config.screen_width - 100 if _stem_small else 1320)
         padding (34 if _stem_small else 42, 22 if _stem_small else 30)
-        background "stem_ui_panel"
+        background "stem_ui_interstitial"
 
         vbox:
             xfill True
@@ -296,36 +356,45 @@ screen centered(message):
 
 screen stem_choice_content(items, small, question_size, garden):
     style_prefix "choice"
-    $ _stem_option_height = 64 if small and len(items) > 8 else (62 if small else 58)
-    $ _stem_option_spacing = 9 if small else 10
+    $ _stem_option_height = 92 if small and len(items) <= 8 else (72 if small else 64)
+    $ _stem_option_spacing = 10 if small else 12
+    $ _stem_has_question = "?" in stem_last_dialogue_text or "？" in stem_last_dialogue_text
 
     vbox:
         xfill True
-        spacing (5 if small else 9)
+        spacing (12 if small else 16)
         hbox:
             xfill True
-            spacing 12
-            text "ESCOLHA · [len(items)] OPÇÕES" size (24 if small else 14) color stem_theme_accent yalign 0.5 bold True
-            text "Que caminho você quer seguir?" size (25 if small else 18) color "#b9c8c5" yalign 0.5
+            spacing 10
+            text ("ESCOLHA" if _stem_has_question else "NAVEGAÇÃO") size (18 if small else 14) color stem_theme_accent yalign 0.5 bold True
+            null width 1 xfill True
+            text "[len(items)] opções" size (16 if small else 14) color "#c2b2cf" yalign 0.5
 
-        if "?" in stem_last_dialogue_text or "？" in stem_last_dialogue_text:
+        if _stem_has_question:
             frame:
                 xfill True
                 padding (18 if small else 22, 12 if small else 16)
-                background Solid("#17252beF")
+                background "stem_ui_question"
 
                 vbox:
-                    spacing 6
-                    text "PONTO DE REFLEXÃO" size (19 if small else 13) color stem_theme_accent bold True
-                    text stem_last_dialogue_text size question_size color "#e8eeea" xalign 0.0 text_align 0.0 xfill True xmaximum 1480
+                    spacing 5
+                    text "PERGUNTA / PONTO DE REFLEXÃO" size (16 if small else 13) color "#d6eee0" bold True
+                    text stem_last_dialogue_text size question_size color "#f5eee9" xalign 0.0 text_align 0.0 xfill True xmaximum (config.screen_width - 180 if small else 1240)
 
-        vbox:
+        viewport:
             xfill True
-            spacing _stem_option_spacing
-            for i in items:
-                textbutton i.caption action i.action:
-                    xfill True
-                    yminimum _stem_option_height
+            ymaximum (config.screen_height - (400 if small else 420))
+            scrollbars "vertical"
+            mousewheel True
+            draggable True
+            pagekeys True
+            vbox:
+                xfill True
+                spacing _stem_option_spacing
+                for i in items:
+                    textbutton i.caption action i.action:
+                        xfill True
+                        yminimum _stem_option_height
 
 
 screen choice(items):
@@ -333,19 +402,19 @@ screen choice(items):
     zorder 80
     modal True
 
-    add Solid("#02070bb5")
+    add Solid("#09060ec8")
     $ _stem_small = stem_compact_layout()
-    $ _stem_question_size = 30 if _stem_small else 22
-    $ _stem_choice_height = min(config.screen_height - (48 if _stem_small else 90), 900 if _stem_small else 860)
+    $ _stem_question_size = 27 if _stem_small else 22
+    $ _stem_choice_height = min(config.screen_height - (72 if _stem_small else 120), 930 if _stem_small else 880)
 
     frame:
         xalign 0.5
         yalign 0.5
         xfill True
-        xmaximum (config.screen_width - 90 if _stem_small else 1240)
+        xmaximum (config.screen_width - 72 if _stem_small else 1320)
         ymaximum _stem_choice_height
-        padding (24 if _stem_small else 36, 22 if _stem_small else 30)
-        background "stem_ui_panel"
+        padding (22 if _stem_small else 36, 20 if _stem_small else 30)
+        background "stem_ui_choice"
 
         use stem_choice_content(items, _stem_small, _stem_question_size, "")
 
@@ -364,16 +433,16 @@ screen quick_menu():
             xalign 0.985
             yalign 0.025
             padding (8, 6)
-            background Solid("#0b1218e8")
+            background "stem_ui_quick"
             hbox:
                 style_prefix "quick"
                 spacing 6
                 textbutton "MENU" action ShowMenu("stem_controls"):
-                    yminimum (54 if _stem_small else 46)
+                    yminimum (82 if _stem_small else 50)
                 textbutton "AUTO" action Preference("auto-forward", "toggle"):
-                    yminimum (54 if _stem_small else 46)
+                    yminimum (82 if _stem_small else 50)
                 textbutton "PULAR" action Skip() alternate Skip(fast=True, confirm=True):
-                    yminimum (54 if _stem_small else 46)
+                    yminimum (82 if _stem_small else 50)
 
 
 screen stem_controls():
@@ -391,7 +460,7 @@ screen stem_controls():
         xfill True
         xmaximum (config.screen_width - 80 if _stem_small else 1280)
         padding (28 if _stem_small else 40, 24 if _stem_small else 34)
-        background "stem_ui_panel"
+        background "stem_ui_menu"
 
         vbox:
             xfill True
@@ -412,7 +481,7 @@ screen stem_controls():
             frame:
                 xfill True
                 padding (18, 16)
-                background Solid("#111c22e8")
+                background "stem_ui_controls"
 
                 vbox:
                     xfill True
@@ -477,7 +546,7 @@ screen main_menu():
                 xfill True
                 ymaximum 340
                 padding (24, 20)
-                background "stem_ui_panel"
+                background "stem_ui_menu"
                 hbox:
                     xfill True
                     spacing 18
@@ -496,7 +565,7 @@ screen main_menu():
             frame:
                 xfill True
                 padding (24, 20)
-                background "stem_ui_panel"
+                background "stem_ui_menu"
                 vbox:
                     xfill True
                     spacing 10
@@ -517,7 +586,7 @@ screen main_menu():
                 xsize 1010
                 ymaximum 780
                 padding (52, 46)
-                background "stem_ui_panel"
+                background "stem_ui_menu"
                 vbox:
                     xfill True
                     spacing 14
@@ -534,7 +603,7 @@ screen main_menu():
                 xsize 470
                 ymaximum 780
                 padding (34, 28)
-                background "stem_ui_panel"
+                background "stem_ui_menu"
                 vbox:
                     xfill True
                     yfill True
@@ -606,7 +675,7 @@ screen game_menu(title, scroll=None, yinitial=0.0, spacing=0):
         xmaximum 1740
         ymaximum 1000
         padding (3, 3)
-        background Solid("#33434a")
+        background "stem_ui_frame"
 
         frame:
             xfill True
@@ -649,7 +718,7 @@ screen game_menu(title, scroll=None, yinitial=0.0, spacing=0):
                                 xsize 350
                                 yfill True
                                 padding (20, 18)
-                                background "stem_ui_panel"
+                                background "stem_ui_nav"
 
                                 vbox:
                                     spacing 12
@@ -680,13 +749,43 @@ screen load():
     use file_slots("CARREGAR JOGO")
 
 
+screen stem_theme_controls(small=False):
+    frame:
+        xfill True
+        padding (18 if small else 24, 16 if small else 20)
+        background "stem_ui_question"
+        vbox:
+            xfill True
+            spacing (8 if small else 12)
+            text "APARÊNCIA · VELUDO E VIDRO" size (20 if small else 24) color "#e6f1e9" bold True
+            text "Cada superfície usa um padrão próprio. O modo vidro mantém a cena visível por trás dos painéis." size (17 if small else 20) color "#e1d7df" xmaximum (config.screen_width - 220 if small else 1180)
+            hbox:
+                xfill True
+                spacing 10
+                if stem_theme_mode == "flat":
+                    textbutton "VELUDO · ATIVO" action [SetVariable("stem_theme_mode", "flat"), SetVariable("stem_theme_override", True)] style "stem_tab_selected":
+                        yminimum (82 if small else 62)
+                else:
+                    textbutton "VELUDO" action [SetVariable("stem_theme_mode", "flat"), SetVariable("stem_theme_override", True)] style "stem_tab_button":
+                        yminimum (82 if small else 62)
+                if stem_theme_mode == "glass":
+                    textbutton "VIDRO · ATIVO" action [SetVariable("stem_theme_mode", "glass"), SetVariable("stem_theme_override", True)] style "stem_tab_selected":
+                        yminimum (82 if small else 62)
+                else:
+                    textbutton "VIDRO" action [SetVariable("stem_theme_mode", "glass"), SetVariable("stem_theme_override", True)] style "stem_tab_button":
+                        yminimum (82 if small else 62)
+            if stem_theme_override:
+                textbutton "SEGUIR APARÊNCIA DO APP" action SetVariable("stem_theme_override", False) style "quick_button":
+                    yminimum (76 if small else 58)
+
+
 screen stem_file_slot_card(slot, small=False):
     button:
         xsize 350
         ysize (150 if small else 255)
         padding (8 if small else 12, 6 if small else 10)
-        background (Solid("#071523ee") if small else "stem_ui_panel")
-        hover_background "stem_ui_panel_hover"
+        background "stem_ui_slots"
+        hover_background "stem_ui_button_hover"
         action FileAction(slot)
 
         has vbox
@@ -697,7 +796,7 @@ screen stem_file_slot_card(slot, small=False):
             frame:
                 xfill True
                 ysize (58 if small else 160)
-                background Solid("#10243a")
+                background "stem_ui_slots"
                 text "＋" size (30 if small else 38) color stem_theme_accent xalign 0.5 yalign 0.5
         text FileTime(slot, format="%d/%m/%Y %H:%M", empty="SLOT VAZIO") size (16 if small else 17) color "#b8c9d9" xalign 0.5
         if FileLoadable(slot):
@@ -750,19 +849,19 @@ screen file_slots(title):
             hbox:
                 xalign 0.5
                 spacing (4 if _stem_small else 8)
-                textbutton "‹" action FilePagePrevious():
-                    yminimum 58
+                textbutton "‹" action FilePagePrevious() style "stem_tab_button":
+                    yminimum (82 if _stem_small else 58)
                 if config.has_autosave:
-                    textbutton "AUTO" action FilePage("auto"):
-                        yminimum 58
+                    textbutton "AUTO" action FilePage("auto") style "stem_tab_button":
+                        yminimum (82 if _stem_small else 58)
                 if config.has_quicksave:
-                    textbutton "RÁPIDOS" action FilePage("quick"):
-                        yminimum 58
+                    textbutton "RÁPIDOS" action FilePage("quick") style "stem_tab_button":
+                        yminimum (82 if _stem_small else 58)
                 for page in range(1, 10):
-                    textbutton "[page]" action FilePage(page):
-                        yminimum 58
-                textbutton "›" action FilePageNext():
-                    yminimum 58
+                    textbutton "[page]" action FilePage(page) style "stem_tab_button":
+                        yminimum (82 if _stem_small else 58)
+                textbutton "›" action FilePageNext() style "stem_tab_button":
+                    yminimum (82 if _stem_small else 58)
 
 
 screen preferences():
@@ -778,13 +877,31 @@ screen preferences():
             if _stem_small:
                 hbox:
                     xfill True
-                    spacing 8
-                    textbutton "VISUAL" action SetScreenVariable("_stem_pref_tab", 0) style "quick_button":
-                        yminimum 54
-                    textbutton "TEXTO" action SetScreenVariable("_stem_pref_tab", 1) style "quick_button":
-                        yminimum 54
-                    textbutton "ÁUDIO" action SetScreenVariable("_stem_pref_tab", 2) style "quick_button":
-                        yminimum 54
+                    spacing 6
+                    if _stem_pref_tab == 0:
+                        textbutton "VISUAL" action SetScreenVariable("_stem_pref_tab", 0) style "stem_tab_selected":
+                            yminimum 82
+                    else:
+                        textbutton "VISUAL" action SetScreenVariable("_stem_pref_tab", 0) style "stem_tab_button":
+                            yminimum 82
+                    if _stem_pref_tab == 1:
+                        textbutton "TEXTO" action SetScreenVariable("_stem_pref_tab", 1) style "stem_tab_selected":
+                            yminimum 82
+                    else:
+                        textbutton "TEXTO" action SetScreenVariable("_stem_pref_tab", 1) style "stem_tab_button":
+                            yminimum 82
+                    if _stem_pref_tab == 2:
+                        textbutton "ÁUDIO" action SetScreenVariable("_stem_pref_tab", 2) style "stem_tab_selected":
+                            yminimum 82
+                    else:
+                        textbutton "ÁUDIO" action SetScreenVariable("_stem_pref_tab", 2) style "stem_tab_button":
+                            yminimum 82
+                    if _stem_pref_tab == 3:
+                        textbutton "TEMA" action SetScreenVariable("_stem_pref_tab", 3) style "stem_tab_selected":
+                            yminimum 82
+                    else:
+                        textbutton "TEMA" action SetScreenVariable("_stem_pref_tab", 3) style "stem_tab_button":
+                            yminimum 82
 
                 if _stem_pref_tab == 0:
                     vbox:
@@ -818,7 +935,7 @@ screen preferences():
                         text "Avanço automático" size 18 color "#a9bed0"
                         bar value Preference("auto-forward time") style "cyber_slider" xfill True ysize 48
 
-                else:
+                elif _stem_pref_tab == 2:
                     vbox:
                         xfill True
                         spacing 8
@@ -833,6 +950,8 @@ screen preferences():
                         if config.has_voice:
                             text "Voz" size 18 color "#a9bed0"
                             bar value Preference("voice volume") style "cyber_slider" xfill True ysize 44
+                else:
+                    use stem_theme_controls(True)
             else:
                 text "TELA E ACESSIBILIDADE" size 24 color stem_theme_accent bold True
                 grid 2 1:
@@ -869,6 +988,9 @@ screen preferences():
                         text "Voz" size 20 color "#a9bed0"
                         bar value Preference("voice volume") style "cyber_slider" xsize 520 ysize 24
 
+                null height 12
+                use stem_theme_controls(False)
+
 
 screen history():
     tag menu
@@ -888,7 +1010,7 @@ screen history():
                     xfill True
                     ymaximum (config.screen_height - 280)
                     padding (16, 12)
-                    background "stem_ui_panel"
+                    background "stem_ui_interstitial"
                     vbox:
                         xfill True
                         spacing 8
@@ -964,7 +1086,7 @@ screen confirm(message, yes_action, no_action):
         xfill True
         xmaximum (config.screen_width - 120 if _stem_small else 1050)
         padding (32 if _stem_small else 40, 28 if _stem_small else 34)
-        background "stem_ui_panel"
+        background "stem_ui_question"
 
         vbox:
             xfill True
@@ -991,7 +1113,7 @@ screen input(prompt):
         xfill True
         xmaximum (config.screen_width - 120 if _stem_small else 1100)
         padding (28, 24)
-        background "stem_ui_panel"
+        background "stem_ui_tabs"
         vbox:
             spacing 15
             text prompt size (30 if _stem_small else 24) color stem_theme_accent
@@ -1004,7 +1126,7 @@ screen notify(message):
         xalign 0.5
         yalign 0.08
         padding (18, 12)
-        background "stem_ui_panel"
+        background "stem_ui_quick"
         text "[message!tq]" size 20 color "#b4e5d7"
     timer 3.25 action Hide("notify")
 
@@ -1015,5 +1137,5 @@ screen skip_indicator():
         xalign 0.02
         yalign 0.13
         padding (16, 10)
-        background "stem_ui_panel"
+        background "stem_ui_quick"
         text "MODO DE LEITURA RÁPIDA ATIVO" size 18 color "#b4e5d7"

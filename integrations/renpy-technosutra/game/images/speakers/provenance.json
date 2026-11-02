@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "status": "owner-requested_original_speaker_fallback",
+  "asset": "game/images/speakers/generic_speaker_shadow.png",
+  "dimensions": [
+    512,
+    512
+  ],
+  "format": "PNG",
+  "alphaChannel": true,
+  "sourceMaster": "assets-source/generic_speaker_shadow_master.png",
+  "sourceSha256": "aa0faa4f05ade1d6e214c53f463b52d1172f0a5d60f296c290a3135bac064d48",
+  "runtimeSha256": "33c7460408207377402b78a1e9a2b9b483f4c3819171735e8b59558b6252dfee",
+  "runtimeBytes": 13101,
+  "creation": "Original AI-generated, generic featureless human bust silhouette; the user-provided image informed only the broad shadow-figure concept, with no source pixels or identifying details copied.",
+  "generator": "gpt-image-2.5, medium quality",
+  "runtimeTransform": "Preserved the generated alpha mask, normalized all visible RGB pixels to pure black, and downsampled the square master with Lanczos; no crop or external imagery.",
+  "usage": "Fallback portrait only for non-Orbe speakers without an explicit entry in stem_speaker_portraits; does not replace scene illustrations or the Orbe narrator orb."
+}

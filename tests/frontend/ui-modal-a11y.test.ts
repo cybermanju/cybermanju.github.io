@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import * as Vue from 'vue'
 import { compileScript, parse } from '@vue/compiler-sfc'
-import { renderToString } from '@vue/server-renderer'
+import { renderToString } from 'vue/server-renderer'
 import { ModuleKind, ScriptTarget, transpileModule } from 'typescript'
 
 const source = readFileSync('src/components/ui/UiModal.vue', 'utf8')

@@ -44,7 +44,7 @@ init -100 python:
                 return
             data = _stem_theme_json.loads(raw)
             mode = data.get("glass")
-            if mode in ("flat", "glass") and store.stem_theme_mode != mode:
+            if mode in ("flat", "glass") and not store.stem_theme_override and store.stem_theme_mode != mode:
                 store.stem_theme_mode = mode
             accent = data.get("accent")
             if isinstance(accent, str) and _stem_theme_re.fullmatch(r"#[0-9a-fA-F]{6}", accent):

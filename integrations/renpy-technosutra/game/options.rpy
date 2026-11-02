@@ -2,11 +2,14 @@
 # The adaptation uses the full source chapters (PDF pages 59–915); pages 31–58 contain the detailed summary only.
 
 define config.name = "The Stem Array — Technosutra VN"
+define config.window_title = "The Stem Array · Gaṇḍavyūha"
 define config.version = "0.1.0"
 define config.screen_width = 1920
 define config.screen_height = 1080
+define config.default_text_cps = 38
 define config.window = "auto"
 define config.save_directory = "technosutra-stem-array-1"
+define config.rollback_enabled = True
 define config.main_menu_music = None
 
 # Keep the distributable lean even when the launcher is run against the full

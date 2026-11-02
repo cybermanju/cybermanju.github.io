@@ -23,6 +23,28 @@ EXPECTED_UI_ASSETS = {
     "paper-vellum-hover.png",
     "paper-glass.png",
     "paper-glass-hover.png",
+    "velvet_dialogue_flat.png",
+    "velvet_dialogue_glass.png",
+    "velvet_panel_flat.png",
+    "velvet_panel_glass.png",
+    "velvet_choice_flat.png",
+    "velvet_choice_glass.png",
+    "velvet_question_flat.png",
+    "velvet_question_glass.png",
+    "velvet_button_flat.png",
+    "velvet_button_glass.png",
+    "velvet_tabs_flat.png",
+    "velvet_tabs_glass.png",
+    "velvet_slots_flat.png",
+    "velvet_slots_glass.png",
+    "velvet_controls_flat.png",
+    "velvet_controls_glass.png",
+    "velvet_menu_flat.png",
+    "velvet_menu_glass.png",
+    "velvet_interstitial_flat.png",
+    "velvet_interstitial_glass.png",
+    "velvet_nameplate_flat.png",
+    "velvet_nameplate_glass.png",
 }
 
 
@@ -155,7 +177,21 @@ def main() -> int:
     ui_dir = images / "ui"
     ui_assets = {path.name for path in ui_dir.glob("*.png")} if ui_dir.is_dir() else set()
     if ui_assets != EXPECTED_UI_ASSETS:
-        raise SystemExit(f"Expected exactly the eight approved UI texture tiles; found {sorted(ui_assets)}")
+        raise SystemExit(f"Expected exactly {len(EXPECTED_UI_ASSETS)} approved UI image assets; found {sorted(ui_assets)}")
+    speaker_asset = images / "speakers" / "generic_speaker_shadow.png"
+    speaker_provenance = images / "speakers" / "provenance.json"
+    if not speaker_asset.is_file() or not speaker_provenance.is_file():
+        raise SystemExit("The generic speaker silhouette or its provenance record is missing")
+    speaker_record = json.loads(speaker_provenance.read_text(encoding="utf-8"))
+    if speaker_record.get("runtimeSha256") != sha256(speaker_asset):
+        raise SystemExit("Generic speaker silhouette SHA-256 differs from its provenance record")
+    with Image.open(speaker_asset) as portrait:
+        if portrait.mode != "RGBA" or portrait.size != (512, 512):
+            raise SystemExit(f"Generic speaker silhouette must be a 512x512 RGBA PNG; found {portrait.mode} {portrait.size}")
+        pixels = portrait.getdata()
+        alpha = portrait.getchannel("A")
+        if alpha.getextrema() != (0, 255) or any(r or g or b for r, g, b, a in pixels):
+            raise SystemExit("Generic speaker silhouette must retain transparency and use only black RGB pixels")
 
     # Preserve only capture provenance, never the raw source-capture PNGs.
     source_root.mkdir(parents=True, exist_ok=True)
@@ -189,14 +225,14 @@ def main() -> int:
                 child.unlink()
 
     for child in list(images.iterdir()):
-        if child.name in {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator"}:
+        if child.name in {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator", "speakers"}:
             continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
         else:
             child.unlink()
 
-    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator"}
+    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator", "speakers"}
     if {path.name for path in images.iterdir()} != expected_top_level:
         raise SystemExit("Unexpected game/images files remain after local-build preparation")
     if list(source_root.glob("*.png")):
@@ -209,7 +245,7 @@ def main() -> int:
     if sha256(web_presplash) != sha256(opening_background):
         raise SystemExit("Web presplash must be an exact copy of the approved opening landscape")
     print("Prepared web presplash from the approved opening landscape; SHA-256 verified.")
-    print("Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites + narrator orb + 8 UI texture tiles.")
+    print(f"Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites + narrator orb + {len(ui_assets)} approved UI texture tiles + generic speaker fallback.")
     print("Retained sprite/capture provenance manifests; excluded raw source-capture PNGs from the package.")
     print("Slots 43 and 52 remain absent; no missing renders were generated.")
     return 0

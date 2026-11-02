@@ -95,9 +95,10 @@ describe('mobile home + nav wiring', () => {
     const app = fs.readFileSync('src/App.vue', 'utf8')
     expect(app).toMatch(/<MobileNav\s*\/>/)
     const nav = fs.readFileSync('src/components/MobileNav.vue', 'utf8')
-    for (const tab of ['Home', 'Files', 'Search', 'Agent', 'Vaults', 'Settings']) {
-      expect(nav, `missing ${tab} tab`).toContain(tab)
-    }
+    expect(nav).toContain('aria-label="Open tasks"')
+    expect(nav).toContain('aria-label="Home"')
+    expect(nav).toContain('v-for="win in taskWindows"')
+    expect(nav).toContain('<span class="mn-label">{{ win.title }}</span>')
     expect(nav).toMatch(/env\(safe-area-inset-bottom/)
   })
 
