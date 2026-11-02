@@ -341,13 +341,15 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
+/* Static scanlines only. A full-surface `mix-blend-mode` here forces the browser
+   to re-blend the entire viewport over the Ren'Py canvas on every frame, which
+   is a measurable cost while the game renders. */
 .stem-immersive::before {
   z-index: 1;
-  opacity: .025;
+  opacity: .05;
   background-image:
     repeating-linear-gradient(0deg, rgba(255,255,255,.14) 0 1px, transparent 1px 5px),
     repeating-linear-gradient(90deg, rgba(96,220,230,.10) 0 1px, transparent 1px 7px);
-  mix-blend-mode: screen;
 }
 
 .stem-immersive::after {
@@ -355,7 +357,7 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 16px color-mix(in srgb, var(--stem-accent) 9%, transparent);
 }
 
-.stem-immersive--glass::before { opacity: .045; }
+.stem-immersive--glass::before { opacity: .07; }
 .stem-immersive--glass::after {
   border-color: color-mix(in srgb, var(--stem-accent) 42%, transparent);
   box-shadow: inset 0 0 24px color-mix(in srgb, var(--stem-accent) 13%, transparent);

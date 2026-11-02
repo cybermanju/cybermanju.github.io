@@ -6,10 +6,15 @@ define config.window_title = "The Stem Array · Gaṇḍavyūha"
 define config.version = "0.1.0"
 define config.screen_width = 1920
 define config.screen_height = 1080
-define config.default_text_cps = 38
+define config.default_text_cps = 45
 define config.window = "auto"
 define config.save_directory = "technosutra-stem-array-1"
 define config.rollback_enabled = True
+# Auto and quick saves are part of the save-menu contract in screens.rpy
+# (file_slots renders the AUTO / RÁPIDOS pages only when these are true), so
+# declare them rather than inheriting version-dependent defaults.
+define config.has_autosave = True
+define config.has_quicksave = True
 define config.main_menu_music = None
 
 # Keep the distributable lean even when the launcher is run against the full
@@ -32,5 +37,13 @@ init python:
 define config.has_sound = False
 define config.has_music = False
 define config.has_voice = False
+
+# Screen profiler is a developer tool: it writes profile_screen.txt beside the
+# game and costs measurable time, so it must never run in a shipped Web build.
+# It exists so the next performance decision can be made from numbers.
+init python:
+    if config.developer is True:
+        renpy.profile_screen("say", show=True, update=True, time=True)
+        renpy.profile_screen("choice", show=True, time=True)
 
 # Distinct local Ren'Py project; no networking, external services, or Street View media.

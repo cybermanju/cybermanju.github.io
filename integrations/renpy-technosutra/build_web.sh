@@ -88,10 +88,21 @@ if [[ -f "$ROOT/game/images/masters/source/capture_manifest.json" ]]; then
   cp "$ROOT/game/images/masters/source/capture_manifest.json" "$PROJECT/game/images/masters/source/"
 fi
 cp "$ROOT/chapters.json" "$ROOT/project.json" "$PROJECT/"
+# Ren'Py only auto-generates progressive_download.txt with generic defaults,
+# which keep game/gui/** immediate. This project has no gui/, so its UI chrome
+# lives under game/images/ui/ and needs the reviewed rules shipped with it.
+cp "$ROOT/progressive_download.txt" "$PROJECT/progressive_download.txt"
 mkdir -p "$PROJECT/tools"
 cp "$ROOT/tools/"*.py "$PROJECT/tools/"
 mkdir -p "$PROJECT/web"
 cp "$ROOT/web/service-worker.js" "$PROJECT/web/service-worker.js"
+# The custom loading overlay ships beside the engine and is spliced into the
+# generated index.html after web_build.
+mkdir -p "$PROJECT/web/loading"
+cp "$ROOT/web/loading/"*.css "$ROOT/web/loading/"*.js "$ROOT/web/loading/"*.json "$PROJECT/web/loading/"
+if [[ -f "$ROOT/web/loading/02.webp" ]]; then
+  cp "$ROOT/web/loading/02.webp" "$ROOT/web/loading/02-small.webp" "$PROJECT/web/loading/"
+fi
 find "$PROJECT/game" -type f -name '*.rpyc' -delete
 rm -rf "$PROJECT/game/cache" "$PROJECT/game/saves"
 
@@ -102,6 +113,16 @@ python3 "$PROJECT/tools/prepare_assets.py"
 python3 "$PROJECT/tools/validate_optimized_assets.py" --project "$PROJECT"
 python3 "$PROJECT/tools/create_art_comparison.py" --project "$ROOT" --output "$VISUAL"
 python3 "$PROJECT/tools/prepare_local_build.py" --project "$PROJECT"
+
+# The title screen continues the loading overlay's artwork. Always materialise the
+# file so screens.rpy can reference it unconditionally and lint has an image to
+# resolve; the opening landscape is the fallback when the converted art is absent.
+mkdir -p "$PROJECT/game/images/title"
+if [[ -f "$ROOT/web/loading/02.jpg" ]]; then
+  cp "$ROOT/web/loading/02.jpg" "$PROJECT/game/images/title/bg_title.jpg"
+else
+  cp "$ROOT/game/images/bg_intro_scene.jpg" "$PROJECT/game/images/title/bg_title.jpg"
+fi
 
 python3 - "$PROJECT/game" <<'PY'
 from pathlib import Path
@@ -142,6 +163,18 @@ fi
 WEB_DIR="$(dirname "$INDEX")"
 # Ren'Py's SDK worker is opt-in-cache, so carry the reviewed source into every candidate.
 cp "$PROJECT/web/service-worker.js" "$WEB_DIR/service-worker.js"
+# Custom loading experience: assets next to the engine, then the overlay spliced
+# into the generated index.html. Both happen before the stamp, so the overlay and
+# its art version the offline cache together with the engine.
+mkdir -p "$WEB_DIR/loading"
+cp "$PROJECT/web/loading/"*.css "$PROJECT/web/loading/"*.js "$PROJECT/web/loading/"*.json "$WEB_DIR/loading/"
+if [[ -f "$PROJECT/web/loading/02.webp" ]]; then
+  cp "$PROJECT/web/loading/02.webp" "$PROJECT/web/loading/02-small.webp" "$WEB_DIR/loading/"
+fi
+python3 "$PROJECT/tools/inject_loading_overlay.py" "$WEB_DIR"
+# Version the offline cache by the shipped bytes, so returning visitors keep the
+# engine (~37 MB) between visits but never keep it past a deploy.
+python3 "$PROJECT/tools/stamp_service_worker.py" "$WEB_DIR"
 for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data service-worker.js; do
   if [[ ! -s "$WEB_DIR/$required" ]]; then
     echo "Ren'Py candidate is missing required web artifact: $WEB_DIR/$required" >&2

@@ -105,8 +105,24 @@ def main() -> int:
     presplash_path = web_directory / "web-presplash.jpg"
     if sha256_file(presplash_path) != sha256_file(image_root / "bg_intro_scene.jpg"):
         raise SystemExit("Web presplash differs from the approved opening landscape")
-    if "web-presplash.jpg" not in (web_directory / "index.html").read_text(encoding="utf-8"):
+    index_text = (web_directory / "index.html").read_text(encoding="utf-8")
+    if "web-presplash.jpg" not in index_text:
         raise SystemExit("Web index does not reference web-presplash.jpg")
+    # The custom loading overlay is what the visitor sees instead of Ren'Py's
+    # own status bar; it must ship, be wired into the document, and its art must
+    # actually exist — a loader pointing at a missing image is a black screen.
+    for name in ("loading/loading.css", "loading/loading.js", "loading/art.json"):
+        path = web_directory / name
+        if not path.is_file() or path.stat().st_size == 0:
+            raise SystemExit(f"Custom loading overlay asset missing: {path}")
+    if 'id="stem-loader"' not in index_text or "loading/loading.js" not in index_text:
+        raise SystemExit("Web index is missing the custom loading overlay")
+    loading_art = json.loads((web_directory / "loading/art.json").read_text(encoding="utf-8")).get("art")
+    if not loading_art or not any(
+        (web_directory / candidate).is_file()
+        for candidate in (f"loading/{loading_art}", str(loading_art))
+    ):
+        raise SystemExit(f"Loading overlay art named by art.json is missing: {loading_art}")
     narrator_path = image_root / "narrator" / "orb.png"
     if (
         not narrator_path.is_file()
@@ -132,6 +148,7 @@ def main() -> int:
     resource_status: dict[str, int] = {}
     progressive_asset_status: dict[str, int] = {}
     canvas_size: list[int] | None = None
+    overlay_present_at_load = False
     try:
         for relative_path in progressive_assets:
             request = Request(base_url + quote(relative_path, safe="/"), method="HEAD")
@@ -152,11 +169,18 @@ def main() -> int:
 
         worker_source = Path(__file__).resolve().parents[1] / "web" / "service-worker.js"
         worker_candidate = web_directory / "service-worker.js"
-        if worker_candidate.read_bytes() != worker_source.read_bytes():
-            raise SystemExit("Web candidate service worker differs from the reviewed project source")
         worker_text = worker_candidate.read_text(encoding="utf-8")
-        if "let addToCache = false;" not in worker_text or "if (!addToCache)" not in worker_text:
-            raise SystemExit("Web candidate must keep persistent offline caching disabled by default")
+        marker = "var CACHE_VERSION = '"
+        if marker not in worker_text:
+            raise SystemExit("Web candidate service worker has no CACHE_VERSION")
+        stamp = worker_text.split(marker, 1)[1].split("'", 1)[0]
+        if len(stamp) != 16 or any(character not in "0123456789abcdef" for character in stamp):
+            raise SystemExit("Web candidate service worker was not stamped with a 16-hex content version")
+        if worker_text.replace(f"var CACHE_VERSION = '{stamp}';", "var CACHE_VERSION = '__STEM_CACHE_VERSION__';") != worker_source.read_text(encoding="utf-8"):
+            raise SystemExit("Web candidate service worker differs from the reviewed source beyond the cache-version stamp")
+        for required in ("renpy.wasm", "renpy.data", "game.zip", "PRECACHE"):
+            if required not in worker_text:
+                raise SystemExit(f"Web candidate service worker must keep precaching the engine ({required} missing)")
         try:
             with urlopen(Request(base_url + "service-worker.js", method="HEAD"), timeout=30) as response:
                 service_worker_http_status = response.status
@@ -196,6 +220,9 @@ def main() -> int:
             response = page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
             if response is None or response.status != 200:
                 raise SystemExit(f"Web page did not return HTTP 200: {response.status if response else 'no response'}")
+            overlay_present_at_load = page.locator("#stem-loader").count() == 1
+            if not overlay_present_at_load:
+                raise SystemExit("The custom loading overlay did not render")
             page.wait_for_function(
                 """() => {
                     const canvas = document.querySelector('canvas');
@@ -203,6 +230,9 @@ def main() -> int:
                 }""",
                 timeout=120_000,
             )
+            # The overlay must dismiss itself once the engine owns the screen,
+            # otherwise it would sit on top of the main menu forever.
+            page.wait_for_function("() => !document.getElementById('stem-loader')", timeout=45_000)
             page.wait_for_timeout(3000)
             canvas_size = page.locator("canvas").first.evaluate("canvas => [canvas.width, canvas.height]")
             # Verify the rendered game accepts a real keyboard event without a runtime exception.
@@ -247,7 +277,12 @@ def main() -> int:
             "file": str(worker_candidate),
             "headStatus": service_worker_http_status,
             "matchesReviewedSource": True,
-            "persistentCacheDisabledByDefault": True,
+            "precacheEngineOnInstall": True,
+        },
+        "loadingOverlay": {
+            "presentAtLoad": overlay_present_at_load,
+            "dismissedAfterCanvas": True,
+            "art": loading_art,
         },
         "progressiveImageAssets": {
             "count": len(progressive_asset_status),

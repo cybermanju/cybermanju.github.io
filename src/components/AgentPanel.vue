@@ -895,6 +895,12 @@
             <div v-if="jobLine" class="w-msg job-line"><AppIcon name="solar:clock-circle-bold" :size="11" /> {{ jobLine }}</div>
             <div v-if="jobError" class="w-msg err" :title="jobHint">{{ jobError }}</div>
             <div v-if="jobHint && jobError" class="w-msg"><AppIcon name="solar:info-circle-bold" :size="11" /> {{ jobHint }}</div>
+            <!-- Warning layer: the run is alive, something optional degraded
+                 (a dead MCP server, a truncated tool list). Deliberately not
+                 styled as an error — blocking here is what broke setup. -->
+            <div v-for="(w, wi) in jobWarnings" :key="`warn-${wi}`" class="w-msg warn" role="status">
+              <AppIcon name="solar:danger-triangle-bold" :size="11" /> {{ w }}
+            </div>
             <div v-if="activeTab === 'chat' && !viewing && !chatConfigId && configs.length" class="w-msg">Select an assistant in the sidebar first — or create one in Setup.</div>
         </section>
       </main>
@@ -2146,6 +2152,12 @@ const jobError = computed(() => {
   if (wasmMode.value) return localJob.value?.error ?? ''
   return activeJob.value?.error ?? ''
 })
+/** Non-fatal degradations (dead MCP server, truncated tool list). These never
+ *  set `error`, so a run that lost an optional tool still reads as a success. */
+const jobWarnings = computed(() => {
+  const job = wasmMode.value ? localJob.value : activeJob.value
+  return job?.warnings ?? []
+})
 const jobHint = computed(() => {
   if (!jobError.value) return ''
   const d = agentErrorHint(jobError.value)
@@ -3034,6 +3046,7 @@ onMounted(async () => {
 .w-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .w-msg { font-size: 11px; margin-top: 6px; color: color-mix(in srgb, var(--ui-text) 70%, transparent); }
 .w-msg.err { color: var(--ui-danger-text); }
+.w-msg.warn { color: var(--ui-warning-text, #e8b25a); }
 .model-row { display: flex; gap: 6px; }
 .config-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .config-card {  border: 1px solid color-mix(in srgb, var(--ui-text) 10%, transparent); border-radius: var(--ui-radius-xl); padding: 8px 10px; background: color-mix(in srgb, var(--ui-glass) 68%, transparent); }

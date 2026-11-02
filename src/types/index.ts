@@ -611,6 +611,14 @@ export function describeSyncError(err: string): { prefix: string; hint: string }
  *  an overflowed transcript can never work, compacting it can. */
 export function agentErrorHint(err: string): { prefix: string; hint: string } {
   const prefix = (err.split(':')[0] || '').trim()
+  // MCP attachments are optional: the run no longer dies on a dead server, so
+  // this branch only fires for an explicit MCP action (attach/connect/list).
+  if (/MCP server/i.test(err)) {
+    return {
+      prefix,
+      hint: 'That MCP server did not answer — the run continues without its tools. Check its URL/auth in Controls, or detach it; it never blocks the assistant.',
+    }
+  }
   switch (prefix) {
     case 'auth':
       return { prefix, hint: 'Provider rejected the key — reseal it in SETUP, then retry.' }
@@ -1144,6 +1152,10 @@ export interface AgentJob {
   } | null
   /** Monotonic seq for `uiRequest` dedupe. */
   uiSeq?: number
+  /** Non-fatal degradations for this run (an MCP server that would not
+   *  connect, a truncated tool list). The run keeps going — these are a
+   *  warning layer, never `status: 'error'`. Mirrors Rust `JobSnapshot.warnings`. */
+  warnings?: string[]
 }
 
 /* ── Semantic memory (redb `agent_memories`: curated text + vectors) ─── */

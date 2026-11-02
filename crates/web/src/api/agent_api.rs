@@ -97,6 +97,11 @@ pub struct JobSnapshot {
     /// frontend applies only seqs it has not seen.
     #[serde(default)]
     pub ui_seq: u64,
+    /// Non-fatal degradations for this run — an MCP server that failed to
+    /// connect, a tool that was dropped. Never sets `status`; the run
+    /// continues, so the UI can render these as a warning layer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 // ─── secrets (never serialized) ──────────────────────────────────────────
@@ -1021,6 +1026,11 @@ struct JobState {
     ui_request: Option<serde_json::Value>,
     /// Monotonic seq for `ui_request` dedupe.
     ui_seq: u64,
+    /// Non-fatal degradations observed during this run (an MCP server that
+    /// would not connect, a truncated tool list, …). Layered on top of
+    /// `status`/`error`: the run keeps going with fewer tools, and the UI
+    /// shows these as warnings instead of a dead end.
+    warnings: Vec<String>,
 }
 
 pub struct AgentJob {
@@ -1081,7 +1091,25 @@ fn snapshot(job: &AgentJob) -> JobSnapshot {
         memory_hint: state.memory_hint.clone(),
         ui_request: state.ui_request.clone(),
         ui_seq: state.ui_seq,
+        warnings: state.warnings.clone(),
     }
+}
+
+/// Record a non-fatal degradation on the job: it reaches the UI as a warning
+/// (snapshot → poll/SSE) without touching `status`, so the run continues.
+fn warn_job(job: &Arc<AgentJob>, message: String) {
+    log::warn!("[agent] {message}");
+    set_state(job, |s| {
+        if !s.warnings.contains(&message) {
+            s.warnings.push(message);
+        }
+        s.activity = Some(
+            s.warnings
+                .last()
+                .cloned()
+                .unwrap_or_else(|| "continuing".to_string()),
+        );
+    });
 }
 
 fn set_state(job: &AgentJob, f: impl FnOnce(&mut JobState)) {
@@ -2886,6 +2914,7 @@ pub fn start_job_as(
             memory_hint: None,
             ui_request: None,
             ui_seq: 0,
+            warnings: Vec::new(),
         }),
         cancel: AtomicBool::new(false),
     });
@@ -3447,13 +3476,19 @@ fn run_agent_job(
     let mut headers = endpoint_headers(&endpoint, &active_key);
     let mut model = routes[0].model.clone();
 
-    // Connect MCP servers up front: a run with a dead tool server fails
-    // loudly here instead of hallucinating around missing tools mid-run.
+    // Connect MCP servers up front — but a dead tool server is a LAYERED,
+    // non-fatal error, not a dead run: every attachment is optional capability,
+    // and losing one server must not cost the whole session. Each failure is
+    // recorded three ways: (1) `warnings` on the snapshot so the UI can show a
+    // warning banner, (2) an `activity` line while it happens, (3) a note in the
+    // system prompt so the model is told those `mcp__*` tools are absent this run
+    // instead of hallucinating a call to a tool that was never registered.
     // `McpSet` drops (kills children) on every exit path below.
     // Effective map = stored servers + keyless Exa default (old configs
     // predate it; a stored `exa` entry, even disabled, always wins).
     let mut mcp_defs: Vec<serde_json::Value> = Vec::new();
     let mut mcp_conns: Vec<McpConnection> = Vec::new();
+    let mut mcp_missing: Vec<String> = Vec::new();
     let mut effective_servers = config.mcp_servers.clone();
     cybermanju_types::agent::ensure_default_mcp_servers(&mut effective_servers);
     for (name, server_cfg) in &effective_servers {
@@ -3472,12 +3507,33 @@ fn run_agent_job(
                 mcp_conns.push(conn);
             }
             Err(e) => {
-                fail(job, format!("MCP server '{name}' failed to connect: {e}"));
-                return;
+                warn_job(
+                    job,
+                    format!(
+                        "MCP server '{name}' failed to connect ({e}) — continuing the run without its tools"
+                    ),
+                );
+                mcp_missing.push(name.clone());
             }
         }
     }
+    if !mcp_missing.is_empty() {
+        system.push_str(&format!(
+            "\n\n<unavailable-mcp>\nThe following MCP servers are attached to this assistant but \
+            could not be reached for this run, so their mcp__* tools are NOT available: {}. \
+            Do not attempt to call them — those calls would fail. Proceed with the built-in \
+            tools and say so plainly if a capability is genuinely needed.\n</unavailable-mcp>\n",
+            mcp_missing.join(", ")
+        ));
+    }
     if mcp_defs.len() > 256 {
+        warn_job(
+            job,
+            format!(
+                "{} MCP tools exceeded the 256-per-run cap and were truncated",
+                mcp_defs.len() - 256
+            ),
+        );
         mcp_defs.truncate(256);
     }
     let mut mcp_set = McpSet { conns: mcp_conns };

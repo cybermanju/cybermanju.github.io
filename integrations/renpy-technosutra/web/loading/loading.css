@@ -1,0 +1,197 @@
+/* CyberManju OS — The Stem Array loading screen (web/loading/loading.css).
+ * Role: covers the Ren'Py canvas while the engine, data and archive download;
+ *       slow zoom on the chapter art, rotating in-story loading lines, then a
+ *       smooth hand-off to the game's own (pixel-art) main menu.
+ * Integrates: loading/loading.js (adds .is-done / .is-failed) and
+ *             tools/inject_loading_overlay.py (markup + asset hrefs).
+ * Contracts: the art is object-fit: contain on a black stage, matching Ren'Py's
+ *       letterboxing so the hand-off to the canvas does not jump; every effect
+ *       is disabled under prefers-reduced-motion; the overlay never outlives the
+ *       fade (the script removes it) so it cannot swallow clicks.
+ */
+
+#stem-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  background: #05070c;
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity 900ms ease, visibility 900ms;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #e7f1ef;
+  touch-action: manipulation;
+}
+
+#stem-loader.is-done {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.stem-loader__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transform: scale(1.02);
+  transform-origin: center 42%;
+  animation: stem-loader-zoom 46s ease-in-out infinite alternate;
+  transition: opacity 600ms ease, transform 900ms ease;
+}
+
+.stem-loader__art.is-loaded {
+  opacity: 1;
+}
+
+#stem-loader.is-done .stem-loader__art {
+  transform: scale(1);
+}
+
+@keyframes stem-loader-zoom {
+  from { transform: scale(1.02); }
+  to   { transform: scale(1.14); }
+}
+
+.stem-loader__shade {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 90% at 50% 8%, rgba(5, 7, 12, 0) 38%, rgba(5, 7, 12, .82) 100%),
+    linear-gradient(180deg, rgba(5, 7, 12, .12) 0%, rgba(5, 7, 12, .9) 100%);
+  pointer-events: none;
+}
+
+.stem-loader__card {
+  position: relative;
+  width: min(680px, calc(100vw - 40px));
+  margin-bottom: max(28px, env(safe-area-inset-bottom));
+  padding: 22px 26px 20px;
+  background: rgba(6, 12, 18, .86);
+  border: 2px solid #24404f;
+  box-shadow:
+    0 0 0 2px #05070c,
+    0 0 26px rgba(85, 237, 255, .18),
+    inset 0 0 0 1px rgba(85, 237, 255, .22);
+  transition: opacity 420ms ease, transform 420ms ease;
+}
+
+#stem-loader.is-done .stem-loader__card {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.stem-loader__title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  letter-spacing: .34em;
+  text-transform: uppercase;
+  color: #55edff;
+}
+
+.stem-loader__title::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  margin-left: 8px;
+  vertical-align: -2px;
+  background: #55edff;
+  animation: stem-loader-blink 1.1s steps(2, end) infinite;
+}
+
+@keyframes stem-loader-blink {
+  50% { opacity: 0; }
+}
+
+.stem-loader__phrase {
+  margin: 10px 0 14px;
+  min-height: 2.9em;
+  font-size: clamp(15px, 2.2vw, 19px);
+  line-height: 1.45;
+  color: #f2f6f2;
+  text-shadow: 0 1px 0 #000;
+}
+
+.stem-loader__phrase.is-visible {
+  animation: stem-loader-fade-in 480ms ease both;
+}
+
+@keyframes stem-loader-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stem-loader__bar {
+  position: relative;
+  height: 10px;
+  background: #0a1420;
+  border: 1px solid #24404f;
+  overflow: hidden;
+}
+
+.stem-loader__fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(90deg, #55edff 0 10px, #2ea9bd 10px 20px);
+  transform: scaleX(.28);
+  transform-origin: left center;
+  animation: stem-loader-sweep 2.4s ease-in-out infinite;
+}
+
+.stem-loader__bar.is-determinate .stem-loader__fill {
+  animation: none;
+  transition: transform 320ms ease-out;
+}
+
+@keyframes stem-loader-sweep {
+  0%   { transform: translateX(-30%) scaleX(.28); }
+  50%  { transform: translateX(10%) scaleX(.62); }
+  100% { transform: translateX(110%) scaleX(.28); }
+}
+
+.stem-loader__detail {
+  margin: 10px 0 0;
+  min-height: 1.2em;
+  font-size: 12px;
+  letter-spacing: .04em;
+  color: #7f9aa6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stem-loader__hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  letter-spacing: .04em;
+  color: #5d7681;
+}
+
+#stem-loader.is-failed .stem-loader__bar {
+  border-color: #ff5f57;
+}
+
+#stem-loader.is-failed .stem-loader__detail {
+  color: #ff8d86;
+  white-space: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stem-loader__art,
+  .stem-loader__fill,
+  .stem-loader__title::after,
+  .stem-loader__phrase.is-visible {
+    animation: none !important;
+  }
+  #stem-loader,
+  #stem-loader .stem-loader__card,
+  .stem-loader__art {
+    transition-duration: 1ms;
+  }
+}

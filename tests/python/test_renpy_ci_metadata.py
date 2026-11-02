@@ -200,23 +200,32 @@ class PostDeployProvenanceTests(unittest.TestCase):
 
 
 class RenpyWorkflowContractTests(unittest.TestCase):
-    def test_service_worker_source_is_versioned_and_disables_persistent_cache_by_default(self):
+    def test_service_worker_precaches_the_engine_and_invalidates_by_content_stamp(self):
         root = ROOT / "integrations/renpy-technosutra"
         worker_source = (root / "web/service-worker.js").read_bytes()
         self.assertEqual(worker_source, (ROOT / "public/technosutra-vn/service-worker.js").read_bytes())
         worker_text = worker_source.decode("utf-8")
-        self.assertIn("let addToCache = false;", worker_text)
-        self.assertIn("if (!addToCache) {", worker_text)
-        self.assertIn("return fetch(request);", worker_text)
+        # The engine and start-up payload are precached, and the placeholder is
+        # replaced at build time by a hash of every shipped byte, so returning
+        # visitors keep the engine but never keep it past a deploy.
+        self.assertIn("var CACHE_VERSION = '__STEM_CACHE_VERSION__';", worker_text)
+        for required in ("renpy.wasm", "renpy.data", "game.zip", "web-presplash.jpg", "PRECACHE"):
+            self.assertIn(required, worker_text)
+        self.assertIn("cacheFirst", worker_text)
+        self.assertIn("networkFirst", worker_text)
+        self.assertIn("if (request.headers.has('range')) return;", worker_text)
+        self.assertNotIn("addToCache", worker_text)
 
         build_script = (root / "build_web.sh").read_text(encoding="utf-8")
         validator = (root / "tools/validate_web_candidate.py").read_text(encoding="utf-8")
         smoke = (root / "tools/smoke_web_build.py").read_text(encoding="utf-8")
+        stamper = (root / "tools/stamp_service_worker.py").read_text(encoding="utf-8")
         self.assertIn('cp "$ROOT/web/service-worker.js" "$PROJECT/web/service-worker.js"', build_script)
         self.assertIn('cp "$PROJECT/web/service-worker.js" "$WEB_DIR/service-worker.js"', build_script)
-        self.assertIn("service-worker.js", validator)
-        self.assertIn("persistent offline caching disabled by default", validator)
-        self.assertIn("service-worker.js", smoke)
+        self.assertIn('python3 "$PROJECT/tools/stamp_service_worker.py" "$WEB_DIR"', build_script)
+        self.assertIn("__STEM_CACHE_VERSION__", validator)
+        self.assertIn("__STEM_CACHE_VERSION__", smoke)
+        self.assertIn("CACHE_VERSION", stamper)
 
     def test_only_checksum_pinned_official_downloads_and_playwright_browsers_are_cached(self):
         workflow = (ROOT / ".github/workflows/renpy-ci.yml").read_text(encoding="utf-8")
@@ -262,6 +271,51 @@ class RenpyWorkflowContractTests(unittest.TestCase):
         self.assertIn("name: renpy-web-runtime", ci)
         self.assertIn("path: public/technosutra-vn/", ci)
         self.assertIn("run: npm run build:wasm:frontend", ci)
+
+
+class LoadingOverlayContractTests(unittest.TestCase):
+    root = ROOT / "integrations/renpy-technosutra"
+
+    def test_overlay_uses_the_converted_webp_art_and_keeps_the_blur_up(self):
+        loading = self.root / "web/loading"
+        css = (loading / "loading.css").read_text(encoding="utf-8")
+        script = (loading / "loading.js").read_text(encoding="utf-8")
+        art = json.loads((loading / "art.json").read_text(encoding="utf-8"))
+        provenance = json.loads((loading / "provenance.json").read_text(encoding="utf-8"))
+        self.assertEqual(art["art"], "02.webp")
+        self.assertEqual(art["artSmall"], "02-small.webp")
+        self.assertEqual(provenance["source"]["commit"], "b0f08869b385faf9934548f8bc978573dc3fc7b3")
+        # The conversion is the whole point: the PNG must shrink by >95%.
+        self.assertLess(provenance["art"]["bytes"] / provenance["source"]["pngBytes"], 0.05)
+        self.assertLess(provenance["artSmall"]["bytes"], 20_000)
+        self.assertIn("stem-loader-zoom", css)
+        self.assertIn("prefers-reduced-motion", css)
+        for phrase in ("Os Bodhisattvas estão se reunindo", "Os budas já chegaram"):
+            self.assertIn(phrase, script)
+        # A loader that can never dismiss itself is worse than no loader.
+        self.assertIn("MAXIMUM_WAIT", script)
+
+    def test_build_injects_the_overlay_before_stamping_the_cache(self):
+        build = (self.root / "build_web.sh").read_text(encoding="utf-8")
+        inject = build.index('tools/inject_loading_overlay.py" "$WEB_DIR"')
+        stamp = build.index('tools/stamp_service_worker.py" "$WEB_DIR"')
+        self.assertLess(inject, stamp)
+        self.assertIn('cp "$ROOT/web/loading/02.jpg" "$PROJECT/game/images/title/bg_title.jpg"', build)
+        worker = (self.root / "web/service-worker.js").read_text(encoding="utf-8")
+        for precached in ("loading/loading.css", "loading/loading.js", "loading/02.webp"):
+            self.assertIn(precached, worker)
+
+    def test_pixel_ui_frames_are_committed_and_used_by_the_title_screen(self):
+        manifest = json.loads((self.root / "game/images/pixel/manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["count"], 9)
+        for asset in manifest["assets"]:
+            path = self.root / "game/images/pixel" / asset["file"]
+            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), asset["sha256"])
+        screens = (self.root / "game/screens.rpy").read_text(encoding="utf-8")
+        for frame in ("pixel_panel", "pixel_button", "pixel_button_hover", "pixel_start", "pixel_start_hover"):
+            self.assertIn(f"images/pixel/{frame}.png", screens)
+        self.assertIn('action Start() style "stem_start_button"', screens)
+        self.assertIn('add "bg_stem_title"', screens)
 
 
 if __name__ == "__main__":

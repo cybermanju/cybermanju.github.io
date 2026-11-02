@@ -321,6 +321,16 @@ describe('agentErrorHint', () => {
     expect(agentErrorHint('auth: 401').prefix).toBe('auth')
     expect(agentErrorHint('something nobody classified').hint).toMatch(/transcript/)
   })
+
+  it('gives MCP failures an actionable hint instead of a dead end', () => {
+    // The run no longer dies on a dead MCP server; if one still reaches the
+    // error path (an explicit attach/connect action), the hint must say what to
+    // do and must not send the reader hunting through a transcript.
+    const hint = agentErrorHint("MCP server 'exa' failed to connect (network: timed out)")
+    expect(hint.hint).not.toMatch(/transcript/i)
+    expect(hint.hint).toMatch(/continues without its tools/i)
+    expect(hint.hint).toMatch(/Controls|detach/i)
+  })
 })
 
 describe('read anchor (browser mirror of Rust `edit::strip_anchor`)', () => {

@@ -44,11 +44,23 @@ def main() -> int:
 
     worker_source = project / "web" / "service-worker.js"
     worker_candidate = candidate / "service-worker.js"
-    if not worker_source.is_file() or worker_candidate.read_bytes() != worker_source.read_bytes():
-        fail("candidate service worker differs from the reviewed project source")
+    if not worker_source.is_file() or not worker_candidate.is_file():
+        fail("service worker source or candidate is missing")
+    source_text = worker_source.read_text(encoding="utf-8")
     worker_text = worker_candidate.read_text(encoding="utf-8")
-    if "let addToCache = false;" not in worker_text or "if (!addToCache)" not in worker_text:
-        fail("service worker must leave persistent offline caching disabled by default")
+    if "__STEM_CACHE_VERSION__" not in source_text:
+        fail("service worker source must keep the __STEM_CACHE_VERSION__ placeholder for the build stamp")
+    # The reviewed source and the shipped worker may differ by exactly one thing:
+    # the content stamp written by tools/stamp_service_worker.py.
+    if re.sub(r"var CACHE_VERSION = '[0-9a-f]{16}';", "var CACHE_VERSION = '__STEM_CACHE_VERSION__';", worker_text) != source_text:
+        fail("candidate service worker differs from the reviewed project source beyond the cache-version stamp")
+    if "__STEM_CACHE_VERSION__" in worker_text:
+        fail("candidate service worker was not stamped with a content version")
+    # The engine must be precached: re-downloading 37 MB of wasm/engine data on
+    # every visit is the regression this worker exists to prevent.
+    for required in ("renpy.wasm", "renpy.data", "game.zip", "PRECACHE", "cacheFirst", "networkFirst"):
+        if required not in worker_text:
+            fail(f"service worker must keep precaching the engine and start-up assets ({required} missing)")
 
     opening_background = images / "bg_intro_scene.jpg"
     presplash_source = project / "web-presplash.jpg"
@@ -61,8 +73,32 @@ def main() -> int:
         or sha256_file(presplash_candidate) != sha256_file(presplash_source)
     ):
         fail("Web presplash must preserve the opening landscape from staging through the candidate")
-    if "web-presplash.jpg" not in (candidate / "index.html").read_text(encoding="utf-8"):
+    index_text = (candidate / "index.html").read_text(encoding="utf-8")
+    if "web-presplash.jpg" not in index_text:
         fail("Web index does not reference the custom opening-landscape presplash")
+
+    # Custom loading overlay: shipped, wired, injected before the canvas, and its
+    # art is actually deliverable (a loader pointing at a missing image is a black
+    # screen with a dead progress bar).
+    for asset in ("loading/loading.css", "loading/loading.js", "loading/art.json"):
+        path = candidate / asset
+        if not path.is_file() or path.stat().st_size == 0:
+            fail(f"custom loading overlay asset missing: {asset}")
+    if 'id="stem-loader"' not in index_text or "loading/loading.js" not in index_text:
+        fail("index.html must carry the custom loading overlay and its script")
+    if index_text.index('id="stem-loader"') > index_text.index("<canvas"):
+        fail("the loading overlay must be injected before the Ren'Py canvas")
+    if "Os Bodhisattvas" not in index_text and "loading/loading.js" not in index_text:
+        fail("the loading overlay has no in-story loading copy")
+    art_manifest = json.loads((candidate / "loading" / "art.json").read_text(encoding="utf-8"))
+    art_name = str(art_manifest.get("art") or "").strip()
+    if not art_name:
+        fail("loading/art.json must name the art file")
+    art_candidates = [candidate / "loading" / art_name, candidate / art_name]
+    if not any(path.is_file() and path.stat().st_size > 0 for path in art_candidates):
+        fail(f"loading art named by art.json is not shipped: {art_name}")
+    if art_name not in index_text:
+        fail(f"index.html does not reference the loading art: {art_name}")
 
     sprite_manifest_path = images / "masters" / "sprites" / "manifest.json"
     capture_manifest_path = images / "masters" / "source" / "capture_manifest.json"
@@ -193,8 +229,61 @@ def main() -> int:
             if re.fullmatch(r"_placeholders/images/masters/sprites/provisional/master_ch(43|52)_provisional\.png", name):
                 fail("a placeholder was generated for absent sprite slot 43 or 52")
 
+        # Screen scripts reference textures by path. A bundle that omits them
+        # renders empty buttons and empty dialogue boxes, so every referenced
+        # UI/narrator/speaker texture must be delivered by this candidate.
+        texture_refs: set[str] = set()
+        for script in sorted((project / "game").glob("*.rpy")):
+            texture_refs.update(
+                re.findall(r'"(images/(?:ui|narrator|speakers)/[^"]+\.(?:png|jpg|jpeg|webp))"', script.read_text(encoding="utf-8"))
+            )
+        undelivered = [
+            relative
+            for relative in sorted(texture_refs)
+            if f"game/{relative}" not in names and not (candidate / "game" / relative).is_file()
+        ]
+        if undelivered:
+            fail("UI textures referenced by the screens are not shipped: " + ", ".join(undelivered[:6]))
+
+        # First-match-wins: a catch-all "+ image game/**" placed before the UI
+        # rules streams the dialogue box and choice card instead of loading them,
+        # which shows pixellated placeholders exactly where the buttons belong.
+        try:
+            rules = archive.read("progressive_download.txt").decode("utf-8").splitlines()
+        except KeyError:
+            fail("progressive_download.txt is missing from game.zip")
+        ordered = [
+            line.split()
+            for line in rules
+            if line.strip() and not line.lstrip().startswith("#") and len(line.split()) >= 3
+        ]
+
+        def first_match(path: str) -> str | None:
+            for flag, kind, pattern in ((row[0], row[1], row[2]) for row in ordered):
+                if kind != "image":
+                    continue
+                if pattern.endswith("/**"):
+                    prefix = pattern[:-2]
+                    if path.startswith(prefix) or path == prefix.rstrip("/"):
+                        return flag
+                elif pattern == path:
+                    return flag
+            return None
+
+        streamed_ui = [
+            relative
+            for relative in sorted(texture_refs)
+            if relative.startswith("images/ui/") and first_match(f"game/{relative}") != "-"
+        ]
+        if streamed_ui:
+            fail(
+                "UI chrome must load before play; these are streamed by progressive_download.txt: "
+                + ", ".join(streamed_ui[:6])
+            )
+
     sprite_bytes = sum(path.stat().st_size for path in runtime_sprite_files)
     print("PASS: ZIP integrity and all three manifests; no raw source-capture PNGs or GLB files in package")
+    print(f"PASS: {len(texture_refs)} screen textures referenced by the game scripts are shipped")
     print("PASS: 56 optimized JPEGs and 54 authorized runtime sprites match progressive SHA-256/size/dimensions")
     print("PASS: remote-file list and Ren'Py placeholders map all 112 runtime images; slots 43/52 absent")
     print(f"Payloads: optimized backgrounds {optimized_manifest['optimizedBytes']:,} bytes; sprites {sprite_bytes:,} bytes")

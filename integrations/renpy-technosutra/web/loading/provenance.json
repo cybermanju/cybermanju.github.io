@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "title": "The Stem Array — loading screen art (web/loading)",
+  "source": {
+    "repository": "technosutra21/technosutra",
+    "commit": "b0f08869b385faf9934548f8bc978573dc3fc7b3",
+    "path": "imgs/imagens/02.png",
+    "url": "https://raw.githubusercontent.com/technosutra21/technosutra/b0f08869b385faf9934548f8bc978573dc3fc7b3/imgs/imagens/02.png",
+    "pngSha256": "c28d89eae011ec22502585e4888fa3b0334b6a1dae591632fcccee4f737f4ae4",
+    "pngBytes": 13548145,
+    "width": 3962,
+    "height": 2231
+  },
+  "art": {
+    "file": "02.webp",
+    "format": "WEBP",
+    "width": 1920,
+    "height": 1081,
+    "quality": 84,
+    "bytes": 326368,
+    "sha256": "3da18e86606843dff0811f6b4dfe4d5def18e2a2281827fe75e369cb37fb3970"
+  },
+  "artSmall": {
+    "file": "02-small.webp",
+    "format": "WEBP",
+    "width": 320,
+    "height": 180,
+    "quality": 42,
+    "bytes": 4284,
+    "sha256": "64e9eb8c93a41b2e319e236805c90f8d5727675f8e69436446c8d14d0b877330",
+    "role": "instant blur-up placeholder behind the full image"
+  },
+  "titleBackground": {
+    "file": "02.jpg",
+    "format": "JPEG",
+    "width": 1920,
+    "height": 1081,
+    "quality": 88,
+    "subsampling": 0,
+    "bytes": 625982,
+    "sha256": "0d6ea346f33ea9ab47ec0931de40ea70c4f13fe6199234cd12e84231d322f6ff",
+    "role": "in-engine main-menu background so the DOM overlay hands off to the same image"
+  }
+}

@@ -2758,3 +2758,139 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
   set so the walkthrough runs `cyb setup --server http://127.0.0.1:<port>` —
   the "redirect to CLI after ok" the picker was missing.
 - Verified: gofmt, go vet, go build, go test ./... (cli), check-file-headers.
+## 2026-11-02 — Ren'Py VN: invisible choice buttons, dead title cards, per-line render cost
+- "Options buttons not showing" root cause: the shared `button` style carried
+  `focus_mask True`, so each button rendered a focus mask from a *translucent,
+  rounded* 256x256 velvet texture — only the opaque core was clickable and every
+  button paid a full-size mask render. Mask removed; buttons are plain text
+  targets again.
+- Every surface used `Tile()`, repeating a bordered texture: the edge highlight
+  and corner ornaments repeated across each stretched dialogue box, choice card
+  and menu panel. All panel textures now use `Frame()` (nine-quad scaling).
+- `screen centered(message)` was dead code: Ren'Py's `centered` is a Character
+  that renders through `centered_window`/`centered_text`, which were never
+  styled, so all 56 chapter + 246 scene title cards fell back to stock Ren'Py
+  defaults. The card design moved onto those style names; the dead screen and
+  the unused `stem_ascii_root`/`stem_ascii_garden` overlay are gone.
+- Say screen: removed the fixed panel height plus the `ymaximum` on the dialogue
+  text (long narration pages were silently clipped), removed a stray
+  `key "dismiss" action Return()` inside `screen say`, and raised the type scale
+  to 34px dialogue at the 1920x1080 design grid.
+- Choices: options are numbered (01-11) so keyboard order is visible, the card is
+  capped above the dialogue area, and only lists longer than six scroll.
+- Performance: the theme bridge does one cheap JS flag read per 0.9s instead of
+  a JSON parse every 0.45s; the browser shell dropped the full-surface
+  `mix-blend-mode: screen` that re-blended the viewport over the Ren'Py canvas
+  each frame. Window show/hide transitions were briefly disabled on the theory
+  that they re-composite per line; that was wrong (they apply to the window
+  layer on show/hide events) and every benchmarked VN keeps the `Dissolve(.2)`
+  default, so the engine default stands.
+- Web delivery: `progressive_download.txt` is now reviewed and shipped. Ren'Py's
+  generated default keeps `game/gui/**` immediate, but this project has no
+  `gui/`, so all 17 chrome textures fell through to `+ image game/**` and were
+  streamed mid-interaction — a first choice screen could show pixellated
+  placeholders. `images/ui/**` and `images/speakers/**` are now `-` (immediate)
+  ahead of the catch-all, `build_web.sh` copies the rules into the staging
+  project, and `validate_web_candidate.py` fails a candidate that lets chrome
+  stream.
+- Benchmark: live GitHub survey (5 API searches, 100 repos) plus mechanical
+  profiles of `LearnToCodeRPG`, `renpy-template`, `ddlc-android` and `ksre`, and
+  the engine's screen-optimization/web docs, written up in
+  `integrations/renpy-technosutra/VN-BENCHMARK.md` with a P0/P1/P2 roadmap.
+  Confirmed externally: `Tile(` appears 0 times in every benchmarked game while
+  `Frame(` appears 15-25 times, and responsive layout is carried by `variant`
+  blocks (19 each) rather than runtime conditionals.
+- Guard: `validate_web_candidate.py` now fails any candidate whose screen scripts
+  reference `images/ui|narrator|speakers/*` textures that are neither inside
+  `game.zip` nor shipped as progressive files — the exact class of bug behind the
+  current button-less bundle (the published `game.zip` has no `screens.rpy`, no
+  `gui/` and no `images/ui/`).
+- Verified: full script generation (56 chapters, 56 choices, 56 quizzes), static
+  screen audit (24 referenced textures resolve, every added image/style/screen/
+  menu target exists, no tabs), `py_compile` of the build tools, and the Ren'Py
+  metadata suite.
+- Not run locally: Ren'Py lint and the WebAssembly build (SDK is CI-only per
+  AGENTS.md §2), so the layout changes are validated statically, not rendered.
+## 2026-11-02 — VN UI/UX pass: reading scale, real backlog, numbered hotkeys, no dead tabs
+- Reading type scale: `persistent.stem_text_step` (PADRÃO / MAIOR / MUITO MAIOR,
+  +0/+4/+9 px) applied to the dialogue body only, clamped so a stale persistent
+  file cannot throw inside the say screen.
+- Preferences rebuilt on string tab ids (`visual`/`text`/`audio`/`theme`) instead
+  of 0-3 ints, and the ÁUDIO tab is created only when the build actually has an
+  audio channel — this one has none, so that tab was an empty dead end.
+- Backlog (`history`) was a one-entry pager (click through 120 entries to read
+  120 lines). It is now the standard scrollable log, newest first, bounded to the
+  last 120 entries so opening it does not build 250 displayables.
+- Choices: number keys 1-9 select the matching numbered option, the card header
+  advertises the binding, and the help screen documents it alongside arrow keys.
+- Say box: the shared generic silhouette no longer repeats beside all 94 speaker
+  names — a portrait appears only when `stem_speaker_portraits` maps one, so
+  narrators keep the orb and named speakers get their full text width back.
+- Quick menu is hidden while the choice modal is open: it sat at a higher zorder
+  and stayed clickable over the modal.
+- Configs: `config.has_autosave`/`config.has_quicksave` declared (the save menu
+  only renders the AUTO/RÁPIDOS pages when true) and a developer-only
+  `renpy.profile_screen("say"/"choice")` hook added so the next performance
+  change is measured rather than guessed.
+- Verified: static UI audit (21 screens, 20 styles, 11 variant blocks, every tab
+  id branched, type scale wired, no numeric tab leftovers, no focus_mask/Tile),
+  progressive rules resolve 23 chrome textures as immediate with 0 streamed,
+  17/17 Ren'Py metadata tests, validator py_compile.
+## 2026-11-02 — VN Web loading: engine precached, content-stamped cache, no re-download
+- Every visit re-downloaded the whole engine (~21.6 MB `renpy.wasm` + ~14.4 MiB
+  `renpy.data` + 5.5 MiB `game.zip` ≈ 42 MB) because the service worker was pure
+  pass-through: `addToCache = false` meant nothing was ever stored and no client
+  called `loadCache`.
+- `web/service-worker.js` is now a real precache worker. `install` stores the
+  engine and start-up payload (`index.html`, `manifest.json`, `renpy-pre.js`,
+  `renpy.js`, `renpy.wasm`, `renpy.data`, `game.zip`, presplash, 192/512 icons)
+  and later visits are served cache-first, so a second open no longer fetches the
+  engine at all. The 111 progressive chapter/sprite images are cached on first
+  use instead of at install — preloading 72 MiB would double the first download.
+- Invalidation is by content, not by hand: `tools/stamp_service_worker.py` hashes
+  every shipped file (except the worker) and `build_web.sh` stamps the 16-hex
+  digest into `CACHE_VERSION`, so the cache name changes exactly when a byte does
+  and a previous build can never be served. Navigation and `pwa_catalog.json`
+  stay network-first so a deploy is visible immediately; `Range` requests are
+  never intercepted (the engine streams the archive with them); only same-origin
+  200s are stored; an unstamped source checkout intercepts nothing.
+- Contracts moved with it: the validator and the browser smoke test reject a
+  worker without a stamp or with the engine missing from `PRECACHE` (accepting
+  the source only when the stamp is the sole difference), the metadata test
+  asserts the new contract, and `BUILD-CI.md` documents precache-by-default.
+- Verified: `node --check` on the worker, stamp determinism (same content → same
+  version, edited byte → new version, re-stamp refused), validator round-trip
+  accepts a legitimately stamped worker, no `addToCache` outside the test guard,
+  17/17 metadata tests, published copy byte-identical to the reviewed source.
+
+## 2026-11-02 — VN loading screen: 02.png zoom-in, in-story loading copy, pixel-art title
+
+- **Artwork fetched and converted.** `tools/fetch_loading_art.py` pulls
+  `technosutra21/technosutra@b0f0886:imgs/imagens/02.png` (3962×2231, 13,548,145 B),
+  writes `web/loading/02.webp` (1920×1081, **326,368 B — 97.6% smaller**), a 4,284 B
+  blur-up `02-small.webp` and a 625,982 B `02.jpg` title background, plus
+  `provenance.json` (source commit, SHA-256, sizes). The 13.5 MB source PNG is not kept.
+- **DOM loading overlay** (`web/loading/loading.css|.js`, injected by
+  `tools/inject_loading_overlay.py`): slow 46 s zoom on 02, card titled `Loading…`
+  with rotating in-story lines ("Os Bodhisattvas estão se reunindo…", "Os budas já
+  chegaram. Faltam só os Śrāvakas…", …), Ren'Py's own `#statusProgress` mirrored
+  into the bar, blur-up before the sharp WebP, `prefers-reduced-motion` respected.
+  It dismisses itself when the engine paints a frame, with a 12 s painted-canvas cap
+  so an engine that keeps its status bar up can never leave an immortal overlay.
+- **Hand-off to the title screen.** `build_web.sh` materialises
+  `game/images/title/bg_title.jpg` from `02.jpg` (intro landscape as fallback), so
+  the main menu draws the *same* image the overlay zoomed on and only the card
+  fades; `stem_title_drift` continues the zoom in-engine. Reveal is owned by the CSS
+  fade, not an ATL alpha, because a screen re-render (any hover) restarts ATL.
+- **Pixel-art title screen.** `tools/generate_pixel_ui.py` procedurally draws 9 hard-
+  9-slice frames (2,415 B total, manifest with SHA-256). `INICIAR JORNADA` is the one
+  primary button (gold, 104 px, `stem_start_button`); CARREGAR/SALVAR/PREFERÊNCIAS/
+  SOBRE/CONTROLES/SAIR are subordinate `stem_pixel_button`s with wide tracking.
+- **Caching.** The loading payload is in the worker's `PRECACHE` and the injector runs
+  *before* `stamp_service_worker.py`, so overlay + art version the offline cache with
+  the engine. Progressive rules keep `images/pixel/**` and `images/title/**` immediate.
+- **Gates.** `validate_web_candidate.py` and `smoke_web_build.py` require the overlay,
+  its script, `loading/art.json` and the art it names; the browser smoke test asserts
+  the overlay renders and is gone after the canvas starts, and records it in the report.
+  3 new contract tests (20/20 pass). Injector is idempotent (byte-identical on re-run).
+  Ren'Py lint and the WASM build stay CI-only, so layout is validated structurally.
