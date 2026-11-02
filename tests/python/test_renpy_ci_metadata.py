@@ -169,5 +169,52 @@ class PostDeployProvenanceTests(unittest.TestCase):
         self.assertIn("SHA-256", result["error"])
 
 
+class RenpyWorkflowContractTests(unittest.TestCase):
+    def test_only_checksum_pinned_official_downloads_and_playwright_browsers_are_cached(self):
+        workflow = (ROOT / ".github/workflows/renpy-ci.yml").read_text(encoding="utf-8")
+        installer = (ROOT / "integrations/renpy-technosutra/tools/install_renpy_sdk.sh").read_text(encoding="utf-8")
+        download_cache = workflow.index("id: renpy-download-cache")
+        browser_cache = workflow.index("id: playwright-browser-cache")
+        install = workflow.index("- name: Install official Ren'Py 8.5.3 SDK and Web support")
+        build = workflow.index("- name: Build and smoke-test Ren'Py Web candidate")
+        self.assertLess(browser_cache, download_cache)
+        self.assertLess(download_cache, install)
+        self.assertLess(install, build)
+        self.assertIn("uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0", workflow)
+        self.assertIn(
+            "key: renpy-downloads-${{ runner.os }}-8.5.3-sdk-eb0a9be7f0fb13632fe25ceade9a8bed5a1b4d6b6e83bd19eeeb29e1a1bb4a45-web-954db897e65f51ea63cb2fb7b203d02be0447f4e22069514020bbe6c6691fdfc",
+            workflow,
+        )
+        self.assertIn("path: ${{ runner.temp }}/renpy-downloads", workflow)
+        self.assertIn("RENPY_DOWNLOAD_CACHE: ${{ runner.temp }}/renpy-downloads", workflow)
+        self.assertIn("key: playwright-${{ runner.os }}-chromium-1.62.0", workflow)
+        self.assertIn("path: ~/.cache/ms-playwright", workflow)
+        self.assertIn('if [[ -f "$cached" ]]; then', installer)
+        self.assertIn('verify_sha256 "$expected" "$cached"', installer)
+        self.assertIn('verify_sha256 "$expected" "$destination"', installer)
+        self.assertIn('tar -xjf "$TEMP/renpy-sdk.tar.bz2" -C "$TEMP/extract"', installer)
+        self.assertIn('unzip -q "$TEMP/renpy-web.zip" -d "$TEMP/web-extract"', installer)
+        self.assertNotIn("path: ${{ runner.temp }}/renpy-8.5.3-sdk", workflow)
+        self.assertIn("RENPY_SDK: ${{ runner.temp }}/renpy-8.5.3-sdk", workflow)
+
+    def test_complete_engine_runtime_is_smoke_tested_and_exported_to_the_app_bundle(self):
+        expected = {"index.html", "game.zip", "renpy-pre.js", "renpy.js", "renpy.wasm", "renpy.data"}
+        self.assertTrue(expected.issubset(set(MODULE.RUNTIME_FILES)))
+
+        build_script = (ROOT / "integrations/renpy-technosutra/build_web.sh").read_text(encoding="utf-8")
+        smoke_script = (ROOT / "integrations/renpy-technosutra/tools/smoke_web_build.py").read_text(encoding="utf-8")
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/renpy-ci.yml").read_text(encoding="utf-8")
+
+        self.assertIn("for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data; do", build_script)
+        self.assertIn('cp -a "$WEB_DIR"/. "$OUTPUT"/', build_script)
+        self.assertIn("progressive_assets", smoke_script)
+        self.assertIn("name: renpy-web-runtime", workflow)
+        self.assertIn("path: integrations/renpy-technosutra/build/local/${{ env.BUILD_ID }}/output/", workflow)
+        self.assertIn("name: renpy-web-runtime", ci)
+        self.assertIn("path: public/technosutra-vn/", ci)
+        self.assertIn("run: npm run build:wasm:frontend", ci)
+
+
 if __name__ == "__main__":
     unittest.main()

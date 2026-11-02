@@ -138,7 +138,7 @@ if [[ -z "$INDEX" ]]; then
   exit 3
 fi
 WEB_DIR="$(dirname "$INDEX")"
-for required in index.html game.zip renpy.js renpy.wasm; do
+for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data; do
   if [[ ! -s "$WEB_DIR/$required" ]]; then
     echo "Ren'Py candidate is missing required web artifact: $WEB_DIR/$required" >&2
     exit 4

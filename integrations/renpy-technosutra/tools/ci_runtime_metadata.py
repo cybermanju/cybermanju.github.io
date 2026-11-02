@@ -12,7 +12,7 @@ import json
 import re
 from pathlib import Path
 
-RUNTIME_FILES = ("index.html", "game.zip", "renpy.js", "renpy.wasm")
+RUNTIME_FILES = ("index.html", "game.zip", "renpy-pre.js", "renpy.js", "renpy.wasm", "renpy.data")
 METADATA_NAME = "build-metadata.json"
 
 
