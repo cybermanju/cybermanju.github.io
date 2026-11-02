@@ -19,8 +19,18 @@
       allowfullscreen
       loading="eager"
       referrerpolicy="strict-origin-when-cross-origin"
-      @load="publishOsTheme"
+      @load="onIframeLoaded"
     />
+
+    <!-- Quick Status HUD overlay -->
+    <header class="stem-hud" aria-label="Status do jogo The Stem Array">
+      <div class="stem-hud__pill" role="status" aria-live="polite">
+        <span class="stem-hud__dot" aria-hidden="true" />
+        <span class="stem-hud__label">THE STEM ARRAY</span>
+        <span class="stem-hud__badge" v-if="gameReady" aria-label="Jogo carregado">PRONTO</span>
+        <span class="stem-hud__badge stem-hud__badge--loading" v-else aria-label="Carregando jogo">CARREGANDO...</span>
+      </div>
+    </header>
 
     <div class="stem-ascii-garden" aria-hidden="true">
       <span class="stem-ascii-garden__edge stem-ascii-garden__edge--top">{{ asciiGarden.top }}</span>
@@ -91,6 +101,7 @@ const gameFrame = ref<HTMLIFrameElement | null>(null)
 const isImmersive = ref(false)
 const needsGesture = ref(true)
 const controlsVisible = ref(false)
+const gameReady = ref(false)
 const themeState = useTheme()
 const isGlass = computed(() => themeState.glass.value !== 0)
 const stemAccent = computed(() => themeState.cssVars.value['--ui-accent'] || '#55edff')
@@ -141,10 +152,18 @@ function publishOsTheme() {
   }, gameOrigin)
 }
 
+function onIframeLoaded() {
+  gameReady.value = true
+  publishOsTheme()
+}
+
 function onGameThemeMessage(event: MessageEvent) {
   if (event.origin !== gameOrigin || event.source !== gameFrame.value?.contentWindow) return
   const data = event.data as { type?: unknown; version?: unknown } | null
-  if (data?.type === 'stem-array:ready' && data.version === 1) publishOsTheme()
+  if (data?.type === 'stem-array:ready' && data.version === 1) {
+    gameReady.value = true
+    publishOsTheme()
+  }
 }
 
 watch(
@@ -513,6 +532,61 @@ onBeforeUnmount(() => {
 .stem-traffic-light--close { background: #ff5f57; }
 .stem-traffic-light--minimize { background: #febc2e; }
 .stem-traffic-light--fullscreen { background: #28c840; }
+
+.stem-hud {
+  position: absolute;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 5;
+  pointer-events: none;
+  opacity: .85;
+  transition: opacity 200ms ease;
+}
+
+.stem-hud:hover {
+  opacity: 1;
+}
+
+.stem-hud__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: rgba(3, 5, 12, 0.85);
+  border: 1px solid color-mix(in srgb, var(--stem-accent) 35%, transparent);
+  backdrop-filter: blur(10px);
+  font: 11px/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.08em;
+  color: #cde6ee;
+}
+
+.stem-hud__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--stem-accent);
+  box-shadow: 0 0 6px var(--stem-accent);
+}
+
+.stem-hud__label {
+  font-weight: 600;
+  color: #effaff;
+}
+
+.stem-hud__badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--stem-accent) 25%, transparent);
+  color: var(--stem-accent);
+  font-weight: 700;
+}
+
+.stem-hud__badge--loading {
+  background: rgba(254, 188, 46, 0.25);
+  color: #febc2e;
+}
 
 /* Focused Stem Array window is a game surface, not a desktop window. These
    scoped overrides hide OS chrome without editing the shared shell files. */
