@@ -154,7 +154,7 @@ describe('explicit home editing', () => {
   it('retains legacy geometry utilities without mounting a competing Home layout engine', () => {
     const source = readFileSync('src/components/MobileLauncher.vue', 'utf8')
     expect(source).not.toMatch(/useHomeLayout|homeLayout\./)
-    expect(source).toContain('<HomeLauncher')
+    expect(source).toContain('<HomeWorkspaceStudio')
     expect(source).toContain('env(safe-area-inset-bottom, 0px)')
     expect(source).toContain('aria-label="Favorite apps"')
     // The command bar is gone from the launcher: one unified search-and-commands
@@ -215,7 +215,7 @@ describe('component-space clipping and release lifecycle', () => {
     expect(readHomeLayout(memory.get(HOME_LAYOUT_KEY)!).offsets['app:agent']).toEqual({ x: 0.2, y: 0.0875 })
   })
   it('keeps workspace editing scoped and supplies visible keyboard focus', () => {
-    const source = readFileSync('src/components/HomeLauncher.vue', 'utf8')
+    const source = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
     expect(source).toContain('data-ui-layout-ignore')
     expect(source).toContain('@keydown="workspaceKeys"')
     expect(source).toContain('.workspace-content:focus-visible')
@@ -230,7 +230,7 @@ describe('visible surface alignment', () => {
     const source = readFileSync('src/components/MobileLauncher.vue', 'utf8')
     expect(source).not.toContain('data-home-item="widgets"')
     expect(source).not.toContain('homeLayout.style(')
-    expect(source).toContain('<HomeLauncher')
+    expect(source).toContain('<HomeWorkspaceStudio')
   })
   it('does not add window-only mobile padding around the home search bar', () => {
     const source = readFileSync('src/components/OmniSearchPanel.vue', 'utf8')

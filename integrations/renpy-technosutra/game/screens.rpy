@@ -438,7 +438,7 @@ screen choice(items):
 
     frame:
         xalign 0.5
-        yalign 0.36 if _stem_many else 0.44
+        yalign (0.36 if _stem_many else 0.44)
         xfill True
         xmaximum (config.screen_width - 56 if _stem_small else 1180)
         ymaximum _stem_card_max

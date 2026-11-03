@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 const bridge = readFileSync('src/composables/useAndroidWidgets.ts', 'utf8')
 const coordinator = readFileSync('src/composables/useHomeNativeWidgets.ts', 'utf8')
-const studio = readFileSync('src/components/HomeLauncher.vue', 'utf8')
+const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
 const catalog = readFileSync('src/data/homeWidgetCatalog.ts', 'utf8')
 const bridgeCode = bridge.replace(/^\/\/.*$/gm, '')
 

@@ -7,7 +7,7 @@ import { baseParse } from '@vue/compiler-dom'
 import { describe, expect, it } from 'vitest'
 
 const previewSource = readFileSync('src/components/HomeWorkspacePreview.vue', 'utf8')
-const studioSource = readFileSync('src/components/HomeLauncher.vue', 'utf8')
+const studioSource = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
 const preview = parseSfc(previewSource).descriptor
 const studio = parseSfc(studioSource).descriptor
 function walk(node: any, visit: (n: any) => void) { visit(node); for (const child of node.children || []) walk(child, visit) }
@@ -19,7 +19,7 @@ describe('Home overview read-only miniature contract', () => {
     expect(preview.template!.content.trim()).toBeTruthy(); expect(studio.template!.content.trim()).toBeTruthy()
   })
   it('compiles efficient effects with accessible motion/transparency fallbacks', () => {
-    const result = compileStyle({ source: studio.styles[0].content, filename: 'HomeLauncher.vue', id: 'test-home', scoped: true })
+    const result = compileStyle({ source: studio.styles[0].content, filename: 'HomeWorkspaceStudio.vue', id: 'test-home', scoped: true })
     expect(result.errors).toEqual([])
     for (const rule of ['@supports', 'prefers-reduced-motion:reduce', 'prefers-reduced-transparency:reduce', 'forced-colors:active', 'backdrop-filter: none', 'background: var(--hw-bg)']) expect(result.code).toContain(rule)
     expect(studio.scriptSetup!.content).not.toMatch(/WebGL|requestAnimationFrame|MediaProjection|getDisplayMedia/)

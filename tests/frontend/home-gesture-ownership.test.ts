@@ -62,7 +62,7 @@ describe('Home gesture ownership', () => {
   })
 
   it('Home keeps local bubbling ownership while the launcher observes touch in capture', () => {
-    const studio = readFileSync('src/components/HomeLauncher.vue', 'utf8')
+    const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
     expect(studio).toMatch(/class="home-studio"[^>]*data-shell-gesture-exclude[^>]*@touchstart\.stop/)
     expect(studio).toMatch(/@touchmove\.stop/)
     expect(studio).toMatch(/@touchend\.stop/)
@@ -74,13 +74,13 @@ describe('Home gesture ownership', () => {
     expect(launcherSource).not.toContain('@touchstart.passive="onTouchStart"')
   })
 
-  it('HomeLauncher root declares the shell-exclusion marker', () => {
-    const studio = readFileSync('src/components/HomeLauncher.vue', 'utf8')
+  it('HomeWorkspaceStudio root declares the shell-exclusion marker', () => {
+    const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
     expect(studio).toMatch(/<section[^>]*class="home-studio"[^>]*data-shell-gesture-exclude/)
   })
 
   it('allows a horizontal page gesture to begin on an app shortcut without turning widgets into swipe targets', () => {
-    const studio = readFileSync('src/components/HomeLauncher.vue', 'utf8')
+    const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
     expect(studio).toContain("if (element?.closest?.('.workspace-launch')) return false")
     expect(studio).toContain(".workspace-widget,[data-native-placement]")
   })

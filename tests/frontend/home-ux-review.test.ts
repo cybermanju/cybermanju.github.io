@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 const read = (name: string) => readFileSync(`src/components/${name}.vue`, 'utf8')
 const home = read('MobileLauncher')
-const studio = read('HomeLauncher')
+const studio = read('HomeWorkspaceStudio')
 const settings = read('SettingsPage')
 const bar = read('HomeCommandBar')
 
@@ -94,7 +94,7 @@ describe('home and Settings UX regressions', () => {
   })
 
   it('compiles every changed component style', () => {
-    for (const [name, source] of Object.entries({ MobileLauncher: home, HomeLauncher: studio, SettingsPage: settings, HomeCommandBar: bar })) {
+    for (const [name, source] of Object.entries({ MobileLauncher: home, HomeWorkspaceStudio: studio, SettingsPage: settings, HomeCommandBar: bar })) {
       const { descriptor, errors } = parse(source)
       expect(errors).toEqual([])
       for (const style of descriptor.styles) {

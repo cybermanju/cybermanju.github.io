@@ -1,12 +1,12 @@
 // CyberManju OS — Home native-widget launch safety regressions.
 // Role: exercise real Home actions, visibility bookkeeping and bridge timeout handling together.
-// Integrates: HomeLauncher, useHomeNativeWidgets and useAndroidWidgets; only native IPC is mocked.
+// Integrates: HomeWorkspaceStudio, useHomeNativeWidgets and useAndroidWidgets; only native IPC is mocked.
 // Contracts: no layout means no native hit region; uncertain layout stays fail-closed until acknowledged hide.
 // @vitest-environment happy-dom
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, ref } from 'vue'
-import HomeLauncher from '@/components/HomeLauncher.vue'
+import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
 import { HOME_WORKSPACE_KEY, createHomeState } from '@/utils/homeWorkspaces'
 
 const native = vi.hoisted(() => ({ invoke: vi.fn(), openApp: vi.fn() }))
@@ -35,7 +35,7 @@ function mountStudio(options: { widget?: boolean; inactiveWidget?: boolean; andr
     { id: 'home', title: 'Home', items: [{ id: 'app', kind: 'app', ref: id }, ...(options.widget ? [nativeItem] : []), ...(options.local ? [{ id: 'local', kind: 'widget', ref: 'app-link' }] : [])] },
     { id: 'other', title: 'Other', items: options.inactiveWidget ? [nativeItem] : [] },
   ] }))
-  const wrapper = mount(HomeLauncher, { attachTo: document.body, props: { apps, initialIds: [id] } })
+  const wrapper = mount(HomeWorkspaceStudio, { attachTo: document.body, props: { apps, initialIds: [id] } })
   wrappers.push(wrapper)
   return wrapper
 }

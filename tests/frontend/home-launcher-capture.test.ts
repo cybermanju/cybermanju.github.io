@@ -3,7 +3,7 @@
 import { defineComponent, ref } from 'vue'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import HomeLauncher from '@/components/HomeLauncher.vue'
+import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
 import { useHomeTapActivation } from '@/composables/useHomeTapActivation'
 import { useLauncherWorkspaceGestures } from '@/composables/useLauncherWorkspaceGestures'
 import { normalizeHomeState, HOME_WORKSPACE_KEY } from '@/utils/homeWorkspaces'
@@ -23,7 +23,7 @@ enableAutoUnmount(afterEach)
 
 const apps = [{ id: 'files', label: 'Files', icon: 'solar:folder-bold' }]
 const Harness = defineComponent({
-  components: { HomeLauncher },
+  components: { HomeWorkspaceStudio },
   setup() {
     const opened = ref<string[]>([]), drawers = ref(0), searches = ref(0), progress = ref(0), suppressed = ref(0)
     const blocked = ref(false)
@@ -31,7 +31,7 @@ const Harness = defineComponent({
     const gestures = useLauncherWorkspaceGestures({ blocked: () => blocked.value, openDrawer: () => drawers.value++, openSearch: () => searches.value++, progress: value => { progress.value = value }, suppressClick: () => suppressed.value++ })
     return { opened, drawers, searches, progress, suppressed, blocked, tap, gestures, apps }
   },
-  template: `<main data-test="capture" @touchstart.capture.passive="tap.start($event); gestures.start($event)" @touchmove.capture="tap.move($event); gestures.move($event)" @touchend.capture="tap.end($event); gestures.end($event)" @touchcancel.capture="tap.cancel($event); gestures.cancel($event)" @click.capture="tap.click($event)"><HomeLauncher :apps="apps" :initial-ids="['files']" :blocked="blocked" @open="opened.push($event)" /></main>`,
+  template: `<main data-test="capture" @touchstart.capture.passive="tap.start($event); gestures.start($event)" @touchmove.capture="tap.move($event); gestures.move($event)" @touchend.capture="tap.end($event); gestures.end($event)" @touchcancel.capture="tap.cancel($event); gestures.cancel($event)" @click.capture="tap.click($event)"><HomeWorkspaceStudio :apps="apps" :initial-ids="['files']" :blocked="blocked" @open="opened.push($event)" /></main>`,
 })
 function mountHarness() {
   native.suspend.mockResolvedValue(true)
@@ -58,7 +58,7 @@ function screen(wrapper: ReturnType<typeof mount>) {
   return `SCREEN ${index + 1} / ${state.pages.length}`
 }
 async function openOverview(wrapper: ReturnType<typeof mount>) {
-  await (wrapper.findComponent(HomeLauncher).vm as unknown as { editScreen: () => Promise<void> }).editScreen()
+  await (wrapper.findComponent(HomeWorkspaceStudio).vm as unknown as { editScreen: () => Promise<void> }).editScreen()
   await flushPromises()
   await wrapper.get('button[aria-label="Overview of home screens"]').trigger('click')
   await flushPromises()
@@ -67,7 +67,7 @@ async function openOverview(wrapper: ReturnType<typeof mount>) {
 beforeEach(() => { localStorage.clear(); Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 }) })
 afterEach(() => { vi.clearAllMocks(); localStorage.clear(); document.body.innerHTML = '' })
 
-describe('HomeLauncher inside launcher capture routing (simulated touch events)', () => {
+describe('HomeWorkspaceStudio inside launcher capture routing (simulated touch events)', () => {
   it('routes a bottom-up empty-canvas swipe to drawer exactly once, without opening or changing screen', async () => {
     const wrapper = mountHarness(), root = wrapper.get('[data-test="capture"]').element
     expect(wrapper.get('.home-studio').attributes('data-shell-gesture-exclude')).toBeDefined()
@@ -175,7 +175,7 @@ describe('HomeLauncher inside launcher capture routing (simulated touch events)'
     }
     const wrapper = mountHarness()
     if (mode === 'edit') {
-      await (wrapper.findComponent(HomeLauncher).vm as unknown as { editScreen: () => Promise<void> }).editScreen()
+      await (wrapper.findComponent(HomeWorkspaceStudio).vm as unknown as { editScreen: () => Promise<void> }).editScreen()
       await flushPromises()
       expect(wrapper.get('.home-studio').classes()).toContain('is-editing')
     }

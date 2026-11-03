@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { homePageCapacity } from '../../src/utils/homePageCapacity'
 const home = readFileSync(new URL('../../src/components/MobileLauncher.vue', import.meta.url), 'utf8')
-const studio = readFileSync(new URL('../../src/components/HomeLauncher.vue', import.meta.url), 'utf8')
+const studio = readFileSync(new URL('../../src/components/HomeWorkspaceStudio.vue', import.meta.url), 'utf8')
 const drawer = readFileSync(new URL('../../src/components/AppDrawer.vue', import.meta.url), 'utf8')
 
 describe('responsive home rows', () => {
