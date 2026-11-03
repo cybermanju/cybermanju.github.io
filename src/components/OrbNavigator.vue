@@ -1,7 +1,7 @@
 <!-- CyberManju OS — OrbNavigator (src/components/OrbNavigator.vue). -->
 <!-- Role: Animated, accessible home-screen navigator with direct manipulation. -->
 <!-- Exports: OrbNavigator component. -->
-<!-- Integrates: HomeLauncher via directional navigation and all-apps events. -->
+<!-- Integrates: HomeWorkspaceStudio via directional navigation and all-apps events. -->
 <!-- Contracts: A delayed single activation steps right; a double activation opens the app drawer;
      drag navigates or creates the exact adjacent screen in any of eight directions. -->
 <template>
@@ -39,7 +39,7 @@
 // CyberManju OS — OrbNavigator (src/components/OrbNavigator.vue).
 // Role: Animated, accessible home-screen navigator with direct manipulation.
 // Exports: OrbNavigator component.
-// Integrates: HomeLauncher via directional navigation and all-apps events;
+// Integrates: HomeWorkspaceStudio via directional navigation and all-apps events;
 // src/utils/homeWorkspaces.ts for the shared grid layout + per-screen hue.
 // Contracts: A delayed single activation steps right; a double activation opens the app drawer;
 // drag steps are immediate in all eight directions, including empty cells for screen creation.
@@ -540,16 +540,7 @@ watch(
     if (next[2] && !prev?.[2]) navPing = Math.max(navPing, 0.35) // disabled: the orb goes quiet, not dark
     checkStatic()
     refreshTints()
-    if (next[0] !== prev?.[0]) {
-      navPing = Math.max(navPing, 0.55) // screen changed → outward ping
-      // FIX: Reset orb position state to prevent getting stuck
-      dragDX = 0
-      dragDY = 0
-      gazeX = 0
-      gazeY = 0
-      pressLevel = 0
-      dragVel = 0
-    }
+    if (next[0] !== prev?.[0]) navPing = Math.max(navPing, 0.55) // screen changed → outward ping
     if (staticMotion) drawStatic()
     else if (visible && !running && !props.disabled) start()
   },

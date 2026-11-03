@@ -1,5 +1,5 @@
 <!-- CyberManju OS — Read-only workspace miniatures, never external window captures. -->
-<!-- Role: render bounded Home data. Integrates: HomeLauncher, no native host or app mounting. -->
+<!-- Role: render bounded Home data. Integrates: HomeWorkspaceStudio, no native host or app mounting. -->
 <template>
   <div class="home-preview" :style="{ '--preview-columns': columns || 4 }" aria-hidden="true">
     <span v-if="!items.length" class="preview-empty"><AppIcon name="solar:add-circle-linear" :size="26" /></span>
