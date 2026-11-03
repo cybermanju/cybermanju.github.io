@@ -2894,3 +2894,22 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
   the overlay renders and is gone after the canvas starts, and records it in the report.
   3 new contract tests (20/20 pass). Injector is idempotent (byte-identical on re-run).
   Ren'Py lint and the WASM build stay CI-only, so layout is validated structurally.
+
+## 2026-11-03 — VN Pages smoke: Chapter 1 navigation and marker fixed
+
+- **Root causes.** `post_deploy_smoke.py` selected the choice row by pixel
+  fraction and assumed one click both finishes slow text and advances the
+  narration; Ren'Py consumes that first click on typing, so the smoke parked on
+  the prologue's last line. The Chapter 1 marker also still said
+  `no kūṭāgāra de Jetavana` while `chapters.json` ships
+  `no kūṭāgāra em Jetavana`, so the gate could never pass even after the menu.
+- **Fix.** Navigation now advances one observed narration segment at a time and
+  takes the second authored row with the choice screen's own documented
+  `teclas 1–4` binding (`2` = “Começar a jornada — capítulo 1”), polling
+  telemetry after every click so a marker line is never skipped. Canvas clicks
+  stay below the choice card, where they can only dismiss narration.
+- **Frame race.** `find_game_frame()` polls `page.frames` until the same-origin
+  `technosutra-vn/` document exists instead of sampling once right after the
+  iframe element becomes visible; `open_stem_array()` hands that frame back.
+- **Verified.** The smoke PASSes against the live Pages build (`715a628`) in
+  ~49 s with the default 90 s budget; 23 Python contract tests pass locally.
