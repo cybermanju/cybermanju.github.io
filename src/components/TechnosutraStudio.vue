@@ -41,34 +41,34 @@
     <div
       class="stem-window-controls-trigger"
       :class="{ 'is-visible': controlsVisible }"
-      role="group"
-      aria-label="Controles da janela"
+      role="region"
+      aria-label="Controles da janela do The Stem Array"
       @pointerenter="onControlsPointerEnter"
       @pointermove="onControlsPointerMove"
       @pointerleave="onControlsPointerLeave"
       @pointerdown="onControlsPointerDown"
       @focusin="revealWindowControls(false)"
     >
-      <div class="stem-window-controls" :class="{ 'is-visible': controlsVisible }">
+      <div class="stem-window-controls" :class="{ 'is-visible': controlsVisible }" role="toolbar" aria-label="Ações da janela">
         <button
           class="stem-traffic-light stem-traffic-light--close"
           type="button"
-          aria-label="Fechar janela"
-          title="Fechar"
+          aria-label="Fechar The Stem Array"
+          title="Fechar janela"
           @click.stop="closeWindow"
         ><span aria-hidden="true">×</span></button>
         <button
           class="stem-traffic-light stem-traffic-light--minimize"
           type="button"
-          aria-label="Minimizar janela"
-          title="Minimizar"
+          aria-label="Minimizar The Stem Array"
+          title="Minimizar janela"
           @click.stop="minimizeWindow"
         ><span aria-hidden="true">−</span></button>
         <button
           class="stem-traffic-light stem-traffic-light--fullscreen"
           type="button"
-          aria-label="Alternar tela cheia"
-          title="Tela cheia"
+          :aria-label="isImmersive ? 'Sair da tela cheia' : 'Entrar em tela cheia'"
+          :title="isImmersive ? 'Sair da tela cheia' : 'Tela cheia'"
           @click.stop="toggleFullscreen"
         ><span aria-hidden="true">↗</span></button>
       </div>

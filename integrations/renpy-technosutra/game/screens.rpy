@@ -451,7 +451,13 @@ screen choice(items):
 
             hbox:
                 xfill True
-                text ("PERGUNTA" if _stem_question else "ESCOLHA") size (18 if _stem_small else 15) color stem_theme_accent bold True yalign 0.5
+                $ _stem_is_quiz = "[QUIZ]" in stem_last_dialogue_text or "Quiz" in stem_last_dialogue_text or "quiz" in stem_last_dialogue_text
+                if _stem_is_quiz:
+                    text "QUIZ MINIGAME · DESAFIO DE SABEDORIA" size (18 if _stem_small else 15) color "#ffd35a" bold True yalign 0.5
+                elif _stem_question:
+                    text "REFLEXÃO CONTEMPLATIVA" size (18 if _stem_small else 15) color stem_theme_accent bold True yalign 0.5
+                else:
+                    text "ESCOLHA DE RUMO" size (18 if _stem_small else 15) color stem_theme_accent bold True yalign 0.5
                 null width 1 xfill True
                 text (("%d opções · teclas 1–%d" % (len(items), len(items))) if len(items) <= 9 else ("%d opções" % len(items))) size (17 if _stem_small else 15) color "#a9b9c4" yalign 0.5
 
@@ -487,18 +493,22 @@ screen quick_menu():
         frame:
             xalign 0.985
             yalign 0.02
-            padding (6, 5)
+            padding (8 if _stem_small else 6, 6 if _stem_small else 5)
             background "stem_ui_quick"
             hbox:
                 style_prefix "quick"
-                spacing 6
+                spacing (8 if _stem_small else 6)
                 textbutton "MENU" action ShowMenu("stem_controls"):
+                    xminimum (96 if _stem_small else 70)
                     yminimum (80 if _stem_small else 52)
                 textbutton "HISTÓRICO" action ShowMenu("history"):
+                    xminimum (128 if _stem_small else 90)
                     yminimum (80 if _stem_small else 52)
                 textbutton "AUTO" action Preference("auto-forward", "toggle"):
+                    xminimum (96 if _stem_small else 70)
                     yminimum (80 if _stem_small else 52)
                 textbutton "PULAR" action Skip() alternate Skip(fast=True, confirm=True):
+                    xminimum (96 if _stem_small else 70)
                     yminimum (80 if _stem_small else 52)
 
 

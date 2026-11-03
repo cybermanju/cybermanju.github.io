@@ -52,15 +52,7 @@
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
       <slot v-if="!editing && !overview" name="home-tools" />
       <nav class="screen-nav" aria-label="Home screen navigation">
-        <OrbNavigator 
-          :screen-index="activeIndex" 
-          :screen-count="state.pages.length" 
-          :screen-positions="screenPositions" 
-          :disabled="!!props.blocked || editing || !!picker || overview" 
-          :motion-reduced="motion.reduced.value" 
-          v-if="!orbHiddenOnDesktop && !props.blocked" 
-          @navigate="navigateOrb" 
-          @open-apps="emit('openApps')" />
+        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :screen-positions="screenPositions" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop && !props.blocked" @navigate="navigateOrb" @open-apps="emit('openApps')" />
       </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
