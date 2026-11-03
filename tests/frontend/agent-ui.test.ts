@@ -242,12 +242,23 @@ describe('default web search', () => {
     expect(servers.exa.enabled).toBe(true)
   })
 
-  it('balanced preset allows curl/wget and the Exa tools, still asks otherwise', () => {
+  it('ships the local XERJ search engine MCP server', () => {
+    const servers = defaultMcpServers()
+    expect(servers.xerj.transport).toBe('http')
+    expect(servers.xerj.url).toBe('http://localhost:9200')
+    expect(servers.xerj.enabled).toBe(true)
+  })
+
+  it('balanced preset allows curl/wget, Exa tools, and XERJ tools, still asks otherwise', () => {
     const preset = agentPermissionPreset('balanced')
     expect(decideLocalTool(preset, 'build', 'bash', { command: 'curl -sS https://example.com' }).kind).toBe('allow')
     expect(decideLocalTool(preset, 'build', 'bash', { command: 'wget -qO- https://example.com' }).kind).toBe('allow')
     expect(decideLocalTool(preset, 'build', 'mcp__exa__web_search_exa', { query: 'news' }).kind).toBe('allow')
     expect(decideLocalTool(preset, 'build', 'mcp__exa__web_fetch_exa', {}).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'mcp__xerj__xerj_search', { query: 'test' }).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'mcp__xerj__xerj_def', { symbol: 'MyStruct' }).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'mcp__xerj__xerj_code_search', { query: 'retry' }).kind).toBe('allow')
+    expect(decideLocalTool(preset, 'build', 'mcp__xerj__xerj_map', {}).kind).toBe('allow')
     expect(decideLocalTool(preset, 'build', 'bash', { command: 'rm -rf /tmp/x' }).kind).toBe('deny')
     expect(decideLocalTool(preset, 'build', 'bash', { command: 'ls /' }).kind).toBe('ask')
   })

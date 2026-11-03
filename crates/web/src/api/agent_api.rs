@@ -237,11 +237,16 @@ fn route_usable(db: &Database, config: &AgentConfig) -> bool {
 pub fn config_needs_admin(config: &AgentConfig) -> Option<&'static str> {
     use cybermanju_types::agent::{PermissionAction, PermissionRule};
     for (name, server) in &config.mcp_servers {
-        // Only the exact shipped, keyless Exa endpoint is non-privileged.
-        // Comparing the whole config also rejects a re-used `exa` name with
+        // Only the exact shipped, keyless Exa endpoint and default local XERJ endpoint are non-privileged.
+        // Comparing the whole config also rejects a re-used name with
         // an attacker URL, alternate transport, custom headers, or options.
         if name == cybermanju_types::agent::DEFAULT_EXA_MCP_NAME
             && server == &cybermanju_types::agent::default_exa_mcp_server()
+        {
+            continue;
+        }
+        if name == cybermanju_types::agent::DEFAULT_XERJ_MCP_NAME
+            && server == &cybermanju_types::agent::default_xerj_mcp_server()
         {
             continue;
         }
@@ -5082,6 +5087,24 @@ mod admin_config_use_tests {
             "providerId": "openai",
             "model": "test-model"
         }));
+        assert_eq!(config_needs_admin(&config), None);
+        assert!(authorize_config_use(&config, false).is_ok());
+        assert!(config_route_authorized(&config, false));
+    }
+
+    #[test]
+    fn exact_shipped_xerj_default_remains_usable_without_admin() {
+        let mut config = config(serde_json::json!({
+            "id": "ordinary-xerj",
+            "name": "ordinary-xerj",
+            "providerId": "openai",
+            "model": "test-model"
+        }));
+        config.mcp_servers.insert(
+            cybermanju_types::agent::DEFAULT_XERJ_MCP_NAME.to_string(),
+            cybermanju_types::agent::default_xerj_mcp_server(),
+        );
+
         assert_eq!(config_needs_admin(&config), None);
         assert!(authorize_config_use(&config, false).is_ok());
         assert!(config_route_authorized(&config, false));

@@ -49,6 +49,37 @@ export const AGENT_TOOL_META: Record<string, ToolMeta> = {
 
 export function toolMeta(name: string): ToolMeta {
   if (AGENT_TOOL_META[name]) return AGENT_TOOL_META[name]
+  if (name.startsWith('mcp__xerj__')) {
+    const sub = name.slice('mcp__xerj__'.length)
+    if (sub === 'xerj_search') {
+      return { name, verb: 'Searching XERJ', done: 'Searched XERJ', icon: 'solar:magnifier-bold' }
+    }
+    if (sub === 'xerj_def') {
+      return { name, verb: 'Defining symbol', done: 'Defined symbol', icon: 'solar:code-bold' }
+    }
+    if (sub === 'xerj_code_search') {
+      return { name, verb: 'Reference coding', done: 'Retrieved code', icon: 'solar:file-code-bold' }
+    }
+    if (sub === 'xerj_map') {
+      return { name, verb: 'Mapping datasets', done: 'Mapped datasets', icon: 'solar:folder-search-bold' }
+    }
+    if (sub === 'xerj_plan') {
+      return { name, verb: 'Planning query', done: 'Planned query', icon: 'solar:file-search-bold' }
+    }
+    if (sub === 'xerj_batch_search') {
+      return { name, verb: 'Batch searching', done: 'Batch searched', icon: 'solar:magnifier-bold' }
+    }
+    if (sub === 'xerj_semantic_search') {
+      return { name, verb: 'Semantic search', done: 'Semantic searched', icon: 'solar:magnifier-bold' }
+    }
+    if (sub === 'xerj_hybrid_search') {
+      return { name, verb: 'Hybrid search', done: 'Hybrid searched', icon: 'solar:magnifier-bold' }
+    }
+    if (sub.startsWith('xerj_hub_')) {
+      return { name, verb: 'Consulting hub', done: 'Consulted hub', icon: 'solar:file-code-bold' }
+    }
+    return { name, verb: 'Querying XERJ', done: 'Queried XERJ', icon: 'solar:magnifier-bold' }
+  }
   if (name.startsWith('mcp__')) {
     return { name, verb: 'MCP', done: 'MCP', icon: 'solar:plug-circle-bold' }
   }
@@ -68,6 +99,8 @@ export function salientArg(input: unknown): string {
     pick('path') ||
     pick('glob') ||
     pick('query') ||
+    pick('symbol') ||
+    pick('prompt') ||
     pick('url') ||
     pick('repo') ||
     pick('name') ||

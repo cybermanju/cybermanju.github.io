@@ -174,7 +174,8 @@ pub fn system_prompt(
             "SANDBOX: full tools — bash (cybsh volume commands + shell \
              fallback for curl/wget/git), one level of task subagents, and \
              attached MCP servers (mcp__* tools, incl. keyless Exa web \
-             search). Destructive tools pause for human approval;"
+             search and local XERJ AI search / reference coding). Destructive \
+             tools pause for human approval;"
         }
         Sandbox::Browser => {
             "SANDBOX: browser file volume — read/list/grep/glob/write/edit \
@@ -198,7 +199,8 @@ pub fn system_prompt(
              encrypt/decrypt/ai (pass explicit paths, cwd is shared). Anything \
              else fails with unsupported: — never use curl/wget/git/python \
              here. For web search use mcp__exa__web_search_exa, for pages \
-             mcp__exa__web_fetch_exa. Never run interactive commands.\n"
+             mcp__exa__web_fetch_exa. For code search and reference coding use \
+             mcp__xerj__xerj_search / mcp__xerj__xerj_def. Never run interactive commands.\n"
         }
         (_, ShellMode::Device) => {
             "- bash {{command, timeout_secs?}}: device shell ONLY (`sh -c` on \
@@ -206,7 +208,8 @@ pub fn system_prompt(
              exist here — use POSIX tools (ls/cat/grep/find) on the working \
              root instead. curl/wget for raw fetch, git/python/node as needed. \
              For web search prefer mcp__exa__web_search_exa, for pages \
-             mcp__exa__web_fetch_exa. Never run interactive commands.\n"
+             mcp__exa__web_fetch_exa. For code search prefer mcp__xerj__xerj_search \
+             and mcp__xerj__xerj_def. Never run interactive commands.\n"
         }
         (_, ShellMode::Auto) => {
             "- bash {{command, timeout_secs?}}: cybsh FIRST for volume work — \
@@ -216,6 +219,8 @@ pub fn system_prompt(
              shared). Shell fallback for network and VCS: curl/wget for raw \
              fetch, git/python/node as needed. For web search prefer \
              mcp__exa__web_search_exa, for pages mcp__exa__web_fetch_exa. \
+             For AST-aware code search, definitions and reference coding prefer \
+             mcp__xerj__xerj_search, mcp__xerj__xerj_def, and mcp__xerj__xerj_code_search. \
              Never run interactive commands.\n"
         }
     };

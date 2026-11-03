@@ -1196,8 +1196,10 @@ export interface MemoryHit {
  * (none here) always beat auto-approve. */
 export const DEFAULT_EXA_MCP_NAME = 'exa'
 export const DEFAULT_EXA_MCP_URL = 'https://mcp.exa.ai/mcp'
+export const DEFAULT_XERJ_MCP_NAME = 'xerj'
+export const DEFAULT_XERJ_MCP_URL = 'http://localhost:9200'
 
-/** Keyless Exa web-search MCP attached to every new config. */
+/** Keyless Exa web-search MCP and local XERJ search MCP attached to every new config. */
 export function defaultMcpServers(): Record<string, McpServerConfig> {
   return {
     [DEFAULT_EXA_MCP_NAME]: {
@@ -1205,6 +1207,14 @@ export function defaultMcpServers(): Record<string, McpServerConfig> {
       args: [],
       env: {},
       url: DEFAULT_EXA_MCP_URL,
+      headers: [],
+      enabled: true,
+    },
+    [DEFAULT_XERJ_MCP_NAME]: {
+      transport: 'http',
+      args: [],
+      env: {},
+      url: DEFAULT_XERJ_MCP_URL,
       headers: [],
       enabled: true,
     },
@@ -1231,6 +1241,17 @@ export function agentPermissionPreset(name: 'strict' | 'balanced' | 'yolo'): Per
       bash: [['*', 'ask'], ['git *', 'allow'], ['curl *', 'allow'], ['wget *', 'allow'], ['rm *', 'deny']],
       mcp__exa__web_search_exa: 'allow',
       mcp__exa__web_fetch_exa: 'allow',
+      mcp__xerj__xerj_search: 'allow',
+      mcp__xerj__xerj_def: 'allow',
+      mcp__xerj__xerj_code_search: 'allow',
+      mcp__xerj__xerj_map: 'allow',
+      mcp__xerj__xerj_plan: 'allow',
+      mcp__xerj__xerj_batch_search: 'allow',
+      mcp__xerj__xerj_semantic_search: 'allow',
+      mcp__xerj__xerj_hybrid_search: 'allow',
+      mcp__xerj__xerj_hub_find: 'allow',
+      mcp__xerj__xerj_hub_def: 'allow',
+      mcp__xerj__xerj_hub_ask: 'allow',
     },
   }
 }

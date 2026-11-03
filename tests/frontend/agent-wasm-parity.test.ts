@@ -118,5 +118,8 @@ describe('browser tool wiring', () => {
       expect(toolMeta(t).name).toBe(t)
     }
     expect(toolMeta('mcp__exa__web_search_exa').verb).toBe('MCP')
+    expect(toolMeta('mcp__xerj__xerj_search').verb).toBe('Searching XERJ')
+    expect(toolMeta('mcp__xerj__xerj_def').verb).toBe('Defining symbol')
+    expect(toolMeta('mcp__xerj__xerj_code_search').verb).toBe('Reference coding')
   })
 })
