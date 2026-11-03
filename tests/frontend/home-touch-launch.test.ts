@@ -1,12 +1,12 @@
 // CyberManju OS — Home icon tap-to-launch regression.
-// Role: exercise the real HomeWorkspaceStudio click path and guard mobile pointer pass-through.
+// Role: exercise the real HomeLauncher click path and guard mobile pointer pass-through.
 // Integrates: Vue Test Utils, Happy DOM, native app interfaces and DesktopShell source.
 // Contracts: only existing native interfaces are mocked; no production files are changed.
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
 import { mount, flushPromises, enableAutoUnmount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
+import HomeLauncher from '@/components/HomeLauncher.vue'
 import OrbNavigator from '@/components/OrbNavigator.vue'
 import { HOME_WORKSPACE_KEY } from '@/utils/homeWorkspaces'
 
@@ -35,7 +35,7 @@ afterEach(() => {
 const apps = [{ id: 'files', label: 'Files', icon: 'solar:folder-bold' }]
 function mountStudio(options: { blocked?: boolean; hidden?: boolean } = {}) {
   native.suspend.mockResolvedValue(options.hidden ?? true)
-  const wrapper = mount(HomeWorkspaceStudio, {
+  const wrapper = mount(HomeLauncher, {
     attachTo: document.body,
     props: { apps, initialIds: ['files'], blocked: options.blocked ?? false },
     global: { stubs: { AppIcon: true, HomeLocalWidget: true, HomeDefaultRoleAction: true, HomeWorkspacePreview: true } },
@@ -90,7 +90,7 @@ describe('Home app icon launch on touch/click', () => {
 
   it('routes Android shortcut icons through the existing native openApp interface', async () => {
     android.openApp.mockResolvedValue(undefined)
-    const wrapper = mount(HomeWorkspaceStudio, {
+    const wrapper = mount(HomeLauncher, {
       attachTo: document.body,
       props: { apps, initialIds: ['android:com.example.reader'] },
       global: { stubs: { AppIcon: true, HomeLocalWidget: true, HomeDefaultRoleAction: true, HomeWorkspacePreview: true } },

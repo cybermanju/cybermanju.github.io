@@ -10,7 +10,7 @@ import { classifyHomeGesture, createHomeWorkspace } from '@/utils/homeWorkspaces
 import { useHomeTouchSafety } from '@/composables/useHomeTouchSafety'
 import { MOBILE_EDGE_GESTURE_RATIO } from '@/utils/mobileShell'
 
-const source = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
+const source = readFileSync('src/components/HomeLauncher.vue', 'utf8')
 function setup(hidden: Promise<boolean>) {
   const keys = source.slice(source.indexOf('function workspaceKeys('), source.indexOf('async function closeOverview('))
   const navigation = source.slice(source.indexOf('async function navigate('), source.indexOf('async function launch('))

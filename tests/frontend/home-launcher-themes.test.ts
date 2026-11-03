@@ -5,12 +5,12 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { compileStyle, compileTemplate, parse } from '@vue/compiler-sfc'
-const paths = ['src/components/MobileLauncher.vue', 'src/components/HomeWorkspaceStudio.vue', 'src/components/AppDrawer.vue']
+const paths = ['src/components/MobileLauncher.vue', 'src/components/HomeLauncher.vue', 'src/components/AppDrawer.vue']
 const [launcher, studio, drawer] = paths.map(path => readFileSync(path, 'utf8'))
 describe('unified Home themes', () => {
   it('mounts exactly one canonical workspace independent of search or legacy mode preference', () => {
     const template = parse(launcher).descriptor.template!.content
-    expect(template.match(/<HomeWorkspaceStudio\b/g)).toHaveLength(1)
+    expect(template.match(/<HomeLauncher\b/g)).toHaveLength(1)
     expect(template).not.toMatch(/workspaceMode|mla-grid|mla-pages|homeLayout/)
     expect(template).toContain(':apps="workspaceApps"')
     expect(template).toContain(':initial-ids="orderedApps.map(app => app.panel)"')
