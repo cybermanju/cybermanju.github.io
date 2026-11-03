@@ -54,7 +54,9 @@ def main() -> int:
     # the content stamp written by tools/stamp_service_worker.py.
     if re.sub(r"var CACHE_VERSION = '[0-9a-f]{16}';", "var CACHE_VERSION = '__STEM_CACHE_VERSION__';", worker_text) != source_text:
         fail("candidate service worker differs from the reviewed project source beyond the cache-version stamp")
-    if "__STEM_CACHE_VERSION__" in worker_text:
+    # The source comment also names the placeholder, so only an unstamped
+    # CACHE_VERSION assignment proves the candidate skipped the stamp step.
+    if "var CACHE_VERSION = '__STEM_CACHE_VERSION__';" in worker_text:
         fail("candidate service worker was not stamped with a content version")
     # The engine must be precached: re-downloading 37 MB of wasm/engine data on
     # every visit is the regression this worker exists to prevent.
