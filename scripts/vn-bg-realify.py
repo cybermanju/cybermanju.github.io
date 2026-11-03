@@ -100,8 +100,14 @@ def camera_transform(number: int) -> str:
         f"    zoom {fmt(base_zoom)}",
         "    xalign 0.5",
         "    yalign 0.5",
-        f"    easeinout {duration} zoom {fmt(peak_zoom)} xalign {fmt(ax)} yalign {fmt(ay)}",
-        f"    easeinout {duration} zoom {fmt(base_zoom)} xalign {fmt(bx)} yalign {fmt(by)}",
+        f"    easeinout {duration}:",
+        f"        zoom {fmt(peak_zoom)}",
+        f"        xalign {fmt(ax)}",
+        f"        yalign {fmt(ay)}",
+        f"    easeinout {duration}:",
+        f"        zoom {fmt(base_zoom)}",
+        f"        xalign {fmt(bx)}",
+        f"        yalign {fmt(by)}",
         "    repeat",
     ]
     return "\n".join(lines)
