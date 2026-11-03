@@ -307,7 +307,7 @@ class LoadingOverlayContractTests(unittest.TestCase):
 
     def test_pixel_ui_frames_are_committed_and_used_by_the_title_screen(self):
         manifest = json.loads((self.root / "game/images/pixel/manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["count"], 9)
+        self.assertEqual(manifest["count"], 24)
         for asset in manifest["assets"]:
             path = self.root / "game/images/pixel" / asset["file"]
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), asset["sha256"])
