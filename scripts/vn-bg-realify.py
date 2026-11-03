@@ -85,7 +85,7 @@ def camera_transform(number: int) -> str:
     """
     base_zoom = 1.015 + (number % 3) * 0.005          # 1.015 .. 1.025
     peak_zoom = 1.07 + (number % 3) * 0.02            # 1.07 .. 1.11
-    duration = 16 + (number % 5) * 3                  # 16 .. 28 s per leg (slow)
+    duration = 16.0 + (number % 5) * 3                  # 16.0 .. 28.0 s per leg (slow)
     # Alternate drift direction per chapter so adjacent chapters feel different.
     if number % 2 == 0:
         ax, ay = 0.44, 0.40                           # drift toward upper-left
@@ -94,7 +94,10 @@ def camera_transform(number: int) -> str:
         ax, ay = 0.56, 0.60                           # drift toward lower-right
         bx, by = 0.44, 0.40                           # return toward upper-left
     def fmt(v: float) -> str:
-        return f"{v:.2f}".rstrip("0").rstrip(".")
+        s = f"{v:.2f}".rstrip("0").rstrip(".")
+        if "." not in s:
+            s += ".0"
+        return s
     lines = [
         f"transform stem_bg_ch{number:02d}_camera:",
         f"    zoom {fmt(base_zoom)}",

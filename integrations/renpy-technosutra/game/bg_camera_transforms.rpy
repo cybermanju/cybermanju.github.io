@@ -8,616 +8,616 @@ transform stem_bg_ch01_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.09
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
+    easeinout 19.0 zoom 1.09
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
     repeat
 transform stem_bg_ch02_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.11
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
+    easeinout 22.0 zoom 1.11
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
     repeat
 transform stem_bg_ch03_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.07
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
-    easeinout 25 zoom 1.01
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
+    easeinout 25.0 zoom 1.07
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
+    easeinout 25.0 zoom 1.01
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
     repeat
 transform stem_bg_ch04_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.09
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
-    easeinout 28 zoom 1.02
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
+    easeinout 28.0 zoom 1.09
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
+    easeinout 28.0 zoom 1.02
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
     repeat
 transform stem_bg_ch05_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.11
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
+    easeinout 16.0 zoom 1.11
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
     repeat
 transform stem_bg_ch06_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.07
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
-    easeinout 19 zoom 1.01
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
+    easeinout 19.0 zoom 1.07
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
+    easeinout 19.0 zoom 1.01
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
     repeat
 transform stem_bg_ch07_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.09
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
+    easeinout 22.0 zoom 1.09
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
     repeat
 transform stem_bg_ch08_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.11
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
-    easeinout 25 zoom 1.02
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
+    easeinout 25.0 zoom 1.11
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
+    easeinout 25.0 zoom 1.02
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
     repeat
 transform stem_bg_ch09_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.07
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
-    easeinout 28 zoom 1.01
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
+    easeinout 28.0 zoom 1.07
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
+    easeinout 28.0 zoom 1.01
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
     repeat
 transform stem_bg_ch10_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.09
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
+    easeinout 16.0 zoom 1.09
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
     repeat
 transform stem_bg_ch11_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.11
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
+    easeinout 19.0 zoom 1.11
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
     repeat
 transform stem_bg_ch12_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.07
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
-    easeinout 22 zoom 1.01
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
+    easeinout 22.0 zoom 1.07
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
+    easeinout 22.0 zoom 1.01
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
     repeat
 transform stem_bg_ch13_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.09
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
-    easeinout 25 zoom 1.02
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
+    easeinout 25.0 zoom 1.09
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
+    easeinout 25.0 zoom 1.02
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
     repeat
 transform stem_bg_ch14_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.11
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
-    easeinout 28 zoom 1.02
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
+    easeinout 28.0 zoom 1.11
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
+    easeinout 28.0 zoom 1.02
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
     repeat
 transform stem_bg_ch15_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.07
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
-    easeinout 16 zoom 1.01
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
+    easeinout 16.0 zoom 1.07
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
+    easeinout 16.0 zoom 1.01
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
     repeat
 transform stem_bg_ch16_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.09
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
+    easeinout 19.0 zoom 1.09
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
     repeat
 transform stem_bg_ch17_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.11
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
+    easeinout 22.0 zoom 1.11
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
     repeat
 transform stem_bg_ch18_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.07
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
-    easeinout 25 zoom 1.01
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
+    easeinout 25.0 zoom 1.07
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
+    easeinout 25.0 zoom 1.01
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
     repeat
 transform stem_bg_ch19_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.09
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
-    easeinout 28 zoom 1.02
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
+    easeinout 28.0 zoom 1.09
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
+    easeinout 28.0 zoom 1.02
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
     repeat
 transform stem_bg_ch20_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.11
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
+    easeinout 16.0 zoom 1.11
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
     repeat
 transform stem_bg_ch21_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.07
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
-    easeinout 19 zoom 1.01
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
+    easeinout 19.0 zoom 1.07
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
+    easeinout 19.0 zoom 1.01
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
     repeat
 transform stem_bg_ch22_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.09
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
+    easeinout 22.0 zoom 1.09
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
     repeat
 transform stem_bg_ch23_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.11
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
-    easeinout 25 zoom 1.02
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
+    easeinout 25.0 zoom 1.11
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
+    easeinout 25.0 zoom 1.02
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
     repeat
 transform stem_bg_ch24_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.07
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
-    easeinout 28 zoom 1.01
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
+    easeinout 28.0 zoom 1.07
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
+    easeinout 28.0 zoom 1.01
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
     repeat
 transform stem_bg_ch25_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.09
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
+    easeinout 16.0 zoom 1.09
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
     repeat
 transform stem_bg_ch26_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.11
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
+    easeinout 19.0 zoom 1.11
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
     repeat
 transform stem_bg_ch27_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.07
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
-    easeinout 22 zoom 1.01
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
+    easeinout 22.0 zoom 1.07
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
+    easeinout 22.0 zoom 1.01
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
     repeat
 transform stem_bg_ch28_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.09
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
-    easeinout 25 zoom 1.02
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
+    easeinout 25.0 zoom 1.09
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
+    easeinout 25.0 zoom 1.02
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
     repeat
 transform stem_bg_ch29_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.11
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
-    easeinout 28 zoom 1.02
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
+    easeinout 28.0 zoom 1.11
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
+    easeinout 28.0 zoom 1.02
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
     repeat
 transform stem_bg_ch30_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.07
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
-    easeinout 16 zoom 1.01
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
+    easeinout 16.0 zoom 1.07
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
+    easeinout 16.0 zoom 1.01
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
     repeat
 transform stem_bg_ch31_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.09
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
+    easeinout 19.0 zoom 1.09
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
     repeat
 transform stem_bg_ch32_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.11
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
+    easeinout 22.0 zoom 1.11
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
     repeat
 transform stem_bg_ch33_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.07
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
-    easeinout 25 zoom 1.01
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
+    easeinout 25.0 zoom 1.07
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
+    easeinout 25.0 zoom 1.01
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
     repeat
 transform stem_bg_ch34_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.09
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
-    easeinout 28 zoom 1.02
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
+    easeinout 28.0 zoom 1.09
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
+    easeinout 28.0 zoom 1.02
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
     repeat
 transform stem_bg_ch35_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.11
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
+    easeinout 16.0 zoom 1.11
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
     repeat
 transform stem_bg_ch36_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.07
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
-    easeinout 19 zoom 1.01
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
+    easeinout 19.0 zoom 1.07
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
+    easeinout 19.0 zoom 1.01
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
     repeat
 transform stem_bg_ch37_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.09
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
+    easeinout 22.0 zoom 1.09
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
     repeat
 transform stem_bg_ch38_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.11
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
-    easeinout 25 zoom 1.02
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
+    easeinout 25.0 zoom 1.11
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
+    easeinout 25.0 zoom 1.02
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
     repeat
 transform stem_bg_ch39_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.07
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
-    easeinout 28 zoom 1.01
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
+    easeinout 28.0 zoom 1.07
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
+    easeinout 28.0 zoom 1.01
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
     repeat
 transform stem_bg_ch40_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.09
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
+    easeinout 16.0 zoom 1.09
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
     repeat
 transform stem_bg_ch41_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.11
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
+    easeinout 19.0 zoom 1.11
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
     repeat
 transform stem_bg_ch42_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.07
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
-    easeinout 22 zoom 1.01
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
+    easeinout 22.0 zoom 1.07
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
+    easeinout 22.0 zoom 1.01
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
     repeat
 transform stem_bg_ch43_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.09
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
-    easeinout 25 zoom 1.02
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
+    easeinout 25.0 zoom 1.09
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
+    easeinout 25.0 zoom 1.02
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
     repeat
 transform stem_bg_ch44_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.11
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
-    easeinout 28 zoom 1.02
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
+    easeinout 28.0 zoom 1.11
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
+    easeinout 28.0 zoom 1.02
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
     repeat
 transform stem_bg_ch45_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.07
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
-    easeinout 16 zoom 1.01
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
+    easeinout 16.0 zoom 1.07
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
+    easeinout 16.0 zoom 1.01
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
     repeat
 transform stem_bg_ch46_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.09
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
+    easeinout 19.0 zoom 1.09
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
     repeat
 transform stem_bg_ch47_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.11
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
+    easeinout 22.0 zoom 1.11
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
     repeat
 transform stem_bg_ch48_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.07
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
-    easeinout 25 zoom 1.01
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
+    easeinout 25.0 zoom 1.07
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
+    easeinout 25.0 zoom 1.01
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
     repeat
 transform stem_bg_ch49_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.09
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
-    easeinout 28 zoom 1.02
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
+    easeinout 28.0 zoom 1.09
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
+    easeinout 28.0 zoom 1.02
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
     repeat
 transform stem_bg_ch50_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.11
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
+    easeinout 16.0 zoom 1.11
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
     repeat
 transform stem_bg_ch51_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.07
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
-    easeinout 19 zoom 1.01
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
+    easeinout 19.0 zoom 1.07
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
+    easeinout 19.0 zoom 1.01
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
     repeat
 transform stem_bg_ch52_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 22 zoom 1.09
-    easeinout 22 xalign 0.44
-    easeinout 22 yalign 0.4
-    easeinout 22 zoom 1.02
-    easeinout 22 xalign 0.56
-    easeinout 22 yalign 0.6
+    easeinout 22.0 zoom 1.09
+    easeinout 22.0 xalign 0.44
+    easeinout 22.0 yalign 0.4
+    easeinout 22.0 zoom 1.02
+    easeinout 22.0 xalign 0.56
+    easeinout 22.0 yalign 0.6
     repeat
 transform stem_bg_ch53_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 25 zoom 1.11
-    easeinout 25 xalign 0.56
-    easeinout 25 yalign 0.6
-    easeinout 25 zoom 1.02
-    easeinout 25 xalign 0.44
-    easeinout 25 yalign 0.4
+    easeinout 25.0 zoom 1.11
+    easeinout 25.0 xalign 0.56
+    easeinout 25.0 yalign 0.6
+    easeinout 25.0 zoom 1.02
+    easeinout 25.0 xalign 0.44
+    easeinout 25.0 yalign 0.4
     repeat
 transform stem_bg_ch54_camera:
     zoom 1.01
     xalign 0.5
     yalign 0.5
-    easeinout 28 zoom 1.07
-    easeinout 28 xalign 0.44
-    easeinout 28 yalign 0.4
-    easeinout 28 zoom 1.01
-    easeinout 28 xalign 0.56
-    easeinout 28 yalign 0.6
+    easeinout 28.0 zoom 1.07
+    easeinout 28.0 xalign 0.44
+    easeinout 28.0 yalign 0.4
+    easeinout 28.0 zoom 1.01
+    easeinout 28.0 xalign 0.56
+    easeinout 28.0 yalign 0.6
     repeat
 transform stem_bg_ch55_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 16 zoom 1.09
-    easeinout 16 xalign 0.56
-    easeinout 16 yalign 0.6
-    easeinout 16 zoom 1.02
-    easeinout 16 xalign 0.44
-    easeinout 16 yalign 0.4
+    easeinout 16.0 zoom 1.09
+    easeinout 16.0 xalign 0.56
+    easeinout 16.0 yalign 0.6
+    easeinout 16.0 zoom 1.02
+    easeinout 16.0 xalign 0.44
+    easeinout 16.0 yalign 0.4
     repeat
 transform stem_bg_ch56_camera:
     zoom 1.02
     xalign 0.5
     yalign 0.5
-    easeinout 19 zoom 1.11
-    easeinout 19 xalign 0.44
-    easeinout 19 yalign 0.4
-    easeinout 19 zoom 1.02
-    easeinout 19 xalign 0.56
-    easeinout 19 yalign 0.6
+    easeinout 19.0 zoom 1.11
+    easeinout 19.0 xalign 0.44
+    easeinout 19.0 yalign 0.4
+    easeinout 19.0 zoom 1.02
+    easeinout 19.0 xalign 0.56
+    easeinout 19.0 yalign 0.6
     repeat
 
