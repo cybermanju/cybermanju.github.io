@@ -1,6 +1,6 @@
 // CyberManju OS — Integrated mobile Home composition regression (tests/frontend/home-integrated-composition.test.ts).
 // Role: verify launcher capture, unified search presence and real Home workspace barriers together.
-// Exports: Vitest composition tests. Integrates: MobileLauncher, HomeWorkspaceStudio, mocked host services.
+// Exports: Vitest composition tests. Integrates: MobileLauncher, HomeLauncher, mocked host services.
 // Contracts: no production changes; native suspension must succeed before Home actions or drawer open.
 // @vitest-environment happy-dom
 import { defineComponent, h, reactive, ref } from 'vue'
@@ -50,7 +50,7 @@ function swipe(target: Element, id: number, x: number, fromY: number, toY: numbe
 beforeEach(() => { appState.searchQuery = ''; appState.currentPanel = 'landing'; launcherState.drawerOpen = false; launcherState.messagesOpen = false; launcherState.favorites = []; launcherState.overrides = {}; opened.panels = []; Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 }) })
 afterEach(() => { vi.clearAllMocks(); localStorage.clear(); document.body.innerHTML = '' })
 
-describe('MobileLauncher + HomeWorkspaceStudio integrated composition', () => {
+describe('MobileLauncher + HomeLauncher integrated composition', () => {
   it('keeps unified search present and blocks Home gestures while search tools are focused', async () => {
     const wrapper = mountLauncher()
     expect(wrapper.get('[aria-label="Search and commands"]').exists()).toBe(true)

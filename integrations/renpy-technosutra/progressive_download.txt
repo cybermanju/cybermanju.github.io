@@ -1,0 +1,34 @@
+# The Stem Array — progressive download rules.
+# First-match-wins: UI chrome is pinned to immediate load (-) so dialogue
+# boxes and choice buttons render before play; everything else streams (+).
+- image game/images/ui/glass-frost.png
+- image game/images/ui/glass-frost-hover.png
+- image game/images/ui/paper-glass.png
+- image game/images/ui/paper-glass-hover.png
+- image game/images/ui/paper-vellum.png
+- image game/images/ui/paper-vellum-hover.png
+- image game/images/ui/velvet_button_flat.png
+- image game/images/ui/velvet_button_glass.png
+- image game/images/ui/velvet_choice_flat.png
+- image game/images/ui/velvet_choice_glass.png
+- image game/images/ui/velvet_controls_flat.png
+- image game/images/ui/velvet_controls_glass.png
+- image game/images/ui/velvet_dialogue_flat.png
+- image game/images/ui/velvet_dialogue_glass.png
+- image game/images/ui/velvet_interstitial_flat.png
+- image game/images/ui/velvet_interstitial_glass.png
+- image game/images/ui/velvet_menu_flat.png
+- image game/images/ui/velvet_menu_glass.png
+- image game/images/ui/velvet_nameplate_flat.png
+- image game/images/ui/velvet_nameplate_glass.png
+- image game/images/ui/velvet-night.png
+- image game/images/ui/velvet-night-hover.png
+- image game/images/ui/velvet_panel_flat.png
+- image game/images/ui/velvet_panel_glass.png
+- image game/images/ui/velvet_question_flat.png
+- image game/images/ui/velvet_question_glass.png
+- image game/images/ui/velvet_slots_flat.png
+- image game/images/ui/velvet_slots_glass.png
+- image game/images/ui/velvet_tabs_flat.png
+- image game/images/ui/velvet_tabs_glass.png
++ image game/**
