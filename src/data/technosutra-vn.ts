@@ -11,7 +11,7 @@ export const TECHNOSUTRA_VN_BUILD = {
   renpyVersion: '8.5.3.26051504',
   optimizedBackgroundCount: 56,
   runtimeSpriteCount: 54,
-  gameZipBytes: 5_779_947,
-  gameZipSha256: 'a56d6aa05a6e224a38d307f8ad495573329cea259a83ce62d976f64186e0ce46',
+  gameZipBytes: 7_538_848,
+  gameZipSha256: 'b689852712ba4c5b9fc89926dfe61a1d45b3750f6c76836ea7ed0de7f878d900',
   webOutputBytes: 122_647_442,
 } as const
