@@ -17,7 +17,7 @@ if (!params.has('frame')) {
   const url = new URL(location.href); url.searchParams.set('frame','1'); frame.src = url.href; document.getElementById('fixture').append(frame)
 } else {
   const [{ createApp, h }, { createPinia }, { default: HomeSurface }, { useTheme }, { useWindowManager }, { installUiLayoutTargets }, { installUiLayout }] = await Promise.all([
-    import('vue'), import('pinia'), params.has('studio') ? import('/src/components/HomeWorkspaceStudio.vue') : params.has('shell') ? import('/src/components/DesktopShell.vue') : import('/src/components/MobileLauncher.vue'), import('/src/composables/useTheme.ts'), import('/src/composables/useWindowManager.ts'), import('/src/ui/layout.ts'), import('/src/utils/uiLayout.ts'),
+    import('vue'), import('pinia'), params.has('studio') ? import('/src/components/HomeLauncher.vue') : params.has('shell') ? import('/src/components/DesktopShell.vue') : import('/src/components/MobileLauncher.vue'), import('/src/composables/useTheme.ts'), import('/src/composables/useWindowManager.ts'), import('/src/ui/layout.ts'), import('/src/utils/uiLayout.ts'),
   ])
   await import('/src/assets/ui.css'); await import('/src/assets/ui-layout.css')
   const theme = useTheme(); theme.setTheme(params.get('theme') || 'os-light'); if (params.has('reduced')) theme.setMotion('reduced')

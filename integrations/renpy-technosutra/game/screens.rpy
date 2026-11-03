@@ -428,6 +428,7 @@ screen choice(items):
     add Solid("#05070fe0")
     $ _stem_small = stem_compact_layout()
     $ _stem_many = len(items) > 6
+    $ _stem_yalign = 0.36 if _stem_many else 0.44
     $ _stem_card_max = (config.screen_height - 140) if _stem_small else (config.screen_height - 200)
     $ _stem_question = "?" in stem_last_dialogue_text or "？" in stem_last_dialogue_text
 
@@ -438,7 +439,7 @@ screen choice(items):
 
     frame:
         xalign 0.5
-        yalign (0.36 if _stem_many else 0.44)
+        yalign _stem_yalign
         xfill True
         xmaximum (config.screen_width - 56 if _stem_small else 1180)
         ymaximum _stem_card_max

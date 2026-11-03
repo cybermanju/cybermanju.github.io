@@ -1,6 +1,6 @@
 // CyberManju OS — Home touch release-click ownership.
 // Role: let ordinary taps reach existing buttons, but consume clicks after movement or cancellation.
-// Exports: useHomeTouchSafety. Integrates: HomeWorkspaceStudio touch and click capture.
+// Exports: useHomeTouchSafety. Integrates: HomeLauncher touch and click capture.
 // Contracts: no launch APIs; keyboard clicks survive; rejected sequences stay rejected until release.
 export function useHomeTouchSafety() {
   let count = 0, rejected = false, suppressUntil = 0

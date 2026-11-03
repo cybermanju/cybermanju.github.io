@@ -8,11 +8,11 @@ import fs from 'node:fs'
 const launcher = fs.readFileSync('src/components/MobileLauncher.vue', 'utf8')
 const nav = fs.readFileSync('src/components/MobileNav.vue', 'utf8')
 const topbar = fs.readFileSync('src/components/TopMenuBar.vue', 'utf8')
-const studio = fs.readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
+const studio = fs.readFileSync('src/components/HomeLauncher.vue', 'utf8')
 
-describe('canonical HomeWorkspaceStudio navigation', () => {
+describe('canonical HomeLauncher navigation', () => {
   it('mounts one workspace surface and avoids the retired launcher grid', () => {
-    expect(launcher).toContain('<HomeWorkspaceStudio')
+    expect(launcher).toContain('<HomeLauncher')
     expect(launcher).not.toContain('mla-grid')
     expect(launcher).not.toContain('workspaceMode')
     expect(studio).toContain('aria-label="Personal home workspaces"')
@@ -80,7 +80,7 @@ describe('iOS status bar + icons + dock', () => {
     expect(launcher).toContain('if (contextMenuFired)')
     expect(studio).toContain('emptyPress.newPointer')
     expect(launcher).toContain('<OmniSearchPanel ref="searchRef" home')
-    expect(launcher).toContain('HomeWorkspaceStudio')
+    expect(launcher).toContain('HomeLauncher')
   })
 
   it('shows a fixed, safe-area-aware favorites dock outside the home surface', () => {

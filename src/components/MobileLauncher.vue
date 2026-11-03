@@ -19,7 +19,7 @@
     @contextmenu.capture="tapActivation.context"
     @click.capture="onLauncherClickCapture"
   >
-    <HomeWorkspaceStudio ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome" @open="open($event as PanelType)" @open-apps="openDrawer" @customize="customizeWorkspaceApp">
+    <HomeLauncher ref="workspaceStudio" :apps="workspaceApps" :initial-ids="orderedApps.map(app => app.panel)" :blocked="hasOpenWindows || launcher.drawerOpen || launcher.messagesOpen || !!customHome" @open="open($event as PanelType)" @open-apps="openDrawer" @customize="customizeWorkspaceApp">
       <template #home-tools>
         <div class="mla-screen-tools">
           <header data-ui-layout-ignore class="mla-home-toolbar" aria-label="Home tools">
@@ -34,7 +34,7 @@
           </section>
         </div>
       </template>
-    </HomeWorkspaceStudio>
+    </HomeLauncher>
 
     <!-- The app drawer is opened from the Orb or the reserved bottom-edge gesture. -->
     <AppDrawer :reveal-progress="drawerProgress" :built-in-apps="apps" />
@@ -115,7 +115,7 @@
 
 <script setup lang="ts">
 import AppIcon from '@/components/AppIcon.vue'
-import HomeWorkspaceStudio from '@/components/HomeWorkspaceStudio.vue'
+import HomeLauncher from '@/components/HomeLauncher.vue'
 import OmniSearchPanel from '@/components/OmniSearchPanel.vue'
 import AppDrawer from '@/components/AppDrawer.vue'
 import MessagesHub from '@/components/MessagesHub.vue'

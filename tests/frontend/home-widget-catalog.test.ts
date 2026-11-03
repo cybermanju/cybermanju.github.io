@@ -13,7 +13,7 @@ describe('Home widget library', () => {
     for (const widget of homeWidgetCatalog.filter(w => w.kind === 'app-link')) expect(panels).toContain(widget.appId)
     expect(homeWidgetCatalog.some(w => w.kind === 'native')).toBe(true)
     expect(homeWidgetCatalog.some(w => w.kind === 'concept')).toBe(true)
-    const ui = fs.readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
+    const ui = fs.readFileSync('src/components/HomeLauncher.vue', 'utf8')
     expect(ui).toContain('Installed Android widgets')
     expect(ui).toContain('Reference · find installed providers above')
     expect(ui).toContain('native.status.value')
@@ -22,7 +22,7 @@ describe('Home widget library', () => {
     expect(ui).not.toMatch(/invoke\(/)
   })
   it('keeps accessible alternatives and reduced-motion support', () => {
-    const ui = fs.readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
+    const ui = fs.readFileSync('src/components/HomeLauncher.vue', 'utf8')
     for (const marker of ['aria-modal="true"','dialogKeys','<OrbNavigator','prefers-reduced-motion','Overview of home screens']) expect(ui).toContain(marker)
   })
   it('backs Notes with managed Markdown files and shares tasks between the widget and Archive', () => {
