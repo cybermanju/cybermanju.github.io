@@ -1,6 +1,6 @@
 // CyberManju OS — mobile shell launcher regressions.
 // Role: protects touch-first shell, favorites dock, and task navigation contracts.
-// Exports/Integrates: Vitest coverage for DesktopShell, MobileLauncher, HomeWorkspaceStudio, MobileNav, OrbNavigator, and AppWindow.
+// Exports/Integrates: Vitest coverage for DesktopShell, MobileLauncher, HomeLauncher, MobileNav, OrbNavigator, and AppWindow.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { isTouchFirstViewport, MOBILE_EDGE_GESTURE_RATIO, MOBILE_SHELL_MEDIA_QUERY } from '../../src/utils/mobileShell'
@@ -8,7 +8,7 @@ import { isTouchFirstViewport, MOBILE_EDGE_GESTURE_RATIO, MOBILE_SHELL_MEDIA_QUE
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const shell = read('../../src/components/DesktopShell.vue')
 const launcher = read('../../src/components/MobileLauncher.vue')
-const home = read('../../src/components/HomeWorkspaceStudio.vue')
+const home = read('../../src/components/HomeLauncher.vue')
 const orb = read('../../src/components/OrbNavigator.vue')
 const nav = read('../../src/components/MobileNav.vue')
 const gestures = read('../../src/composables/useLauncherWorkspaceGestures.ts')

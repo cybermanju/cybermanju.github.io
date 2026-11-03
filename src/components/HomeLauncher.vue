@@ -147,8 +147,8 @@ const screenMotion = ref<'next' | 'previous' | null>(null)
 let screenMotionTimer: ReturnType<typeof setTimeout> | null = null
 
 // ---------- 8-direction swipe gesture with momentum ----------
-type SwipeDirection = 'left' | 'right' | 'up' | 'down' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight' | null
-const swipeDirection = ref<SwipeDirection>(null)
+type SwipeDirection = 'left' | 'right' | 'up' | 'down' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight'
+const swipeDirection = ref<SwipeDirection | null>(null)
 const swipeProgress = ref(0)
 let swipeGesture: { startX: number; startY: number; lastX: number; lastY: number; lastTime: number; velocityX: number; velocityY: number; claimed: boolean; fingers: number } | null = null
 let momentumRaf = 0
@@ -182,7 +182,7 @@ function edgeOverlayStyle(edge: string): Record<string, string> {
     (edge === 'bottomRight' && swipeDirection.value === 'downRight')
   )
   if (!isActive) return { opacity: '0' }
-  const color = DIRECTION_COLORS[swipeDirection.value] || 'var(--hw-accent)'
+  const color = swipeDirection.value ? DIRECTION_COLORS[swipeDirection.value] : 'var(--hw-accent)'
   const opacity = Math.min(0.45, swipeProgress.value * 0.55)
   return { 
     opacity: String(opacity),
@@ -266,7 +266,7 @@ function swipeNavigate(direction: SwipeDirection) {
 }
 
 function startSwipeGesture(x: number, y: number) {
-  swipeGesture = { startX: x, startY: y, lastX: x, lastY: y, lastTime: performance.now(), velocityX: 0, velocityY: 0, claimed: false }
+  swipeGesture = { startX: x, startY: y, lastX: x, lastY: y, lastTime: performance.now(), velocityX: 0, velocityY: 0, claimed: false, fingers: 1 }
 }
 
 function updateSwipeGesture(x: number, y: number) {
@@ -634,7 +634,7 @@ function touchMove(event: TouchEvent) {
     if (Math.hypot(dx, dy) > 15) {
       const dir = classifySwipeDirection(dx, dy)
       if (dir) {
-        startSwipeGesture(point.clientX, point.clientY)
+        startSwipeGesture(point.x, point.y)
         if (event.cancelable) {
           event.preventDefault()
           event.stopPropagation()
@@ -767,7 +767,6 @@ onMounted(() => { for (const page of [...state.value.pages]) arrangeOverflow(pag
 function removeApp(id: string) { for (const page of state.value.pages) { const item = page.items.find(i => i.kind === 'app' && i.ref === id); if (item) removeHomeItem(state.value, page.id, item.id) } }
 function reorderApp(id: string, direction: -1 | 1) { const items = activePage.value.items; const from = items.findIndex(i => i.kind === 'app' && i.ref === id); const target = from + direction; if (from < 0 || target < 0 || target >= items.length) return; const [item] = items.splice(from, 1); items.splice(target, 0, item!) }
 async function newScreen() { if (!await suspendHome()) return; const hadEmptyExtension = state.value.pages[state.value.pages.length - 1]?.items.length === 0; message.value = createHomeWorkspace(state.value) ? (hadEmptyExtension ? 'Opened the empty screen.' : 'New screen saved on this device.') : '24-screen limit reached.'; overview.value = false }
-async function toggleOverview() { resetTouch(); if (props.blocked || !await suspendHome()) return; if (overview.value) await closeOverview(); else { editing.value = false; overview.value = true } }
 async function toggleEditing() { if (await suspendHome()) { overview.value = false; editing.value = !editing.value } }
 function nativeLabel(provider: string) { return native.providers.value.find(p => p.provider === provider)?.label || 'Android widget' }
 function nativeRecord(item: HomeItem) { return native.records.value.find(r => r.placementId === item.id) }
