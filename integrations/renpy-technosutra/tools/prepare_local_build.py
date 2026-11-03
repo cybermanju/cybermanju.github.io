@@ -225,14 +225,14 @@ def main() -> int:
                 child.unlink()
 
     for child in list(images.iterdir()):
-        if child.name in {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator", "speakers"}:
+        if child.name in {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator", "speakers", "pixel"}:
             continue
         if child.is_dir() and not child.is_symlink():
             shutil.rmtree(child)
         else:
             child.unlink()
 
-    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator", "speakers"}
+    expected_top_level = {"optimized", "bg_intro_scene.jpg", "masters", "ui", "narrator", "speakers", "pixel"}
     if {path.name for path in images.iterdir()} != expected_top_level:
         raise SystemExit("Unexpected game/images files remain after local-build preparation")
     if list(source_root.glob("*.png")):
@@ -245,7 +245,7 @@ def main() -> int:
     if sha256(web_presplash) != sha256(opening_background):
         raise SystemExit("Web presplash must be an exact copy of the approved opening landscape")
     print("Prepared web presplash from the approved opening landscape; SHA-256 verified.")
-    print(f"Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites + narrator orb + {len(ui_assets)} approved UI texture tiles + generic speaker fallback.")
+    print(f"Prepared disposable local build: 56 optimized backgrounds + opening image + 54 approved runtime sprites + narrator orb + {len(ui_assets)} approved UI texture tiles + 9 pixel-art frames + generic speaker fallback.")
     print("Retained sprite/capture provenance manifests; excluded raw source-capture PNGs from the package.")
     print("Slots 43 and 52 remain absent; no missing renders were generated.")
     return 0
