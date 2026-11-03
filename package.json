@@ -7,6 +7,8 @@
     "icons": "node scripts/generate-icon-set.mjs",
     "predev": "npm run icons",
     "dev": "vite",
+    "vn": "node scripts/vn-dev.mjs",
+    "vn:assets": "python3 scripts/vn-assets.py --root public/technosutra-vn --out .vn-cache/assets --sprites webp",
     "prebuild": "npm run icons",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",

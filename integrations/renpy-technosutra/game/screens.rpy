@@ -3,13 +3,17 @@
 #       narrative state, quizzes and telemetry stay in script.rpy.
 # Exports: screens (say, choice, title cards, main_menu, game_menu, save, load,
 #       preferences, history, help, about, confirm, input, notify, quick_menu,
-#       stem_controls) and their styles.
+#       stem_controls), their styles and the standing cast transforms
+#       stem_stage_slot_1..stem_stage_slot_4.
 # Integrates: generated game/script.rpy (image names such as narrator_orb, the
 #       built-in `centered` character) and stem_theme_bridge.rpy (stem_theme_*).
 # Contracts: never mutates story state; keeps the say screen ids "who"/"what";
 #       every panel texture lives under images/ui/ and must ship in game.zip.
 #       Panels use Frame(), not Tile(): tiling a bordered 256x256 texture
 #       repeats its edge and corner ornaments across every stretched panel.
+#       Cast portraits stand at the left edge of the dialogue box; adding a
+#       speaker never hides the portraits already on stage (only `scene`, i.e.
+#       a chapter change, clears them).
 
 init offset = -1
 
@@ -336,6 +340,40 @@ transform stem_title_drift:
 ################################################################################
 ## Dialogue box
 ################################################################################
+
+# Standing cast stage. Each slot is one left-side column along the dialogue box:
+# slot 1 is the chapter's master, later slots join as speaking masters appear.
+# A `show` with a new image tag is additive, so the previous portrait is never
+# replaced; the 600x800 renders stand at full height and the box covers their
+# feet like a conventional VN. Nothing here is animated or lip-synced.
+transform stem_stage_slot_1:
+    subpixel True
+    xalign 0.02
+    yalign 1.0
+    yoffset 6
+    zoom 0.78
+
+transform stem_stage_slot_2:
+    subpixel True
+    xalign 0.17
+    yalign 1.0
+    yoffset 6
+    zoom 0.78
+
+transform stem_stage_slot_3:
+    subpixel True
+    xalign 0.32
+    yalign 1.0
+    yoffset 6
+    zoom 0.78
+
+transform stem_stage_slot_4:
+    subpixel True
+    xalign 0.47
+    yalign 1.0
+    yoffset 6
+    zoom 0.78
+
 
 screen say(who, what):
     $ store.stem_last_dialogue_text = str(what)

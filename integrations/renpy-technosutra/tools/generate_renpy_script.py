@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +59,68 @@ for chapter in CHAPTERS:
 
 def quoted(text: str) -> str:
     return json.dumps(str(text), ensure_ascii=False)
+
+
+# --- Cast staging -----------------------------------------------------------
+# The 54 verified chapter-slot renders are the only character art that exists.
+# Each master's own chapter title names them, so a speaker receives a portrait
+# only when their normalized name resolves to a real, staged slot. Crowd voices,
+# mascots and the absent slots 43/52 stay without art instead of borrowing a
+# face the manifest does not claim.
+MISSING_SPRITE_SLOTS = {43, 52}
+CAST_ALIASES = {
+    # Chapter 1 ("The Setting") is the Buddha's assembly; the narration and the
+    # dialogue use three names for the same master.
+    "buddha": 1,
+    "bhagavat": 1,
+    "tathagata": 1,
+    "manjusri kumarabhuta": 3,
+}
+# The stage keeps room for four standing portraits along the left edge of the
+# dialogue box. screens.rpy owns the matching stem_stage_slot_N transforms.
+STAGE_SLOTS = 4
+
+
+def _cast_key(value: str) -> str:
+    """Fold case, diacritics and quotes so speaker names match chapter titles."""
+    folded = unicodedata.normalize("NFKD", str(value))
+    folded = "".join(char for char in folded if not unicodedata.combining(char))
+    folded = folded.replace("“", '"').replace("”", '"').replace("’", "'")
+    return re.sub(r"[^a-z0-9]+", " ", folded.lower()).strip()
+
+
+CAST_CHAPTER_BY_NAME: dict[str, int] = {}
+if not EXCLUDE_UPSTREAM_RENDERS:
+    for _chapter in CHAPTERS:
+        if _chapter["number"] in MISSING_SPRITE_SLOTS:
+            continue
+        for _part in re.split(r"\s+and\s+", _chapter["title"]):
+            _part = _part.strip()
+            # Chapter 56 is a name plus a prayer title: "Samantabhadra and
+            # “The Prayer for Completely Good Conduct”". Only the leading name
+            # is a character; quoted titles never become cast entries.
+            if not _part or _part[0] in "“\"":
+                continue
+            CAST_CHAPTER_BY_NAME.setdefault(_cast_key(_part), _chapter["number"])
+    CAST_CHAPTER_BY_NAME.update(CAST_ALIASES)
+    CAST_CHAPTER_BY_NAME = {
+        name: number
+        for name, number in CAST_CHAPTER_BY_NAME.items()
+        if number in PROVISIONAL_SPRITES
+    }
+
+SCREENS_SOURCE = (GAME / "screens.rpy").read_text(encoding="utf-8")
+for _slot in range(1, STAGE_SLOTS + 1):
+    if f"transform stem_stage_slot_{_slot}:" not in SCREENS_SOURCE:
+        raise SystemExit(
+            f"screens.rpy is missing transform stem_stage_slot_{_slot}; "
+            f"the cast stage expects {STAGE_SLOTS} left-side slots"
+        )
+
+
+def cast_chapter(speaker: str) -> int | None:
+    """Chapter slot whose approved render depicts this speaker, if any."""
+    return CAST_CHAPTER_BY_NAME.get(_cast_key(speaker))
 
 
 NARRATION_PAGE_CHARS = 290
@@ -165,6 +228,7 @@ for name in speakers:
 lines.extend([
     "",
     'image narrator_orb = "images/narrator/orb.png"',
+    'image stem_crowd_silhouette = "images/speakers/generic_speaker_shadow.png"',
     'image bg_intro_scene = "images/bg_intro_scene.jpg"',
 ])
 for chapter in CHAPTERS:
@@ -175,12 +239,9 @@ for number, asset in sorted(PROVISIONAL_SPRITES.items()):
 lines.extend([
     "",
     "# Temporary static portraits from raw transparent captures; no animation or lip-sync.",
-    "transform master_provisional_portrait:",
-    "    xalign 0.84",
-    "    yalign 1.0",
-    "    yoffset -380",
-    "    zoom 0.8",
-    "",
+    "# Stage placement lives in screens.rpy (stem_stage_slot_1..%d): the chapter" % STAGE_SLOTS,
+    "# master stands at slot 1 and every mapped speaker who enters keeps their own",
+    "# image tag, so a new portrait joins the stage instead of replacing the last one.",
     "screen master_provisional_badge():",
     "    zorder 10",
     "    frame:",
@@ -199,20 +260,7 @@ lines.extend([
     "",
     "label start:",
     "    hide screen master_provisional_badge",
-    "    scene bg_intro_scene with fade",
-    '    centered "The Stem Array — visual novel"',
-    '    narrator "Um arquivo se abre. À margem, uma pequena luz desperta. Sou Orbe, teu guia nesta leitura: não pertenço ao mundo narrado e não altero seus acontecimentos."',
-    '    narrator "Este prólogo usa um cenário original; a imagem recebida pelo projeto ficou de fora, pois sua origem ainda não foi confirmada."',
-    '    narrator "Percorreremos os 56 capítulos com base no texto autorizado. As falas e reflexões desta VN são adaptação original — não citações da tradução."',
-    "    menu:",
-    f"        {quoted(gallery_choice)}:",
-    "            jump technosutra_master_gallery",
-    '        "Começar a jornada — capítulo 1":',
-    "            jump chapter_01",
-    '        "Abrir o índice de capítulos":',
-    "            jump chapter_index",
-    '        "Encerrar":',
-    "            return",
+    "    jump chapter_01",
     "",
     "label chapter_index:",
     "    hide screen master_provisional_badge",
@@ -258,16 +306,27 @@ split_narration_blocks = 0
 split_narration_parts = 0
 split_dialogue_blocks = 0
 split_dialogue_parts = 0
+cast_shows = 0
 for chapter in CHAPTERS:
     number = chapter["number"]
     quiz = chapter["minigame"]
     lines.extend([
         f"label chapter_{number:02d}:",
         "    hide screen master_provisional_badge",
-        f"    scene bg_ch{number:02d} with dissolve",
+        # `scene` clears every standing portrait left by the previous chapter.
+        # The living camera transform makes the real-life background breathe
+        # (slow zoom in/out + look-around) while portraits stand still.
+        f"    scene bg_ch{number:02d} at stem_bg_ch{number:02d}_camera with dissolve",
     ])
+    # Cast stage for this chapter, in show order. The chapter's own master waits
+    # at slot 1 from the first line; mapped speakers join in later slots. Any
+    # speaker without a dedicated render falls back to the shared crowd silhouette,
+    # shown once per chapter and kept standing beside the mapped masters.
+    stage: list[int] = []
+    silhouette_shown = False
     if number in PROVISIONAL_SPRITES:
-        lines.append(f"    show master_ch{number:02d}_provisional at master_provisional_portrait with dissolve")
+        stage.append(number)
+        lines.append(f"    show master_ch{number:02d}_provisional at stem_stage_slot_1 with dissolve")
         lines.append("    show screen master_provisional_badge")
     lines.append(f"    centered {quoted(title(chapter))}")
     for scene_index, scene in enumerate(chapter["scenes"], 1):
@@ -286,6 +345,35 @@ for chapter in CHAPTERS:
         for dialogue in scene.get("dialogue", []):
             speaker = dialogue.get("speaker", "Narrador").strip() or "Narrador"
             speaker_id = "narrator" if speaker == "Narrador" else speaker_ids[speaker]
+            # Render the speaking master when the manifest has their art; speakers
+            # without a dedicated render fall back to the shared crowd silhouette.
+            # A new `show` uses its own image tag, so earlier portraits stay standing.
+            portrait = cast_chapter(speaker)
+            if speaker == "Narrador":
+                pass
+            elif portrait is not None and portrait not in stage:
+                if len(stage) >= STAGE_SLOTS:
+                    raise SystemExit(
+                        f"Chapter {number} needs more than {STAGE_SLOTS} standing "
+                        f"portraits; add a stem_stage_slot_N transform in screens.rpy"
+                    )
+                stage.append(portrait)
+                cast_shows += 1
+                lines.append(
+                    f"    show master_ch{portrait:02d}_provisional at stem_stage_slot_{len(stage)} with dissolve"
+                )
+            elif portrait is None and not silhouette_shown:
+                if len(stage) >= STAGE_SLOTS:
+                    raise SystemExit(
+                        f"Chapter {number} needs more than {STAGE_SLOTS} standing "
+                        f"portraits; add a stem_stage_slot_N transform in screens.rpy"
+                    )
+                stage.append(0)
+                silhouette_shown = True
+                cast_shows += 1
+                lines.append(
+                    f"    show stem_crowd_silhouette at stem_stage_slot_{len(stage)} with dissolve"
+                )
             spoken = dialogue_segments(dialogue["line_pt"])
             if len(spoken) > 1:
                 split_dialogue_blocks += 1
@@ -348,3 +436,7 @@ for chapter in CHAPTERS:
 (GAME / "script.rpy").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 print(f"Wrote {GAME / 'script.rpy'}: {len(CHAPTERS)} chapters, {sum(len(c['scenes']) for c in CHAPTERS)} scenes, {len(speakers)} authored speakers, 56 choices, 56 quizzes.")
 print(f"Paged {split_narration_blocks} scene narrations into {split_narration_parts} pages and {split_dialogue_blocks} long dialogue lines into {split_dialogue_parts} pages.")
+print(
+    f"Staged {cast_shows} additional cast portraits across "
+    f"{len(CAST_CHAPTER_BY_NAME)} mapped speaker names; {STAGE_SLOTS} left-side slots."
+)

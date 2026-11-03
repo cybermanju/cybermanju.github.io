@@ -180,9 +180,30 @@
 
   </style>
 
+<!-- stem-loader:head:v1 -->
+<link rel="stylesheet" href="loading/loading.css">
+<link rel="preload" as="image" href="loading/02.webp" fetchpriority="high">
+<!-- /stem-loader:head:v1 -->
 </head>
 
 <body>
+<!-- stem-loader:v1 -->
+<div id="stem-loader" role="status" aria-live="polite" aria-busy="true">
+  <img class="stem-loader__art" src="loading/02.webp" alt="" aria-hidden="true" decoding="async" fetchpriority="high">
+  <img class="stem-loader__art" src="loading/02-small.webp" alt="" aria-hidden="true" data-stem-blur-up="1" style="filter: blur(18px) saturate(1.1);">
+  <div class="stem-loader__shade" aria-hidden="true"></div>
+  <section class="stem-loader__card">
+    <h1 class="stem-loader__title">Loading…</h1>
+    <p class="stem-loader__phrase" data-stem-phrase>Os Bodhisattvas estão se reunindo…</p>
+    <div class="stem-loader__bar" role="progressbar" aria-label="Carregamento">
+      <span class="stem-loader__fill"></span>
+    </div>
+    <p class="stem-loader__detail" data-stem-detail></p>
+    <p class="stem-loader__hint">Primeiro acesso baixa o motor (~42 MB). Depois ele abre do cache.</p>
+  </section>
+</div>
+<script src="loading/loading.js" defer></script>
+
   <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
   <div id="overlayDiv"></div>
 

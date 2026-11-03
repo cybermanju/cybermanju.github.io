@@ -12,7 +12,10 @@
 
 #stem-loader {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 2147483000;
   display: grid;
   place-items: center;
@@ -23,6 +26,15 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #e7f1ef;
   touch-action: manipulation;
+}
+
+/* Hide Ren'Py's own presplash while our overlay is active */
+#presplash {
+  display: none !important;
+}
+
+#stem-loader.is-done #presplash {
+  display: block !important;
 }
 
 #stem-loader.is-done {
@@ -68,9 +80,9 @@
 
 .stem-loader__card {
   position: relative;
-  width: min(680px, calc(100vw - 40px));
-  margin-bottom: max(28px, env(safe-area-inset-bottom));
-  padding: 22px 26px 20px;
+  width: min(400px, calc(100vw - 40px));
+  margin-bottom: max(20px, env(safe-area-inset-bottom));
+  padding: 14px 18px 12px;
   background: rgba(6, 12, 18, .86);
   border: 2px solid #24404f;
   box-shadow:

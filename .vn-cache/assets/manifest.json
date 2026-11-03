@@ -1,0 +1,904 @@
+{
+  "assets": {
+    "game/images/bg_intro_scene.jpg": {
+      "bytes": 523444,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 963067,
+      "targetRel": "game/images/bg_intro_scene.jpg",
+      "width": 1920
+    },
+    "game/images/masters/sprites/provisional/master_ch01_provisional.png": {
+      "bytes": 203996,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 311033,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch01_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch02_provisional.png": {
+      "bytes": 180236,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 265762,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch02_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch03_provisional.png": {
+      "bytes": 177228,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 276476,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch03_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch04_provisional.png": {
+      "bytes": 150296,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 255544,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch04_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch05_provisional.png": {
+      "bytes": 193298,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 301657,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch05_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch06_provisional.png": {
+      "bytes": 143032,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 230082,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch06_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch07_provisional.png": {
+      "bytes": 158688,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 260164,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch07_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch08_provisional.png": {
+      "bytes": 184870,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 277080,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch08_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch09_provisional.png": {
+      "bytes": 184870,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 277080,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch09_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch10_provisional.png": {
+      "bytes": 253268,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 365717,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch10_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch11_provisional.png": {
+      "bytes": 308456,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 483405,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch11_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch12_provisional.png": {
+      "bytes": 199920,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 306116,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch12_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch13_provisional.png": {
+      "bytes": 204792,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 316834,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch13_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch14_provisional.png": {
+      "bytes": 167400,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 264174,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch14_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch15_provisional.png": {
+      "bytes": 109440,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 182380,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch15_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch16_provisional.png": {
+      "bytes": 162478,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 266060,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch16_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch17_provisional.png": {
+      "bytes": 150902,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 246676,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch17_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch18_provisional.png": {
+      "bytes": 175478,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 279848,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch18_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch19_provisional.png": {
+      "bytes": 173876,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 264950,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch19_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch20_provisional.png": {
+      "bytes": 234486,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 354194,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch20_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch21_provisional.png": {
+      "bytes": 146510,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 235777,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch21_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch22_provisional.png": {
+      "bytes": 188400,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 300741,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch22_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch23_provisional.png": {
+      "bytes": 139650,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 223498,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch23_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch24_provisional.png": {
+      "bytes": 165394,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 261023,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch24_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch25_provisional.png": {
+      "bytes": 172460,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 275550,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch25_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch26_provisional.png": {
+      "bytes": 171662,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 278328,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch26_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch27_provisional.png": {
+      "bytes": 94482,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 159239,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch27_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch28_provisional.png": {
+      "bytes": 166380,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 266610,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch28_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch29_provisional.png": {
+      "bytes": 154038,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 252883,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch29_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch30_provisional.png": {
+      "bytes": 142600,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 232620,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch30_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch31_provisional.png": {
+      "bytes": 182804,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 291011,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch31_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch32_provisional.png": {
+      "bytes": 204706,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 328241,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch32_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch33_provisional.png": {
+      "bytes": 198878,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 318679,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch33_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch34_provisional.png": {
+      "bytes": 223278,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 355944,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch34_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch35_provisional.png": {
+      "bytes": 140126,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 233173,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch35_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch36_provisional.png": {
+      "bytes": 268178,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 421739,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch36_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch37_provisional.png": {
+      "bytes": 212180,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 335321,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch37_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch38_provisional.png": {
+      "bytes": 200856,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 305029,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch38_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch39_provisional.png": {
+      "bytes": 237944,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 344573,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch39_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch40_provisional.png": {
+      "bytes": 191286,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 313148,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch40_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch41_provisional.png": {
+      "bytes": 176600,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 282810,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch41_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch42_provisional.png": {
+      "bytes": 365526,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 540296,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch42_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch44_provisional.png": {
+      "bytes": 141634,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 230966,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch44_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch45_provisional.png": {
+      "bytes": 242186,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 376144,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch45_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch46_provisional.png": {
+      "bytes": 191018,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 295672,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch46_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch47_provisional.png": {
+      "bytes": 162660,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 247607,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch47_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch48_provisional.png": {
+      "bytes": 147642,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 231492,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch48_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch49_provisional.png": {
+      "bytes": 201590,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 323295,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch49_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch50_provisional.png": {
+      "bytes": 167452,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 264902,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch50_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch51_provisional.png": {
+      "bytes": 196032,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 312972,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch51_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch53_provisional.png": {
+      "bytes": 213552,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 340390,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch53_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch54_provisional.png": {
+      "bytes": 117872,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 182271,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch54_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch55_provisional.png": {
+      "bytes": 177228,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 276476,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch55_provisional.png",
+      "width": 600
+    },
+    "game/images/masters/sprites/provisional/master_ch56_provisional.png": {
+      "bytes": 180236,
+      "codec": "webp",
+      "height": 800,
+      "sourceBytes": 265762,
+      "targetRel": "game/images/masters/sprites/provisional/master_ch56_provisional.png",
+      "width": 600
+    },
+    "game/images/optimized/bg_ch01.jpg": {
+      "bytes": 777694,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1257090,
+      "targetRel": "game/images/optimized/bg_ch01.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch02.jpg": {
+      "bytes": 834802,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1335839,
+      "targetRel": "game/images/optimized/bg_ch02.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch03.jpg": {
+      "bytes": 834394,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1340204,
+      "targetRel": "game/images/optimized/bg_ch03.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch04.jpg": {
+      "bytes": 791757,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1303631,
+      "targetRel": "game/images/optimized/bg_ch04.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch05.jpg": {
+      "bytes": 692789,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1152473,
+      "targetRel": "game/images/optimized/bg_ch05.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch06.jpg": {
+      "bytes": 775494,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1231073,
+      "targetRel": "game/images/optimized/bg_ch06.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch07.jpg": {
+      "bytes": 746360,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1210443,
+      "targetRel": "game/images/optimized/bg_ch07.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch08.jpg": {
+      "bytes": 674514,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1129978,
+      "targetRel": "game/images/optimized/bg_ch08.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch09.jpg": {
+      "bytes": 782386,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1276832,
+      "targetRel": "game/images/optimized/bg_ch09.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch10.jpg": {
+      "bytes": 693287,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1156516,
+      "targetRel": "game/images/optimized/bg_ch10.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch11.jpg": {
+      "bytes": 800749,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1315359,
+      "targetRel": "game/images/optimized/bg_ch11.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch12.jpg": {
+      "bytes": 866653,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1407162,
+      "targetRel": "game/images/optimized/bg_ch12.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch13.jpg": {
+      "bytes": 797588,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1283113,
+      "targetRel": "game/images/optimized/bg_ch13.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch14.jpg": {
+      "bytes": 851177,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1370050,
+      "targetRel": "game/images/optimized/bg_ch14.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch15.jpg": {
+      "bytes": 793807,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1318447,
+      "targetRel": "game/images/optimized/bg_ch15.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch16.jpg": {
+      "bytes": 791059,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1320586,
+      "targetRel": "game/images/optimized/bg_ch16.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch17.jpg": {
+      "bytes": 765699,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1256104,
+      "targetRel": "game/images/optimized/bg_ch17.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch18.jpg": {
+      "bytes": 868681,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1404172,
+      "targetRel": "game/images/optimized/bg_ch18.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch19.jpg": {
+      "bytes": 813012,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1344380,
+      "targetRel": "game/images/optimized/bg_ch19.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch20.jpg": {
+      "bytes": 750389,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1258776,
+      "targetRel": "game/images/optimized/bg_ch20.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch21.jpg": {
+      "bytes": 768406,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1243458,
+      "targetRel": "game/images/optimized/bg_ch21.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch22.jpg": {
+      "bytes": 792879,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1276388,
+      "targetRel": "game/images/optimized/bg_ch22.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch23.jpg": {
+      "bytes": 843391,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1381786,
+      "targetRel": "game/images/optimized/bg_ch23.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch24.jpg": {
+      "bytes": 733902,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1200206,
+      "targetRel": "game/images/optimized/bg_ch24.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch25.jpg": {
+      "bytes": 823545,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1356337,
+      "targetRel": "game/images/optimized/bg_ch25.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch26.jpg": {
+      "bytes": 569805,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 910651,
+      "targetRel": "game/images/optimized/bg_ch26.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch27.jpg": {
+      "bytes": 635900,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 976366,
+      "targetRel": "game/images/optimized/bg_ch27.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch28.jpg": {
+      "bytes": 617463,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 954528,
+      "targetRel": "game/images/optimized/bg_ch28.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch29.jpg": {
+      "bytes": 589741,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 931579,
+      "targetRel": "game/images/optimized/bg_ch29.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch30.jpg": {
+      "bytes": 648024,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1019020,
+      "targetRel": "game/images/optimized/bg_ch30.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch31.jpg": {
+      "bytes": 501208,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 764320,
+      "targetRel": "game/images/optimized/bg_ch31.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch32.jpg": {
+      "bytes": 627290,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 972699,
+      "targetRel": "game/images/optimized/bg_ch32.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch33.jpg": {
+      "bytes": 632816,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 974712,
+      "targetRel": "game/images/optimized/bg_ch33.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch34.jpg": {
+      "bytes": 614272,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 955709,
+      "targetRel": "game/images/optimized/bg_ch34.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch35.jpg": {
+      "bytes": 457734,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 711640,
+      "targetRel": "game/images/optimized/bg_ch35.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch36.jpg": {
+      "bytes": 618171,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 965852,
+      "targetRel": "game/images/optimized/bg_ch36.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch37.jpg": {
+      "bytes": 599502,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 909058,
+      "targetRel": "game/images/optimized/bg_ch37.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch38.jpg": {
+      "bytes": 435781,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 684557,
+      "targetRel": "game/images/optimized/bg_ch38.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch39.jpg": {
+      "bytes": 531243,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 833305,
+      "targetRel": "game/images/optimized/bg_ch39.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch40.jpg": {
+      "bytes": 644109,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1000299,
+      "targetRel": "game/images/optimized/bg_ch40.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch41.jpg": {
+      "bytes": 531316,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 828527,
+      "targetRel": "game/images/optimized/bg_ch41.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch42.jpg": {
+      "bytes": 661039,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1025795,
+      "targetRel": "game/images/optimized/bg_ch42.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch43.jpg": {
+      "bytes": 624446,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 979686,
+      "targetRel": "game/images/optimized/bg_ch43.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch44.jpg": {
+      "bytes": 640543,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 991922,
+      "targetRel": "game/images/optimized/bg_ch44.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch45.jpg": {
+      "bytes": 514982,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 809124,
+      "targetRel": "game/images/optimized/bg_ch45.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch46.jpg": {
+      "bytes": 512576,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 812828,
+      "targetRel": "game/images/optimized/bg_ch46.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch47.jpg": {
+      "bytes": 543980,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 839791,
+      "targetRel": "game/images/optimized/bg_ch47.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch48.jpg": {
+      "bytes": 474352,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 741801,
+      "targetRel": "game/images/optimized/bg_ch48.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch49.jpg": {
+      "bytes": 575849,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 902275,
+      "targetRel": "game/images/optimized/bg_ch49.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch50.jpg": {
+      "bytes": 494364,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 786256,
+      "targetRel": "game/images/optimized/bg_ch50.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch51.jpg": {
+      "bytes": 484647,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 788034,
+      "targetRel": "game/images/optimized/bg_ch51.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch52.jpg": {
+      "bytes": 569237,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 884698,
+      "targetRel": "game/images/optimized/bg_ch52.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch53.jpg": {
+      "bytes": 524579,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 825004,
+      "targetRel": "game/images/optimized/bg_ch53.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch54.jpg": {
+      "bytes": 690688,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1069985,
+      "targetRel": "game/images/optimized/bg_ch54.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch55.jpg": {
+      "bytes": 492368,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 742755,
+      "targetRel": "game/images/optimized/bg_ch55.jpg",
+      "width": 1920
+    },
+    "game/images/optimized/bg_ch56.jpg": {
+      "bytes": 657844,
+      "codec": "jpeg",
+      "height": 1080,
+      "sourceBytes": 1027306,
+      "targetRel": "game/images/optimized/bg_ch56.jpg",
+      "width": 1920
+    }
+  },
+  "count": 111,
+  "generatedAt": "2026-11-03T19:32:00Z",
+  "lossless": false,
+  "outputBytes": 47903777,
+  "profile": {
+    "backgrounds": "JPEG q80 4:2:0",
+    "sprites": "webp"
+  },
+  "savedPercent": 37.3,
+  "schemaVersion": 1,
+  "signature": "082b5c437f67fe79",
+  "sourceBytes": 76402966
+}
