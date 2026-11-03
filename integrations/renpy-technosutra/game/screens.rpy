@@ -112,7 +112,7 @@ style button_text:
     color "#e6efea"
     hover_color "#ffffff"
     selected_color "#ffffff"
-    insensitive_color "#7d8b95"
+    insensitive_color "#9fb2be"
     yalign 0.5
 
 style button_text:

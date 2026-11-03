@@ -91,7 +91,25 @@ cp "$ROOT/chapters.json" "$ROOT/project.json" "$PROJECT/"
 # Ren'Py only auto-generates progressive_download.txt with generic defaults,
 # which keep game/gui/** immediate. This project has no gui/, so its UI chrome
 # lives under game/images/ui/ and needs the reviewed rules shipped with it.
-cp "$ROOT/progressive_download.txt" "$PROJECT/progressive_download.txt"
+if [[ -f "$ROOT/progressive_download.txt" ]]; then
+  cp "$ROOT/progressive_download.txt" "$PROJECT/progressive_download.txt"
+else
+  cat << 'EOF' > "$PROJECT/progressive_download.txt"
+# RenPyWeb progressive download rules - first match applies
+# '+' = progressive download, '-' = keep in game.zip (default)
+# See https://www.renpy.org/doc/html/build.html#classifying-and-ignoring-files for matching
+#
+# +/- type path
+- image game/images/ui/**
+- image game/images/narrator/**
+- image game/images/speakers/**
+- image game/images/pixel/**
+- image game/gui/**
++ image game/**
++ music game/audio/**
++ voice game/voice/**
+EOF
+fi
 mkdir -p "$PROJECT/tools"
 cp "$ROOT/tools/"*.py "$PROJECT/tools/"
 mkdir -p "$PROJECT/web"
