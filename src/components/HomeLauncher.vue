@@ -147,7 +147,8 @@ const screenMotion = ref<'next' | 'previous' | null>(null)
 let screenMotionTimer: ReturnType<typeof setTimeout> | null = null
 
 // ---------- 8-direction swipe gesture with momentum ----------
-type SwipeDirection = 'left' | 'right' | 'up' | 'down' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight' | null
+type SwipeDirectionName = 'left' | 'right' | 'up' | 'down' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight'
+type SwipeDirection = SwipeDirectionName | null
 const swipeDirection = ref<SwipeDirection>(null)
 const swipeProgress = ref(0)
 let swipeGesture: { startX: number; startY: number; lastX: number; lastY: number; lastTime: number; velocityX: number; velocityY: number; claimed: boolean; fingers: number } | null = null
@@ -158,7 +159,7 @@ const SWIPE_THRESHOLD = 40
 const MOMENTUM_DECAY = 0.92
 const MOMENTUM_THRESHOLD = 0.3
 
-const DIRECTION_COLORS: Record<SwipeDirection, string> = {
+const DIRECTION_COLORS: Record<SwipeDirectionName, string> = {
   left: '#ff6b6b',
   right: '#4ecdc4',
   up: '#a29bfe',
@@ -170,19 +171,20 @@ const DIRECTION_COLORS: Record<SwipeDirection, string> = {
 }
 
 function edgeOverlayStyle(edge: string): Record<string, string> {
-  if (swipeProgress.value <= 0) return { opacity: '0' }
+  if (swipeProgress.value <= 0 || !swipeDirection.value) return { opacity: '0' }
+  const dir = swipeDirection.value
   const isActive = (
-    (edge === 'top' && swipeDirection.value === 'up') ||
-    (edge === 'bottom' && swipeDirection.value === 'down') ||
-    (edge === 'left' && swipeDirection.value === 'left') ||
-    (edge === 'right' && swipeDirection.value === 'right') ||
-    (edge === 'topLeft' && swipeDirection.value === 'upLeft') ||
-    (edge === 'topRight' && swipeDirection.value === 'upRight') ||
-    (edge === 'bottomLeft' && swipeDirection.value === 'downLeft') ||
-    (edge === 'bottomRight' && swipeDirection.value === 'downRight')
+    (edge === 'top' && dir === 'up') ||
+    (edge === 'bottom' && dir === 'down') ||
+    (edge === 'left' && dir === 'left') ||
+    (edge === 'right' && dir === 'right') ||
+    (edge === 'topLeft' && dir === 'upLeft') ||
+    (edge === 'topRight' && dir === 'upRight') ||
+    (edge === 'bottomLeft' && dir === 'downLeft') ||
+    (edge === 'bottomRight' && dir === 'downRight')
   )
   if (!isActive) return { opacity: '0' }
-  const color = DIRECTION_COLORS[swipeDirection.value] || 'var(--hw-accent)'
+  const color = DIRECTION_COLORS[dir] || 'var(--hw-accent)'
   const opacity = Math.min(0.45, swipeProgress.value * 0.55)
   return { 
     opacity: String(opacity),
@@ -265,8 +267,8 @@ function swipeNavigate(direction: SwipeDirection) {
   })()
 }
 
-function startSwipeGesture(x: number, y: number) {
-  swipeGesture = { startX: x, startY: y, lastX: x, lastY: y, lastTime: performance.now(), velocityX: 0, velocityY: 0, claimed: false }
+function startSwipeGesture(x: number, y: number, fingers = 1) {
+  swipeGesture = { startX: x, startY: y, lastX: x, lastY: y, lastTime: performance.now(), velocityX: 0, velocityY: 0, claimed: false, fingers }
 }
 
 function updateSwipeGesture(x: number, y: number) {
@@ -634,7 +636,7 @@ function touchMove(event: TouchEvent) {
     if (Math.hypot(dx, dy) > 15) {
       const dir = classifySwipeDirection(dx, dy)
       if (dir) {
-        startSwipeGesture(point.clientX, point.clientY)
+        startSwipeGesture(point.x, point.y, 1)
         if (event.cancelable) {
           event.preventDefault()
           event.stopPropagation()
@@ -753,14 +755,16 @@ function cancelTouch(event: TouchEvent) {
   resetTouch() 
 }
 
-// Ensure swipe is cancelled on overview toggle
-async function toggleOverview() { 
-  resetTouch()
-  if (props.blocked || !await suspendHome()) return
-  if (overview.value) await closeOverview()
-  else { editing.value = false; overview.value = true } 
+function resetTouch(cancelDrag = true) {
+  if (momentumRaf) { cancelAnimationFrame(momentumRaf); momentumRaf = 0 }
+  swipeDirection.value = null
+  swipeProgress.value = 0
+  swipeGesture = null
+  gestureEpoch++
+  gesture = null
+  if (cancelDrag) dragging.value = null
+  touchBlocked = touchCount > 0
 }
-function resetTouch(cancelDrag = true) { gestureEpoch++; gesture = null; if (cancelDrag) dragging.value = null; touchBlocked = touchCount > 0 }
 function invalidateTouch() { touchSafety.cancel(); resetTouch() }
 function importHomeState() { state.value = normalizeHomeState(load(), props.initialIds); for (const page of [...state.value.pages]) arrangeOverflow(page.id); overview.value = false; editing.value = false }
 onMounted(() => { for (const page of [...state.value.pages]) arrangeOverflow(page.id); window.addEventListener('blur', invalidateTouch); document.addEventListener('visibilitychange', invalidateTouch); window.addEventListener('cybermanju:home-workspaces-import', importHomeState); if (androidApps.supported) void androidApps.refresh().catch(() => {}) })
