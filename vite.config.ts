@@ -7,11 +7,15 @@ import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { resolve } from "path";
 import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import wasmStub from "./vite-plugin-wasm-stub";
 import { wasmPkgEntry } from "./wasm-pkg";
 
 const host = process.env.TAURI_DEV_HOST;
 const configDir = fileURLToPath(new URL(".", import.meta.url));
+
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"))
+const appVersion = String(pkg.version ?? "0.0.0")
 
 // Real wasm-pack output, when present AND still newer than crates/ (a stale
 // pkg is ignored — see wasm-pkg.ts). Otherwise the stub file below stands in
@@ -37,6 +41,9 @@ export default defineConfig(async () => ({
     },
   },
   clearScreen: false,
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+  },
   server: {
     port: 1420,
     strictPort: true,

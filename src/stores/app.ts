@@ -8,6 +8,7 @@ import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { getAuthToken, invoke, isStaticHost, isTauri, isWebMode, setAuthToken } from '@/composables/useTauri'
 import { useNotifications } from '@/composables/useNotifications'
+import { useUpdateChecker } from '@/composables/useUpdateChecker'
 import type {
   FileNode, Account, Collection, FaceGroup, LooseGroup,
   SearchResult, EncryptionStatus, EncryptionKeyInfo,
@@ -519,6 +520,10 @@ export const useAppStore = defineStore('cybermanju', () => {
       ])
       startAutoRefresh()
       startScheduleTick()
+      // Boot update check: compares the baked build version against the
+      // latest GitHub release and re-checks every 30 min. Fire-and-forget
+      // so it never blocks app initialization.
+      void useUpdateChecker()
     } finally {
       endLoading()
     }

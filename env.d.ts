@@ -10,6 +10,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_ANON_KEY?: string
   /** Legacy alias, read when `VITE_SUPABASE_ANON_KEY` is unset. */
   readonly VITE_SUPABASE_KEY?: string
+  /** App version baked at build time from package.json (single source of truth). */
+  readonly VITE_APP_VERSION?: string
 }
 
 interface ImportMeta {

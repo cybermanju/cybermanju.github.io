@@ -130,12 +130,12 @@ style stem_font_sans_bold:
     bold True
 
 style stem_font_mono:
-    font "DejaVuSansMono.ttf"
+    font "DejaVuSans.ttf"
     size 28
     color "#cfe8f3"
 
 style stem_font_mono_bold:
-    font "DejaVuSansMono-Bold.ttf"
+    font "DejaVuSans-Bold.ttf"
     size 30
     color "#e2ffea"
     bold True
@@ -257,7 +257,7 @@ style stem_tab_button:
     yminimum 76
     xpadding 18
 style stem_tab_button_text:
-    font "DejaVuSansMono.ttf"
+    font "DejaVuSans-Bold.ttf"
     size 24
     bold True
     text_align 0.5
@@ -305,7 +305,7 @@ style quick_button:
     ypadding 10
     yminimum 60
 style quick_button_text:
-    font "DejaVuSansMono-Bold.ttf"
+    font "DejaVuSans-Bold.ttf"
     size 20
     color "#e2ece6"
     hover_color "#ffffff"

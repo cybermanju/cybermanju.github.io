@@ -6,8 +6,14 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import { resolve } from "path";
+import { readFileSync } from "node:fs";
 import wasmStub from "./vite-plugin-wasm-stub";
 import { wasmPkgEntry } from "./wasm-pkg";
+
+// Bake the package.json version into the bundle so the update checker can
+// compare the running build against the latest release without a network round-trip.
+const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"))
+const appVersion = String(pkg.version ?? "0.0.0")
 
 // Determine the base path:
 // - GitHub Pages (cybermanju.github.io root site): /
@@ -65,6 +71,7 @@ export default defineConfig({
     "window.__TAURI__": "false",
     "import.meta.env.TAURI": "false",
     "import.meta.env.VITE_TAURI": "false",
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
   },
   css: {
     devSourcemap: true,
