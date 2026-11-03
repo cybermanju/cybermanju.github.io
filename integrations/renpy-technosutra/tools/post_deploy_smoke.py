@@ -32,7 +32,7 @@ EXPECTED_BACKGROUND_TAG = "bg_ch01"
 OPENING_NARRATION_MARKER = "Um arquivo se abre."
 SECOND_OPENING_NARRATION_MARKER = "Este prólogo usa um cenário original"
 FINAL_OPENING_NARRATION_MARKER = "Percorreremos os 56 capítulos"
-CHAPTER_ONE_DIALOGUE_MARKER = "Em Śrāvastī, no kūṭāgāra de Jetavana, o Bhagavat está acompanhado por Samantabhadra"
+CHAPTER_ONE_DIALOGUE_MARKER = "Em Śrāvastī, no kūṭāgāra em Jetavana, o Bhagavat está acompanhado por Samantabhadra"
 
 
 def utc_now() -> str:
@@ -395,7 +395,21 @@ def launch_from_command_palette(page: Any) -> None:
     result.first.click(timeout=5_000)
 
 
-def open_stem_array(page: Any, report: dict[str, Any]) -> None:
+def find_game_frame(page: Any, timeout_seconds: float = 30.0) -> Any | None:
+    # The iframe element can be visible before its same-origin document has
+    # navigated, so poll page.frames instead of sampling it once.
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        frame = next(
+            (candidate for candidate in page.frames if candidate.url and "technosutra-vn/" in candidate.url),
+            None,
+        )
+        if frame is not None or time.monotonic() >= deadline:
+            return frame
+        page.wait_for_timeout(250)
+
+
+def open_stem_array(page: Any, report: dict[str, Any]) -> Any:
     # Prefer the actual app shortcut in the desktop launcher/home grid, but
     # do not let a stale/overlapping window make the smoke fail if it blocks
     # the pointer. The documented keyboard palette is the normal fallback.
@@ -416,13 +430,17 @@ def open_stem_array(page: Any, report: dict[str, Any]) -> None:
     frame_locator.wait_for(state="visible", timeout=20_000)
     page.locator(".app-window:has(iframe.ts-game-frame)").wait_for(state="visible", timeout=10_000)
     report["checks"]["gameWindowOpened"] = True
-    frame = next((candidate for candidate in page.frames if candidate.url and "technosutra-vn/" in candidate.url), None)
+    frame = find_game_frame(page)
     if frame is None:
-        raise RuntimeError("The Stem Array iframe did not expose a browser frame")
+        raise RuntimeError(
+            "The Stem Array iframe did not expose a browser frame; frames="
+            f"{[candidate.url for candidate in page.frames]}"
+        )
     report["gameFrameUrl"] = frame.url
     if urlparse(frame.url).path.rstrip("/").endswith("technosutra-vn"):
         raise RuntimeError("The VN iframe URL points to a directory instead of its deployed runtime index")
     report["checks"]["iframeLoaded"] = True
+    return frame
 
 
 def read_telemetry(frame: Any) -> dict[str, Any] | None:
@@ -450,6 +468,17 @@ def wait_for_new_telemetry(frame: Any, previous: dict[str, Any] | None, timeout_
             return latest
         frame.wait_for_timeout(100)
     return latest
+
+
+def chapter_one_ready(state: dict[str, Any] | None) -> bool:
+    if not state:
+        return False
+    tags = set(state.get("showingTags", []))
+    return (
+        CHAPTER_ONE_DIALOGUE_MARKER in str(state.get("dialogue", ""))
+        and EXPECTED_SPRITE_TAG in tags
+        and EXPECTED_BACKGROUND_TAG in tags
+    )
 
 
 def click_canvas(page: Any, canvas: Any, x_fraction: float, y_fraction: float) -> None:
@@ -492,25 +521,26 @@ def drive_game_to_chapter_one(page: Any, frame: Any, report: dict[str, Any], tim
         if not state or marker not in str(state.get("dialogue", "")):
             raise RuntimeError(f"The current authored {label} was not observed via show_done telemetry; refusing to guess the next screen")
 
-    # Advance from the final introductory narration to the visible menu.
-    click_canvas(page, canvas, 0.52, 0.88)
-    frame.wait_for_timeout(500)
-
-    # Select the visible second menu row: “Começar a jornada — capítulo 1”.
-    click_canvas(page, canvas, 0.52, 0.49)
-    frame.wait_for_timeout(500)
+    # Advance past the final introductory narration and take the second
+    # authored row, “Começar a jornada — capítulo 1”. The choice screen lists
+    # “teclas 1–4”, so key "2" is a real, documented control; it stays inert
+    # while narration is still showing. A canvas click below the choice card
+    # only dismisses narration, so it cannot select a row by accident.
     target = read_telemetry(frame)
-
     deadline = time.monotonic() + timeout_seconds
-    for _ in range(8):
-        tags = set(target.get("showingTags", [])) if target else set()
-        if target and CHAPTER_ONE_DIALOGUE_MARKER in str(target.get("dialogue", "")) and EXPECTED_SPRITE_TAG in tags and EXPECTED_BACKGROUND_TAG in tags:
+    attempts = 0
+    while time.monotonic() < deadline:
+        if chapter_one_ready(target):
             break
-        if time.monotonic() >= deadline:
-            break
+        attempts += 1
         previous = target
         click_canvas(page, canvas, 0.52, 0.88)
-        target = wait_for_new_telemetry(frame, previous, min(10, max(1, deadline - time.monotonic())))
+        page.keyboard.press("2")
+        # Ren'Py completes slow text on the first click and advances on the
+        # next; poll briefly after every click so a marker line is never
+        # skipped by a blind double click.
+        target = wait_for_new_telemetry(frame, previous, min(2.0, max(0.2, deadline - time.monotonic())))
+    report["menuSelection"] = {"method": "number key", "key": "2", "attempts": attempts}
 
     tags = set(target.get("showingTags", [])) if target else set()
     report["gameStateBeforeInput"] = target
@@ -608,11 +638,8 @@ def run_browser(base_url: str, output_dir: Path, report: dict[str, Any], timeout
                 screenshot(page, output_dir / "blocker.png", report, "blockerScreenshot")
                 raise PermissionError("Authentication gate blocks the desktop shell")
 
-            open_stem_array(page, report)
+            frame = open_stem_array(page, report)
             report["checks"]["paletteOrLauncherUsed"] = True
-            frame = next((candidate for candidate in page.frames if candidate.url and "technosutra-vn/" in candidate.url), None)
-            if frame is None:
-                raise RuntimeError("The Stem Array iframe did not expose a browser frame")
             # Confirm the actual iframe document is the same-origin VN package.
             iframe_src = page.locator("iframe.ts-game-frame").get_attribute("src") or ""
             report["gameIframeSrc"] = iframe_src
