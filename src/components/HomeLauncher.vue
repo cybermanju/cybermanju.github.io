@@ -52,7 +52,15 @@
       <label v-if="editing" class="screen-name">Screen name<input v-model="activePage.title" maxlength="40" aria-label="Screen name" /></label>
       <slot v-if="!editing && !overview" name="home-tools" />
       <nav class="screen-nav" aria-label="Home screen navigation">
-        <OrbNavigator :screen-index="activeIndex" :screen-count="state.pages.length" :screen-positions="screenPositions" :disabled="!!props.blocked || editing || !!picker || overview" :motion-reduced="motion.reduced.value" v-if="!orbHiddenOnDesktop && !props.blocked" @navigate="navigateOrb" @open-apps="emit('openApps')" />
+        <OrbNavigator 
+          :screen-index="activeIndex" 
+          :screen-count="state.pages.length" 
+          :screen-positions="screenPositions" 
+          :disabled="!!props.blocked || editing || !!picker || overview" 
+          :motion-reduced="motion.reduced.value" 
+          v-if="!orbHiddenOnDesktop && !props.blocked" 
+          @navigate="navigateOrb" 
+          @open-apps="emit('openApps')" />
       </nav>
         <div v-for="page in visitedPages" v-show="page.id === state.activeId" :key="page.id" class="workspace-content" tabindex="0" aria-label="Home screen canvas" :inert="page.id !== state.activeId"
           @pointerdown="emptyPress.down" @pointermove="emptyPress.move" @pointerleave="emptyPress.cancel" @pointerup="emptyPress.cancel" @pointercancel="emptyPress.cancel"
@@ -139,9 +147,8 @@ const screenMotion = ref<'next' | 'previous' | null>(null)
 let screenMotionTimer: ReturnType<typeof setTimeout> | null = null
 
 // ---------- 8-direction swipe gesture with momentum ----------
-type DirectionKey = 'left' | 'right' | 'up' | 'down' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight'
-type SwipeDirection = DirectionKey | null
-const swipeDirection = ref<SwipeDirection>(null)
+type SwipeDirection = 'left' | 'right' | 'up' | 'down' | 'upLeft' | 'upRight' | 'downLeft' | 'downRight'
+const swipeDirection = ref<SwipeDirection | null>(null)
 const swipeProgress = ref(0)
 let swipeGesture: { startX: number; startY: number; lastX: number; lastY: number; lastTime: number; velocityX: number; velocityY: number; claimed: boolean; fingers: number } | null = null
 let momentumRaf = 0
@@ -151,7 +158,7 @@ const SWIPE_THRESHOLD = 40
 const MOMENTUM_DECAY = 0.92
 const MOMENTUM_THRESHOLD = 0.3
 
-const DIRECTION_COLORS: Record<DirectionKey, string> = {
+const DIRECTION_COLORS: Record<SwipeDirection, string> = {
   left: '#ff6b6b',
   right: '#4ecdc4',
   up: '#a29bfe',
@@ -163,7 +170,7 @@ const DIRECTION_COLORS: Record<DirectionKey, string> = {
 }
 
 function edgeOverlayStyle(edge: string): Record<string, string> {
-  if (swipeProgress.value <= 0 || !swipeDirection.value) return { opacity: '0' }
+  if (swipeProgress.value <= 0) return { opacity: '0' }
   const isActive = (
     (edge === 'top' && swipeDirection.value === 'up') ||
     (edge === 'bottom' && swipeDirection.value === 'down') ||
@@ -175,7 +182,7 @@ function edgeOverlayStyle(edge: string): Record<string, string> {
     (edge === 'bottomRight' && swipeDirection.value === 'downRight')
   )
   if (!isActive) return { opacity: '0' }
-  const color = DIRECTION_COLORS[swipeDirection.value] || 'var(--hw-accent)'
+  const color = swipeDirection.value ? DIRECTION_COLORS[swipeDirection.value] : 'var(--hw-accent)'
   const opacity = Math.min(0.45, swipeProgress.value * 0.55)
   return { 
     opacity: String(opacity),
@@ -746,6 +753,13 @@ function cancelTouch(event: TouchEvent) {
   resetTouch() 
 }
 
+// Ensure swipe is cancelled on overview toggle
+async function toggleOverview() { 
+  resetTouch()
+  if (props.blocked || !await suspendHome()) return
+  if (overview.value) await closeOverview()
+  else { editing.value = false; overview.value = true } 
+}
 function resetTouch(cancelDrag = true) { gestureEpoch++; gesture = null; if (cancelDrag) dragging.value = null; touchBlocked = touchCount > 0 }
 function invalidateTouch() { touchSafety.cancel(); resetTouch() }
 function importHomeState() { state.value = normalizeHomeState(load(), props.initialIds); for (const page of [...state.value.pages]) arrangeOverflow(page.id); overview.value = false; editing.value = false }
@@ -753,7 +767,6 @@ onMounted(() => { for (const page of [...state.value.pages]) arrangeOverflow(pag
 function removeApp(id: string) { for (const page of state.value.pages) { const item = page.items.find(i => i.kind === 'app' && i.ref === id); if (item) removeHomeItem(state.value, page.id, item.id) } }
 function reorderApp(id: string, direction: -1 | 1) { const items = activePage.value.items; const from = items.findIndex(i => i.kind === 'app' && i.ref === id); const target = from + direction; if (from < 0 || target < 0 || target >= items.length) return; const [item] = items.splice(from, 1); items.splice(target, 0, item!) }
 async function newScreen() { if (!await suspendHome()) return; const hadEmptyExtension = state.value.pages[state.value.pages.length - 1]?.items.length === 0; message.value = createHomeWorkspace(state.value) ? (hadEmptyExtension ? 'Opened the empty screen.' : 'New screen saved on this device.') : '24-screen limit reached.'; overview.value = false }
-async function toggleOverview() { resetTouch(); if (props.blocked || !await suspendHome()) return; if (overview.value) await closeOverview(); else { editing.value = false; overview.value = true } }
 async function toggleEditing() { if (await suspendHome()) { overview.value = false; editing.value = !editing.value } }
 function nativeLabel(provider: string) { return native.providers.value.find(p => p.provider === provider)?.label || 'Android widget' }
 function nativeRecord(item: HomeItem) { return native.records.value.find(r => r.placementId === item.id) }
