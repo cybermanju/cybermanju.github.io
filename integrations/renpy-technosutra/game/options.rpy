@@ -47,3 +47,12 @@ init python:
         renpy.profile_screen("choice", show=True, time=True)
 
 # Distinct local Ren'Py project; no networking, external services, or Street View media.
+
+# Keep every decoded background and UI texture resident instead of thrashing the
+# default ~40 MB image cache. 56 chapters at 1920x1080 decode to ~8 MB of
+# texture each (~464 MB total), so on the Web (WASM) build the cache default
+# forced a full 2 MP JPEG re-decode on the main thread at every chapter change,
+# which dropped the renderer to near-0 fps. 2048 MB holds the whole VN plus UI,
+# so scene switches are a texture bind, not a decode stall.
+init python:
+    config.image_cache_size = 2048

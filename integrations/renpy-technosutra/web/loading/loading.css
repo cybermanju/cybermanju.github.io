@@ -4,10 +4,11 @@
  *       smooth hand-off to the game's own (pixel-art) main menu.
  * Integrates: loading/loading.js (adds .is-done / .is-failed) and
  *             tools/inject_loading_overlay.py (markup + asset hrefs).
- * Contracts: the art is object-fit: contain on a black stage, matching Ren'Py's
- *       letterboxing so the hand-off to the canvas does not jump; every effect
- *       is disabled under prefers-reduced-motion; the overlay never outlives the
- *       fade (the script removes it) so it cannot swallow clicks.
+ * Contracts: the art is object-fit: cover on a black stage with a slow Ken
+ *       Burns zoom so the hand-off to the game's own (pixel-art) main menu does
+ *       not jump; every effect is disabled under prefers-reduced-motion; the
+ *       overlay never outlives the fade (the script removes it) so it cannot
+ *       swallow clicks.
  */
 
 #stem-loader {
@@ -48,11 +49,11 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   opacity: 0;
-  transform: scale(1.02);
-  transform-origin: center 42%;
-  animation: stem-loader-zoom 46s ease-in-out infinite alternate;
+  transform: scale(1);
+  transform-origin: center;
+  animation: stem-loader-zoom 22s ease-in-out infinite alternate;
   transition: opacity 600ms ease, transform 900ms ease;
 }
 
@@ -65,8 +66,8 @@
 }
 
 @keyframes stem-loader-zoom {
-  from { transform: scale(1.02); }
-  to   { transform: scale(1.14); }
+  from { transform: scale(1); }
+  to   { transform: scale(1.18); }
 }
 
 .stem-loader__shade {
@@ -80,9 +81,9 @@
 
 .stem-loader__card {
   position: relative;
-  width: min(400px, calc(100vw - 40px));
-  margin-bottom: max(20px, env(safe-area-inset-bottom));
-  padding: 14px 18px 12px;
+  width: min(320px, calc(100vw - 32px));
+  margin-bottom: max(16px, env(safe-area-inset-bottom));
+  padding: 10px 14px 8px;
   background: rgba(6, 12, 18, .86);
   border: 2px solid #24404f;
   box-shadow:
