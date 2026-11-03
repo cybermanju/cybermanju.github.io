@@ -1,12 +1,12 @@
 // CyberManju OS — Mobile home rendering regressions (tests/frontend/mobile-home-rendering.test.ts).
 // Role: protect mobile workspace sizing, icon list mode, orb visibility, and user motion settings.
 // Exports: none.
-// Integrates: MobileLauncher, HomeWorkspaceStudio, OmniSearchPanel and Vitest.
+// Integrates: MobileLauncher, HomeLauncher, OmniSearchPanel and Vitest.
 // Contracts: home canvas scrolls independently; navigation stays visible; reduced motion follows app preference.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const studio = readFileSync('src/components/HomeWorkspaceStudio.vue', 'utf8')
+const studio = readFileSync('src/components/HomeLauncher.vue', 'utf8')
 const launcher = readFileSync('src/components/MobileLauncher.vue', 'utf8')
 const search = readFileSync('src/components/OmniSearchPanel.vue', 'utf8')
 
