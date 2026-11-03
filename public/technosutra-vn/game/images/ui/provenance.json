@@ -1,0 +1,226 @@
+{
+  "status": "original_procedural_ui_textures",
+  "generator": "tools/generate_velvet_textures.py",
+  "method": "Mathematical line, curve, lattice, and rosette patterns rendered with Pillow; no reference images, external art, or upstream assets used.",
+  "tileSize": [
+    256,
+    256
+  ],
+  "surfaces": [
+    "dialogue",
+    "panel",
+    "choice",
+    "question",
+    "button",
+    "tabs",
+    "slots",
+    "controls",
+    "menu",
+    "interstitial",
+    "nameplate"
+  ],
+  "variants": [
+    "flat",
+    "glass"
+  ],
+  "assets": [
+    {
+      "file": "game/images/ui/velvet_dialogue_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "dialogue",
+      "bytes": 31729,
+      "sha256": "03dbd0a76f3c998680a851c43e3c472258b02565d1efb7630cbcc9a681347d38"
+    },
+    {
+      "file": "game/images/ui/velvet_dialogue_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "dialogue",
+      "bytes": 38120,
+      "sha256": "b638529c24072e2e1aed04c24df8be5038b4696999af13ac35b9a05be46933ee"
+    },
+    {
+      "file": "game/images/ui/velvet_panel_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "panel",
+      "bytes": 22958,
+      "sha256": "21749beccde370946ca388d687e2353106e8dfa77dda3ddefa4c353ee6111977"
+    },
+    {
+      "file": "game/images/ui/velvet_panel_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "panel",
+      "bytes": 28345,
+      "sha256": "5f38efd32c5673a3e9d5f0d8e3340dd32de3861ca04c485a336195e6a8f5342b"
+    },
+    {
+      "file": "game/images/ui/velvet_choice_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "choice",
+      "bytes": 35379,
+      "sha256": "bfb68ba4170947647acd327f5febd0e526746b63f72da420aa45a881bc7245ed"
+    },
+    {
+      "file": "game/images/ui/velvet_choice_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "choice",
+      "bytes": 41294,
+      "sha256": "a3fb555b7410083896af02a11302286c9b7e8afbd3d9f50f2c737ad25ff7999d"
+    },
+    {
+      "file": "game/images/ui/velvet_question_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "question",
+      "bytes": 44242,
+      "sha256": "61a74453e8a6b1fd76da9cd38cad62d2f40e231a38298feaa66c14d307c89795"
+    },
+    {
+      "file": "game/images/ui/velvet_question_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "question",
+      "bytes": 51645,
+      "sha256": "1ac74e11972fdd835537214b97a151fe13784bb2797788565f508bb745e76b81"
+    },
+    {
+      "file": "game/images/ui/velvet_button_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "button",
+      "bytes": 53841,
+      "sha256": "76cc1a44c1678c12e300391215a3dbda33c88f667fa49ecb42a751a19a418e9d"
+    },
+    {
+      "file": "game/images/ui/velvet_button_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "button",
+      "bytes": 61351,
+      "sha256": "0d238940b0797e6eb4d55ecf6e54d4bfa927fdf3c1d9e1cf696ab8a6869f2402"
+    },
+    {
+      "file": "game/images/ui/velvet_tabs_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "tabs",
+      "bytes": 55184,
+      "sha256": "cd086ce9e6350b595a1271c55c7f95013a792801587676dc15cf2d78451c7309"
+    },
+    {
+      "file": "game/images/ui/velvet_tabs_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "tabs",
+      "bytes": 64554,
+      "sha256": "f342b23b9206b6ab6ae466610016d968efd1bad3a2c2a10f9153088feacdd4a1"
+    },
+    {
+      "file": "game/images/ui/velvet_slots_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "slots",
+      "bytes": 27296,
+      "sha256": "fe8fe97ff2a3acb54b1b576662ebe373d2b58985a6e54dd80c96d5d7b1df7e31"
+    },
+    {
+      "file": "game/images/ui/velvet_slots_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "slots",
+      "bytes": 32640,
+      "sha256": "b2ae8099eb79ea9ae4a7570ff1027ea4188a2abd6d7182ef131608b2bcbd9662"
+    },
+    {
+      "file": "game/images/ui/velvet_controls_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "controls",
+      "bytes": 30380,
+      "sha256": "b2e515e179abd49e03dfe49933992de0e5319ca845702f51acc57bb742a9f30e"
+    },
+    {
+      "file": "game/images/ui/velvet_controls_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "controls",
+      "bytes": 36388,
+      "sha256": "36553ba746e5080ff109173043db3377a713c83dcd1c5ffae6ddaae7d3e18c74"
+    },
+    {
+      "file": "game/images/ui/velvet_menu_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "menu",
+      "bytes": 97683,
+      "sha256": "70ff0958aa601ca2a7fd24e3a5caf648cec8eda9f5b3715ec9e01223616d9ed2"
+    },
+    {
+      "file": "game/images/ui/velvet_menu_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "menu",
+      "bytes": 113346,
+      "sha256": "981babf25636898761b1a320b27b9be600414c5cd5c858960d0ce4206c08313f"
+    },
+    {
+      "file": "game/images/ui/velvet_interstitial_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "interstitial",
+      "bytes": 51887,
+      "sha256": "cdf634fe2aa9c0ef31bcb2757c0fd47113553ef61904f4f12a21e82cfd9656bb"
+    },
+    {
+      "file": "game/images/ui/velvet_interstitial_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "interstitial",
+      "bytes": 60286,
+      "sha256": "accf9259659a96a52e849a1cebb7accfc12a7048566aa5bb1cb3b4a2cb45772e"
+    },
+    {
+      "file": "game/images/ui/velvet_nameplate_flat.png",
+      "width": 256,
+      "height": 256,
+      "mode": "flat",
+      "surface": "nameplate",
+      "bytes": 17289,
+      "sha256": "0c0df7304d5ad14373fa881075cfad4bd9d7aacd2ed6d6db175ef7d513e74c81"
+    },
+    {
+      "file": "game/images/ui/velvet_nameplate_glass.png",
+      "width": 256,
+      "height": 256,
+      "mode": "glass",
+      "surface": "nameplate",
+      "bytes": 19852,
+      "sha256": "3642247956adc6c757412cce5e3f7494744ec92806cc0715ad01f3afd9c6a928"
+    }
+  ]
+}
