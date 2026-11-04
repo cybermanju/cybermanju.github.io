@@ -147,8 +147,8 @@ def main() -> int:
 
     story = story_path.read_text(encoding="utf-8")
     story, redirected = re.subn(
-        r'(?m)^(image bg_ch\d{2} = )"images/(bg_ch\d{2}\.jpg)"( mipmap true)?$',
-        r'\1"images/optimized/\2"\3',
+        r'(?m)^(image bg_ch\d{2} = )"images/(bg_ch\d{2}\.jpg)"$',
+        r'\1"images/optimized/\2"',
         story,
     )
     if redirected != 56:

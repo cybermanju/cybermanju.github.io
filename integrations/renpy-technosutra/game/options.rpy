@@ -70,6 +70,12 @@ init python:
 init python:
     config.gl_filter = "linear"
 
+# Mipmaps are always generated so downscaled backgrounds (camera zooms past
+# 100% in ken-burns moves) stay crisp instead of aliasing. Applies to every
+# image in the VN, including all 56 chapter backgrounds.
+init python:
+    config.mipmap = True
+
 # Predize telas de diálogo e escolha para que a primeira linha de cada capítulo
 # e a primeira escolha não pisquem ou carreguem atrasadas.
 init python:

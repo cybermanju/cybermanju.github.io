@@ -233,7 +233,7 @@ lines.extend([
 ])
 for chapter in CHAPTERS:
     number = chapter["number"]
-    lines.append(f'image bg_ch{number:02d} = "images/{chapter["background"]}" mipmap true')
+    lines.append(f'image bg_ch{number:02d} = "images/{chapter["background"]}"')
 for number, asset in sorted(PROVISIONAL_SPRITES.items()):
     lines.append(f'image master_ch{number:02d}_provisional = "images/{asset["file"]}"')
 lines.extend([
