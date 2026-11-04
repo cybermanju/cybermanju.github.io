@@ -65,11 +65,6 @@ init python:
 init python:
     config.predict_statements = 64
 
-# Linear texture filtering keeps zoomed backgrounds (ken-burns camera moves)
-# from turning pixelated when the camera scales past 100%.
-init python:
-    config.gl_filter = "linear"
-
 # Mipmaps are always generated so downscaled backgrounds (camera zooms past
 # 100% in ken-burns moves) stay crisp instead of aliasing. Applies to every
 # image in the VN, including all 56 chapter backgrounds.
