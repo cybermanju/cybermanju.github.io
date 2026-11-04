@@ -147,8 +147,8 @@ def main() -> int:
 
     story = story_path.read_text(encoding="utf-8")
     story, redirected = re.subn(
-        r'(?m)^(image bg_ch\d{2} = )"images/(bg_ch\d{2}\.jpg)"$',
-        r'\1"images/optimized/\2"',
+        r'(?m)^(image bg_ch\d{2} = )"images/(bg_ch\d{2}\.jpg)"( mipmap "auto")?$',
+        r'\1"images/optimized/\2"\3',
         story,
     )
     if redirected != 56:
@@ -158,7 +158,7 @@ def main() -> int:
         raise SystemExit("Generated story must reference all 54 approved provisional runtime sprites")
     if "jump technosutra_master_gallery" not in story:
         raise SystemExit("Generated story must retain the 54-image gallery")
-    if len(re.findall(r"^image bg_ch\d{2} = \"images/optimized/bg_ch\d{2}\.jpg\"$", story, re.M)) != 56:
+    if len(re.findall(r"^image bg_ch\d{2} = \"images/optimized/bg_ch\d{2}\.jpg\" mipmap \"auto\"$", story, re.M)) != 56:
         raise SystemExit("Generated story must use all 56 optimized backgrounds")
 
     gallery = gallery_path.read_text(encoding="utf-8")
