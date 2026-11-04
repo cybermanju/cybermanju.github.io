@@ -133,7 +133,7 @@ story = (root / "script.rpy").read_text(encoding="utf-8")
 gallery = (root / "technosutra_masters.rpy").read_text(encoding="utf-8")
 manifest_path = images / "masters/sprites/manifest.json"
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-if len(re.findall(r'^image bg_ch\d{2} = "images/optimized/bg_ch\d{2}\.jpg"$', story, re.M)) != 56:
+if len(re.findall(r'^image bg_ch\d{2} = "images/optimized/bg_ch\d{2}\.jpg"( mipmap "auto")?$', story, re.M)) != 56:
     raise SystemExit("Sanitized story must reference all 56 optimized backgrounds")
 if len(re.findall(r"^image master_ch\d{2}_provisional =", story, re.M)) != 54:
     raise SystemExit("Story must reference exactly the 54 owner-authorized runtime sprites")
