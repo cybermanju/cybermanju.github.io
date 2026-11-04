@@ -399,13 +399,13 @@ transform stem_title_drift:
 ## Dialogue box
 ################################################################################
 
-# Standing cast stage. Each slot is one left-side column along the dialogue box:
-# slot 1 is the chapter's master, later slots join as speaking masters appear.
+# Standing cast stage. Slot 1 (the chapter's master) stands at the right edge
+# of the dialogue box; later slots join as left-side columns along it:
 # A `show` with a new image tag is additive, so the previous portrait is never
 # replaced; the 600x800 renders stand at full height and the box covers their
 # feet like a conventional VN. Nothing here is animated or lip-synced.
 transform stem_stage_slot_1:
-    xalign 0.02
+    xalign 0.98
     yalign 1.0
     yoffset 6
     zoom 0.78

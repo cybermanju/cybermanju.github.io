@@ -233,7 +233,7 @@ lines.extend([
 ])
 for chapter in CHAPTERS:
     number = chapter["number"]
-    lines.append(f'image bg_ch{number:02d} = "images/{chapter["background"]}"')
+    lines.append(f'image bg_ch{number:02d} = "images/{chapter["background"]}" mipmap "auto"')
 for number, asset in sorted(PROVISIONAL_SPRITES.items()):
     lines.append(f'image master_ch{number:02d}_provisional = "images/{asset["file"]}"')
 lines.extend([
@@ -325,9 +325,13 @@ for chapter in CHAPTERS:
     lines.extend([
         f"label chapter_{number:02d}:",
         "    hide screen master_provisional_badge",
-        # `scene` clears every standing portrait left by the previous chapter.
-        # The living camera transform makes the real-life background breathe
-        # (slow zoom in/out + look-around) while portraits stand still.
+        # Predize o fundo do capítulo antes de exibi-lo: no Web a decodificação
+        # JPEG é serial na main thread, então iniciar a predição aqui evita o
+        # stall de decode na primeira cena de cada capítulo.
+        f"    $ renpy.start_predict(\"bg_ch{number:02d}\")",
+        # `scene` limpa todos os retratos em pé do capítulo anterior. O
+        # transform de câmera vivo faz o cenário real respirar (zoom lento
+        # entrada/saída + olhar ao redor) enquanto os retratos ficam parados.
         f"    scene bg_ch{number:02d} at stem_bg_ch{number:02d}_camera with dissolve",
     ])
     # Cast stage for this chapter, in show order. The chapter's own master waits

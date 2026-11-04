@@ -52,7 +52,27 @@ init python:
 # default ~40 MB image cache. 56 chapters at 1920x1080 decode to ~8 MB of
 # texture each (~464 MB total), so on the Web (WASM) build the cache default
 # forced a full 2 MP JPEG re-decode on the main thread at every chapter change,
-# which dropped the renderer to near-0 fps. 2048 MB holds the whole VN plus UI,
-# so scene switches are a texture bind, not a decode stall.
+# which dropped the renderer to near-0 fps. 512 MB holds the whole VN plus UI,
+# so scene switches are a texture bind, not a decode stall. Expressed in MB so
+# Ren'Py actively evicts when the limit is reached instead of growing without
+# bound.
 init python:
-    config.image_cache_size = 2048
+    config.image_cache_size_mb = 512
+
+# Web builds decode images serially on the main thread (no background threads),
+# so raise the look-ahead window so Ren'Py can preload upcoming chapter
+# backgrounds before the reader reaches them.
+init python:
+    config.predict_statements = 64
+
+# Linear texture filtering keeps zoomed backgrounds (ken-burns camera moves)
+# from turning pixelated when the camera scales past 100%.
+init python:
+    config.gl_filter = "linear"
+
+# Predize telas de diálogo e escolha para que a primeira linha de cada capítulo
+# e a primeira escolha não pisquem ou carreguem atrasadas.
+init python:
+    renpy.start_predict_screen("say")
+    renpy.start_predict_screen("choice")
+
