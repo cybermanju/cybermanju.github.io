@@ -4,9 +4,11 @@
 # while the standing cast portraits stay still. Apply with:
 #   scene bg_chNN at stem_bg_chNN_camera with dissolve
 #
-# Segments use easeinout (not linear) so the drift reads as a natural camera
-# move instead of a robotic constant-speed sweep; all 56 transforms, subpixel
-# precision, zoom/xalign/yalign ranges and per-chapter durations are unchanged.
+# Segments use ease (not linear) so the drift reads as a natural camera
+# move instead of a robotic constant-speed sweep; all 56 transforms, zoom/
+# xalign/yalign ranges and per-chapter durations are unchanged. Each transform
+# runs once (no repeat), so a background settles to a static texture while the
+# reader is on that chapter — no per-frame compositor work during dialogue.
 
 transform stem_bg_ch01_camera:
     zoom 1.02
@@ -18,7 +20,6 @@ transform stem_bg_ch01_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.44
     ease 19.0 yalign 0.4
-    repeat
 transform stem_bg_ch02_camera:
     zoom 1.02
     xalign 0.5
@@ -29,7 +30,6 @@ transform stem_bg_ch02_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.56
     ease 22.0 yalign 0.6
-    repeat
 transform stem_bg_ch03_camera:
     zoom 1.01
     xalign 0.5
@@ -40,7 +40,6 @@ transform stem_bg_ch03_camera:
     ease 25.0 zoom 1.01
     ease 25.0 xalign 0.44
     ease 25.0 yalign 0.4
-    repeat
 transform stem_bg_ch04_camera:
     zoom 1.02
     xalign 0.5
@@ -51,7 +50,6 @@ transform stem_bg_ch04_camera:
     ease 28.0 zoom 1.02
     ease 28.0 xalign 0.56
     ease 28.0 yalign 0.6
-    repeat
 transform stem_bg_ch05_camera:
     zoom 1.02
     xalign 0.5
@@ -62,7 +60,6 @@ transform stem_bg_ch05_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.44
     ease 16.0 yalign 0.4
-    repeat
 transform stem_bg_ch06_camera:
     zoom 1.01
     xalign 0.5
@@ -73,7 +70,6 @@ transform stem_bg_ch06_camera:
     ease 19.0 zoom 1.01
     ease 19.0 xalign 0.56
     ease 19.0 yalign 0.6
-    repeat
 transform stem_bg_ch07_camera:
     zoom 1.02
     xalign 0.5
@@ -84,7 +80,6 @@ transform stem_bg_ch07_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.44
     ease 22.0 yalign 0.4
-    repeat
 transform stem_bg_ch08_camera:
     zoom 1.02
     xalign 0.5
@@ -95,7 +90,6 @@ transform stem_bg_ch08_camera:
     ease 25.0 zoom 1.02
     ease 25.0 xalign 0.56
     ease 25.0 yalign 0.6
-    repeat
 transform stem_bg_ch09_camera:
     zoom 1.01
     xalign 0.5
@@ -106,7 +100,6 @@ transform stem_bg_ch09_camera:
     ease 28.0 zoom 1.01
     ease 28.0 xalign 0.44
     ease 28.0 yalign 0.4
-    repeat
 transform stem_bg_ch10_camera:
     zoom 1.02
     xalign 0.5
@@ -117,7 +110,6 @@ transform stem_bg_ch10_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.56
     ease 16.0 yalign 0.6
-    repeat
 transform stem_bg_ch11_camera:
     zoom 1.02
     xalign 0.5
@@ -128,7 +120,6 @@ transform stem_bg_ch11_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.44
     ease 19.0 yalign 0.4
-    repeat
 transform stem_bg_ch12_camera:
     zoom 1.01
     xalign 0.5
@@ -139,7 +130,6 @@ transform stem_bg_ch12_camera:
     ease 22.0 zoom 1.01
     ease 22.0 xalign 0.56
     ease 22.0 yalign 0.6
-    repeat
 transform stem_bg_ch13_camera:
     zoom 1.02
     xalign 0.5
@@ -150,7 +140,6 @@ transform stem_bg_ch13_camera:
     ease 25.0 zoom 1.02
     ease 25.0 xalign 0.44
     ease 25.0 yalign 0.4
-    repeat
 transform stem_bg_ch14_camera:
     zoom 1.02
     xalign 0.5
@@ -161,7 +150,6 @@ transform stem_bg_ch14_camera:
     ease 28.0 zoom 1.02
     ease 28.0 xalign 0.56
     ease 28.0 yalign 0.6
-    repeat
 transform stem_bg_ch15_camera:
     zoom 1.01
     xalign 0.5
@@ -172,7 +160,6 @@ transform stem_bg_ch15_camera:
     ease 16.0 zoom 1.01
     ease 16.0 xalign 0.44
     ease 16.0 yalign 0.4
-    repeat
 transform stem_bg_ch16_camera:
     zoom 1.02
     xalign 0.5
@@ -183,7 +170,6 @@ transform stem_bg_ch16_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.56
     ease 19.0 yalign 0.6
-    repeat
 transform stem_bg_ch17_camera:
     zoom 1.02
     xalign 0.5
@@ -194,7 +180,6 @@ transform stem_bg_ch17_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.44
     ease 22.0 yalign 0.4
-    repeat
 transform stem_bg_ch18_camera:
     zoom 1.01
     xalign 0.5
@@ -205,7 +190,6 @@ transform stem_bg_ch18_camera:
     ease 25.0 zoom 1.01
     ease 25.0 xalign 0.56
     ease 25.0 yalign 0.6
-    repeat
 transform stem_bg_ch19_camera:
     zoom 1.02
     xalign 0.5
@@ -216,7 +200,6 @@ transform stem_bg_ch19_camera:
     ease 28.0 zoom 1.02
     ease 28.0 xalign 0.44
     ease 28.0 yalign 0.4
-    repeat
 transform stem_bg_ch20_camera:
     zoom 1.02
     xalign 0.5
@@ -227,7 +210,6 @@ transform stem_bg_ch20_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.56
     ease 16.0 yalign 0.6
-    repeat
 transform stem_bg_ch21_camera:
     zoom 1.01
     xalign 0.5
@@ -238,7 +220,6 @@ transform stem_bg_ch21_camera:
     ease 19.0 zoom 1.01
     ease 19.0 xalign 0.44
     ease 19.0 yalign 0.4
-    repeat
 transform stem_bg_ch22_camera:
     zoom 1.02
     xalign 0.5
@@ -249,7 +230,6 @@ transform stem_bg_ch22_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.56
     ease 22.0 yalign 0.6
-    repeat
 transform stem_bg_ch23_camera:
     zoom 1.02
     xalign 0.5
@@ -260,7 +240,6 @@ transform stem_bg_ch23_camera:
     ease 25.0 zoom 1.02
     ease 25.0 xalign 0.44
     ease 25.0 yalign 0.4
-    repeat
 transform stem_bg_ch24_camera:
     zoom 1.01
     xalign 0.5
@@ -271,7 +250,6 @@ transform stem_bg_ch24_camera:
     ease 28.0 zoom 1.01
     ease 28.0 xalign 0.56
     ease 28.0 yalign 0.6
-    repeat
 transform stem_bg_ch25_camera:
     zoom 1.02
     xalign 0.5
@@ -282,7 +260,6 @@ transform stem_bg_ch25_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.44
     ease 16.0 yalign 0.4
-    repeat
 transform stem_bg_ch26_camera:
     zoom 1.02
     xalign 0.5
@@ -293,7 +270,6 @@ transform stem_bg_ch26_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.56
     ease 19.0 yalign 0.6
-    repeat
 transform stem_bg_ch27_camera:
     zoom 1.01
     xalign 0.5
@@ -304,7 +280,6 @@ transform stem_bg_ch27_camera:
     ease 22.0 zoom 1.01
     ease 22.0 xalign 0.44
     ease 22.0 yalign 0.4
-    repeat
 transform stem_bg_ch28_camera:
     zoom 1.02
     xalign 0.5
@@ -315,7 +290,6 @@ transform stem_bg_ch28_camera:
     ease 25.0 zoom 1.02
     ease 25.0 xalign 0.56
     ease 25.0 yalign 0.6
-    repeat
 transform stem_bg_ch29_camera:
     zoom 1.02
     xalign 0.5
@@ -326,7 +300,6 @@ transform stem_bg_ch29_camera:
     ease 28.0 zoom 1.02
     ease 28.0 xalign 0.44
     ease 28.0 yalign 0.4
-    repeat
 transform stem_bg_ch30_camera:
     zoom 1.01
     xalign 0.5
@@ -337,7 +310,6 @@ transform stem_bg_ch30_camera:
     ease 16.0 zoom 1.01
     ease 16.0 xalign 0.56
     ease 16.0 yalign 0.6
-    repeat
 transform stem_bg_ch31_camera:
     zoom 1.02
     xalign 0.5
@@ -348,7 +320,6 @@ transform stem_bg_ch31_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.44
     ease 19.0 yalign 0.4
-    repeat
 transform stem_bg_ch32_camera:
     zoom 1.02
     xalign 0.5
@@ -359,7 +330,6 @@ transform stem_bg_ch32_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.56
     ease 22.0 yalign 0.6
-    repeat
 transform stem_bg_ch33_camera:
     zoom 1.01
     xalign 0.5
@@ -370,7 +340,6 @@ transform stem_bg_ch33_camera:
     ease 25.0 zoom 1.01
     ease 25.0 xalign 0.44
     ease 25.0 yalign 0.4
-    repeat
 transform stem_bg_ch34_camera:
     zoom 1.02
     xalign 0.5
@@ -381,7 +350,6 @@ transform stem_bg_ch34_camera:
     ease 28.0 zoom 1.02
     ease 28.0 xalign 0.56
     ease 28.0 yalign 0.6
-    repeat
 transform stem_bg_ch35_camera:
     zoom 1.02
     xalign 0.5
@@ -392,7 +360,6 @@ transform stem_bg_ch35_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.44
     ease 16.0 yalign 0.4
-    repeat
 transform stem_bg_ch36_camera:
     zoom 1.01
     xalign 0.5
@@ -403,7 +370,6 @@ transform stem_bg_ch36_camera:
     ease 19.0 zoom 1.01
     ease 19.0 xalign 0.56
     ease 19.0 yalign 0.6
-    repeat
 transform stem_bg_ch37_camera:
     zoom 1.02
     xalign 0.5
@@ -414,7 +380,6 @@ transform stem_bg_ch37_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.44
     ease 22.0 yalign 0.4
-    repeat
 transform stem_bg_ch38_camera:
     zoom 1.02
     xalign 0.5
@@ -425,7 +390,6 @@ transform stem_bg_ch38_camera:
     ease 25.0 zoom 1.02
     ease 25.0 xalign 0.56
     ease 25.0 yalign 0.6
-    repeat
 transform stem_bg_ch39_camera:
     zoom 1.01
     xalign 0.5
@@ -436,7 +400,6 @@ transform stem_bg_ch39_camera:
     ease 28.0 zoom 1.01
     ease 28.0 xalign 0.44
     ease 28.0 yalign 0.4
-    repeat
 transform stem_bg_ch40_camera:
     zoom 1.02
     xalign 0.5
@@ -447,7 +410,6 @@ transform stem_bg_ch40_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.56
     ease 16.0 yalign 0.6
-    repeat
 transform stem_bg_ch41_camera:
     zoom 1.02
     xalign 0.5
@@ -458,7 +420,6 @@ transform stem_bg_ch41_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.44
     ease 19.0 yalign 0.4
-    repeat
 transform stem_bg_ch42_camera:
     zoom 1.01
     xalign 0.5
@@ -469,7 +430,6 @@ transform stem_bg_ch42_camera:
     ease 22.0 zoom 1.01
     ease 22.0 xalign 0.56
     ease 22.0 yalign 0.6
-    repeat
 transform stem_bg_ch43_camera:
     zoom 1.02
     xalign 0.5
@@ -480,7 +440,6 @@ transform stem_bg_ch43_camera:
     ease 25.0 zoom 1.02
     ease 25.0 xalign 0.44
     ease 25.0 yalign 0.4
-    repeat
 transform stem_bg_ch44_camera:
     zoom 1.02
     xalign 0.5
@@ -491,7 +450,6 @@ transform stem_bg_ch44_camera:
     ease 28.0 zoom 1.02
     ease 28.0 xalign 0.56
     ease 28.0 yalign 0.6
-    repeat
 transform stem_bg_ch45_camera:
     zoom 1.01
     xalign 0.5
@@ -502,7 +460,6 @@ transform stem_bg_ch45_camera:
     ease 16.0 zoom 1.01
     ease 16.0 xalign 0.44
     ease 16.0 yalign 0.4
-    repeat
 transform stem_bg_ch46_camera:
     zoom 1.02
     xalign 0.5
@@ -513,7 +470,6 @@ transform stem_bg_ch46_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.56
     ease 19.0 yalign 0.6
-    repeat
 transform stem_bg_ch47_camera:
     zoom 1.02
     xalign 0.5
@@ -524,7 +480,6 @@ transform stem_bg_ch47_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.44
     ease 22.0 yalign 0.4
-    repeat
 transform stem_bg_ch48_camera:
     zoom 1.01
     xalign 0.5
@@ -535,7 +490,6 @@ transform stem_bg_ch48_camera:
     ease 25.0 zoom 1.01
     ease 25.0 xalign 0.56
     ease 25.0 yalign 0.6
-    repeat
 transform stem_bg_ch49_camera:
     zoom 1.02
     xalign 0.5
@@ -546,7 +500,6 @@ transform stem_bg_ch49_camera:
     ease 28.0 zoom 1.02
     ease 28.0 xalign 0.44
     ease 28.0 yalign 0.4
-    repeat
 transform stem_bg_ch50_camera:
     zoom 1.02
     xalign 0.5
@@ -557,7 +510,6 @@ transform stem_bg_ch50_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.56
     ease 16.0 yalign 0.6
-    repeat
 transform stem_bg_ch51_camera:
     zoom 1.01
     xalign 0.5
@@ -568,7 +520,6 @@ transform stem_bg_ch51_camera:
     ease 19.0 zoom 1.01
     ease 19.0 xalign 0.44
     ease 19.0 yalign 0.4
-    repeat
 transform stem_bg_ch52_camera:
     zoom 1.02
     xalign 0.5
@@ -579,7 +530,6 @@ transform stem_bg_ch52_camera:
     ease 22.0 zoom 1.02
     ease 22.0 xalign 0.56
     ease 22.0 yalign 0.6
-    repeat
 transform stem_bg_ch53_camera:
     zoom 1.02
     xalign 0.5
@@ -590,7 +540,6 @@ transform stem_bg_ch53_camera:
     ease 25.0 zoom 1.02
     ease 25.0 xalign 0.44
     ease 25.0 yalign 0.4
-    repeat
 transform stem_bg_ch54_camera:
     zoom 1.01
     xalign 0.5
@@ -601,7 +550,6 @@ transform stem_bg_ch54_camera:
     ease 28.0 zoom 1.01
     ease 28.0 xalign 0.56
     ease 28.0 yalign 0.6
-    repeat
 transform stem_bg_ch55_camera:
     zoom 1.02
     xalign 0.5
@@ -612,7 +560,6 @@ transform stem_bg_ch55_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.44
     ease 16.0 yalign 0.4
-    repeat
 transform stem_bg_ch56_camera:
     zoom 1.02
     xalign 0.5
@@ -623,5 +570,4 @@ transform stem_bg_ch56_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.56
     ease 19.0 yalign 0.6
-    repeat
 

@@ -390,11 +390,9 @@ style stem_start_button_text:
 # alpha: a screen re-render (any hover) would restart the animation and flash the
 # title back in, so the reveal is owned by the overlay's own fade.
 transform stem_title_drift:
-    subpixel True
     zoom 1.02
     linear 42.0 zoom 1.075
     linear 42.0 zoom 1.02
-    repeat
 
 
 ################################################################################
@@ -407,28 +405,24 @@ transform stem_title_drift:
 # replaced; the 600x800 renders stand at full height and the box covers their
 # feet like a conventional VN. Nothing here is animated or lip-synced.
 transform stem_stage_slot_1:
-    subpixel True
     xalign 0.02
     yalign 1.0
     yoffset 6
     zoom 0.78
 
 transform stem_stage_slot_2:
-    subpixel True
     xalign 0.17
     yalign 1.0
     yoffset 6
     zoom 0.78
 
 transform stem_stage_slot_3:
-    subpixel True
     xalign 0.32
     yalign 1.0
     yoffset 6
     zoom 0.78
 
 transform stem_stage_slot_4:
-    subpixel True
     xalign 0.47
     yalign 1.0
     yoffset 6

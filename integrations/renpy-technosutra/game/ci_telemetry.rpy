@@ -5,18 +5,15 @@ init -100 python:
 
     def _stem_array_ci_observe_dialogue(event, interact=True, **kwargs):
         # Ren'Py's all-character callback receives show_done after a dialogue
-        # segment has actually been shown. Keep the hook inert outside Web.
-        if event == "show_done" and renpy.emscripten:
-            try:
-                renpy.emscripten.run_script("window.stemArrayCICallbackSeen = true;")
-            except Exception:
-                pass
+        # segment has actually been shown. Registered only under config.developer
+        # so it never runs in a shipped Web build (no per-line WASM<->JS bridge
+        # call during ordinary reading).
+        if not config.developer:
+            return
         if event != "show_done" or not renpy.emscripten:
             return
 
         what = kwargs.get("what")
-        if not isinstance(what, str) or not what.strip():
-            return
 
         payload = {
             "dialogue": what,
