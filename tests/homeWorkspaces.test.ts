@@ -89,6 +89,15 @@ describe('home workspaces', () => {
     expect(state.pages[0].title).toHaveLength(40)
     expect(Object.hasOwn(state.pages[0].items[0].data!, '__proto__')).toBe(false)
   })
+  it('keeps the per-screen hideName flag across a reload and omits it when unset', () => {
+    const hidden = normalizeHomeState({version: 1, pages: [{id: 'p', title: 'Quiet', hideName: true, items: []}]}, [])
+    expect(hidden.pages[0].hideName).toBe(true)
+    expect(normalizeHomeState(JSON.parse(JSON.stringify(hidden)), []).pages[0].hideName).toBe(true)
+    const unset = normalizeHomeState({version: 1, pages: [{id: 'p', title: 'Quiet', items: []}]}, [])
+    expect(Object.hasOwn(unset.pages[0], 'hideName')).toBe(false)
+    const coerced = normalizeHomeState({version: 1, pages: [{id: 'p', title: 'Quiet', hideName: 'yes', items: []}]}, [])
+    expect(Object.hasOwn(coerced.pages[0], 'hideName')).toBe(false)
+  })
   it('classifies app-local one-, two- and three-finger gestures at thresholds', () => {
     expect(classifyHomeGesture(0, -72, 3)).toBe('overview-open')
     expect(classifyHomeGesture(0, 72, 3)).toBe('overview-close')

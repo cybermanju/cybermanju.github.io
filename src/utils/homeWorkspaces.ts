@@ -75,6 +75,7 @@ export interface HomeWorkspace {
   rows?: number
   x?: number
   y?: number
+  hideName?: boolean
 }
 
 export interface HomeWorkspaceState {
@@ -245,7 +246,7 @@ export function normalizeHomeState(input: unknown, appIds: string[]): HomeWorksp
       items.push(item)
     }
     const boundedGrid = (value: unknown, fallback: number) => Number.isInteger(value) ? Math.max(2, Math.min(8, value as number)) : fallback
-    pages.push({ id: raw.id, title: typeof raw.title === 'string' ? raw.title.slice(0, 40) : 'Screen', items, columns: boundedGrid(raw.columns, 4), rows: boundedGrid(raw.rows, 4), x: raw.x as number | undefined, y: raw.y as number | undefined })
+    pages.push({ id: raw.id, title: typeof raw.title === 'string' ? raw.title.slice(0, 40) : 'Screen', items, columns: boundedGrid(raw.columns, 4), rows: boundedGrid(raw.rows, 4), x: raw.x as number | undefined, y: raw.y as number | undefined, ...(raw.hideName === true ? { hideName: true } : {}) })
   }
   if (pages.length === 0) return createHomeState(appIds)
   const occupied = new Set<string>()

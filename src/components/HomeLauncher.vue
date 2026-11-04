@@ -15,9 +15,59 @@
       <p class="studio-hint">Home screens only, not Android Recents. Touch adaptation: tap a screen, use its move menu, or pan / pinch with two fingers here.</p>
       <div class="eagle-viewport">
         <div class="eagle-canvas" :style="{ '--overview-card-min': `${Math.round(128 * zoom)}px`, transform: `translate(${panX}px, ${panY}px)` }">
-          <article v-for="(page, index) in state.pages" :key="page.id" class="eagle-card" :class="{ current: page.id === state.activeId, 'drop-ready': dragging && page.id !== dragging.from }" :data-workspace-id="page.id">
-            <button class="eagle-select" type="button" :aria-label="`Go to ${page.title}, screen ${index + 1}, ${page.items.length} items`" :aria-current="page.id === state.activeId ? 'page' : undefined" @click="selectScreen(index)"><HomeWorkspacePreview :items="page.items" :icon-for="itemIcon" :image-for="appImage" :tint-for="appTint" :columns="page.columns" :rows="page.rows" /></button>
-            <details v-if="page.items.length" class="eagle-move-list"><summary :aria-label="`Move items from screen ${index + 1}`"><AppIcon name="solar:menu-dots-bold" :size="18" /></summary><div class="eagle-items"><button v-for="item in page.items" :key="item.id" class="eagle-chip" type="button" :aria-label="`Move ${itemTitle(item)}; use Edit on home for keyboard move controls`" :title="itemTitle(item)" @pointerdown="beginDrag($event, item, page.id)" @pointerup="finishDrag" @pointercancel="dragging = null"><AppIcon :name="itemIcon(item)" :size="16" /></button></div></details>
+          <article
+            v-for="(page, index) in state.pages"
+            :key="page.id"
+            class="eagle-card"
+            :class="{ current: page.id === state.activeId, 'drop-ready': dragging && page.id !== dragging.from, 'show-actions': activeCardMenu === page.id }"
+            :data-workspace-id="page.id"
+            :data-screen-index="index + 1"
+            @contextmenu.prevent="showCardMenu(page.id)"
+            @pointerdown="eagleCardPointerDown(page.id)"
+          >
+            <!-- Screen name: rename in place, hide per screen (persisted as hideName). -->
+            <div class="eagle-card-header">
+              <input
+                v-if="editingScreenId === page.id"
+                :ref="(el) => setRenameInput(el, page.id)"
+                v-model="page.title"
+                class="eagle-screen-rename"
+                maxlength="40"
+                :aria-label="`Rename screen ${index + 1}`"
+                @blur="finishRename(page)"
+                @keydown.enter.prevent="finishRename(page)"
+                @keydown.esc.prevent="cancelRename(page)"
+              />
+              <span v-else-if="!page.hideName" class="eagle-screen-name">{{ page.title }}</span>
+              <button
+                class="eagle-card-menu-toggle"
+                type="button"
+                :aria-expanded="activeCardMenu === page.id"
+                :aria-label="`Screen ${index + 1} actions`"
+                @click.stop="showCardMenu(page.id)"
+              >⋯</button>
+            </div>
+
+            <button class="eagle-select" type="button" :aria-label="`Go to ${page.title}, screen ${index + 1}, ${page.items.length} items`" :aria-current="page.id === state.activeId ? 'page' : undefined" @click="selectScreen(index)">
+              <HomeWorkspacePreview :items="page.items" :icon-for="itemIcon" :image-for="appImage" :tint-for="appTint" :columns="page.columns" :rows="page.rows" />
+            </button>
+
+            <!-- Per-screen actions: long-press / right-click on touch, hover menu on desktop. -->
+            <div class="eagle-card-actions" :aria-label="`Screen ${index + 1} actions`">
+              <button type="button" @click="startRename(page.id)">Rename</button>
+              <button type="button" :aria-pressed="!!page.hideName" @click="toggleShowName(page)">{{ page.hideName ? 'Show name' : 'Hide name' }}</button>
+              <button type="button" :disabled="index === 0" @click="moveScreen(page.id, -1)">← Left</button>
+              <button type="button" :disabled="index >= reorderLimit - 1" @click="moveScreen(page.id, 1)">Right →</button>
+            </div>
+
+            <details v-if="page.items.length" class="eagle-move-list">
+              <summary :aria-label="`Move items from screen ${index + 1}`"><AppIcon name="solar:menu-dots-bold" :size="18" /></summary>
+              <div class="eagle-items">
+                <button v-for="item in page.items" :key="item.id" class="eagle-chip" type="button" :aria-label="`Move ${itemTitle(item)}; use Edit on home for keyboard move controls`" :title="itemTitle(item)" @pointerdown="beginDrag($event, item, page.id)" @pointerup="finishDrag" @pointercancel="dragging = null">
+                  <AppIcon :name="itemIcon(item)" :size="16" />
+                </button>
+              </div>
+            </details>
           </article>
         </div>
       </div>
@@ -286,8 +336,71 @@ async function closeOverview() { if (!await suspendHome()) return; overview.valu
 async function selectScreen(index: number) { if (props.blocked || !await suspendHome()) return; await navigate(index); await closeOverview() }
 
 const dragging = ref<{ id: string; from: string; x: number; y: number } | null>(null)
+const editingScreenId = ref<string | null>(null)
+const activeCardMenu = ref<string | null>(null)
+// Template ref callback: the input lives inside a v-for, so a plain ref would
+// collect an array. Track only the card currently being renamed.
+let renameInput: HTMLInputElement | null = null
+let renameOriginal = ''
+function setRenameInput(element: unknown, pageId: string) {
+  renameInput = pageId === editingScreenId.value ? element as HTMLInputElement | null : null
+}
+
 function beginDrag(event: PointerEvent, item: HomeItem, from: string) { if (event.button !== 0 || !overview.value) return; event.stopPropagation(); dragging.value = { id: item.id, from, x: event.clientX, y: event.clientY }; (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId) }
 function finishDrag(event: PointerEvent) { if (!dragging.value) return; const drag = dragging.value; dragging.value = null; if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 12) return; const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-workspace-id]')?.dataset.workspaceId; if (target && target !== drag.from) message.value = moveHomeItem(state.value, drag.id, drag.from, target) ? 'Tile moved.' : 'Destination is full or already contains this item.' }
+
+/** Right-click on desktop, long-press (contextmenu) on touch: same per-screen menu. */
+function showCardMenu(pageId: string) { activeCardMenu.value = activeCardMenu.value === pageId ? null : pageId }
+function eagleCardPointerDown(pageId: string) { if (activeCardMenu.value && activeCardMenu.value !== pageId) activeCardMenu.value = null }
+
+function startRename(pageId: string) {
+  const page = state.value.pages.find(candidate => candidate.id === pageId)
+  if (!page) return
+  activeCardMenu.value = null
+  renameOriginal = page.title
+  editingScreenId.value = pageId
+  void nextTick(() => { renameInput?.focus(); renameInput?.select() })
+}
+
+/** Commit in place: the deep state watcher persists titles to localStorage. */
+function finishRename(page: HomeWorkspace) {
+  if (editingScreenId.value !== page.id) return
+  const title = page.title.trim().slice(0, 40)
+  page.title = title || renameOriginal || 'Screen'
+  editingScreenId.value = null
+  message.value = page.title === renameOriginal ? '' : `Screen renamed to ${page.title}.`
+}
+
+function cancelRename(page: HomeWorkspace) {
+  if (editingScreenId.value !== page.id) return
+  page.title = renameOriginal
+  editingScreenId.value = null
+  message.value = ''
+}
+
+function toggleShowName(page: HomeWorkspace) {
+  page.hideName = !page.hideName
+  activeCardMenu.value = null
+  message.value = page.hideName ? 'Screen name hidden.' : 'Screen name shown.'
+}
+
+/** Reorder the screen array; x/y orb coordinates travel with their own page.
+ *  The trailing empty screen is the "new screen" slot, so it always stays last. */
+const reorderLimit = computed(() => {
+  const pages = state.value.pages
+  return pages.length > 1 && pages[pages.length - 1]!.items.length === 0 ? pages.length - 1 : pages.length
+})
+function moveScreen(pageId: string, delta: -1 | 1) {
+  const pages = state.value.pages
+  const index = pages.findIndex(page => page.id === pageId)
+  const target = index + delta
+  if (index < 0 || target < 0 || target >= reorderLimit.value) return
+  const [page] = pages.splice(index, 1)
+  if (!page) return
+  pages.splice(target, 0, page)
+  activeCardMenu.value = null
+  message.value = `Screen moved to position ${target + 1}.`
+}
 let gesture: { x: number; y: number; fingers: number; lastX: number; lastY: number; distance: number; zoom: number; panX: number; panY: number; hidden: Promise<boolean>; ready: boolean; epoch: number; inOverview: boolean; moved: boolean; releasing: boolean; contacts: { id: number; x: number; y: number }[] } | null = null
 const touchSafety = useHomeTouchSafety()
 function homeClick(event: MouseEvent) { touchSafety.click(event); if (!event.defaultPrevented) emptyPress.click(event) }
@@ -501,9 +614,205 @@ onUnmounted(() => { if (screenMotionTimer) clearTimeout(screenMotionTimer); wind
 @supports not (background: color-mix(in srgb,black 50%,transparent)) { .overview-surface { background: var(--hw-bg); } }
 .overview-surface>.studio-hint { color: var(--ui-text-2,var(--hw-text)); }
 .overview-bar { flex-wrap: wrap; font-size: 12px; }.overview-bar strong { margin-right: auto; }
-.eagle-viewport { animation: eagle-open 240ms cubic-bezier(.2,.8,.2,1); flex: 1 1 120px; min-height: 80px; overflow: auto; border-radius: 12px; padding: 8px; overscroll-behavior: contain; }
-.eagle-canvas { display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,var(--overview-card-min,128px)),1fr)); align-items: start; gap: 16px; transform-origin: top left; transition: transform 180ms ease; }
-.eagle-card { min-width: 0; border: 1px solid var(--hw-line); background: var(--hw-surface); border-radius: 18px; padding: 10px; box-shadow: 0 8px 25px #00000012; transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }.eagle-card.current { border-color: var(--hw-accent); box-shadow: 0 0 0 1px var(--hw-accent); }.eagle-card.drop-ready { border-style: dashed; }.eagle-card:focus-within { outline: 2px solid var(--hw-accent); outline-offset: 3px; }
+.eagle-viewport { 
+  animation: eagle-open 240ms cubic-bezier(.2,.8,.2,1); 
+  flex: 1 1 120px; 
+  min-height: 80px; 
+  overflow: auto; 
+  border-radius: 12px; 
+  padding: 8px; 
+  overscroll-behavior: contain; 
+  position: relative;
+}
+
+/* Connected grid border effect */
+.eagle-canvas { 
+  display: grid; 
+  grid-template-columns: repeat(auto-fill,minmax(min(100%,var(--overview-card-min,128px)),1fr)); 
+  align-items: start; 
+  gap: 16px; 
+  transform-origin: top left; 
+  transition: transform 180ms ease; 
+  position: relative;
+}
+
+/* Alpha path connecting all screens - the spine of the grid */
+.eagle-canvas::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--hw-accent) 15%, 
+    var(--hw-accent) 85%, 
+    transparent 100%
+  );
+  opacity: 0.5;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Inverted alpha path - fills gaps */
+.eagle-canvas::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 8px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, 
+    var(--hw-bg) 0%, 
+    color-mix(in srgb, var(--hw-accent) 30%, var(--hw-bg)) 20%,
+    color-mix(in srgb, var(--hw-accent) 30%, var(--hw-bg)) 80%,
+    var(--hw-bg) 100%
+  );
+  opacity: 0.9;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.eagle-card { 
+  min-width: 0; 
+  border: 1px solid var(--hw-line); 
+  background: var(--hw-surface); 
+  border-radius: 18px; 
+  padding: 10px; 
+  box-shadow: 0 8px 25px #00000012; 
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; 
+  position: relative;
+  z-index: 1;
+}
+
+.eagle-card.current { 
+  border-color: var(--hw-accent); 
+  box-shadow: 0 0 0 2px var(--hw-accent), 0 8px 25px #00000012; 
+}
+
+.eagle-card.drop-ready { border-style: dashed; }
+.eagle-card:focus-within { outline: 2px solid var(--hw-accent); outline-offset: 3px; }
+
+/* Screen index indicator on each card */
+.eagle-card::before {
+  content: attr(data-screen-index);
+  position: absolute;
+  top: -8px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--hw-accent);
+  background: var(--hw-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--hw-accent);
+}
+
+/* Card header: screen name + per-screen actions toggle */
+.eagle-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  min-height: 22px;
+}
+
+.eagle-card-menu-toggle {
+  margin-left: auto;
+  flex: 0 0 auto;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--hw-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.eagle-card-menu-toggle:hover,
+.eagle-card-menu-toggle:focus-visible,
+.eagle-card.show-actions .eagle-card-menu-toggle {
+  color: var(--hw-accent);
+  border-color: var(--hw-line);
+  background: var(--hw-surface);
+}
+
+.eagle-screen-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hw-text);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eagle-screen-name:hover {
+  color: var(--hw-accent);
+}
+
+.eagle-screen-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 4px;
+  border: 1px solid var(--hw-accent);
+  border-radius: 4px;
+  background: var(--hw-bg);
+  color: var(--hw-text);
+  outline: none;
+}
+
+.eagle-card .eagle-select {
+  margin-top: 4px;
+}
+
+/* Long press submenu for rename/show/hide */
+.eagle-card-actions {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--hw-bg);
+  border: 1px solid var(--hw-line);
+  border-radius: 10px;
+  padding: 6px;
+  gap: 4px;
+  z-index: 100;
+  box-shadow: 0 8px 20px #00000030;
+}
+
+.eagle-card:hover .eagle-card-actions,
+.eagle-card:focus-within .eagle-card-actions,
+.eagle-card.show-actions .eagle-card-actions {
+  display: flex;
+}
+
+.eagle-card-actions button {
+  font-size: 10px;
+  padding: 6px 10px;
+  min-height: 28px;
+  border-radius: 6px;
+  background: var(--hw-surface);
+  border: 1px solid var(--hw-line);
+  color: var(--hw-text);
+}
+
+.eagle-card-actions button:hover {
+  background: var(--hw-accent);
+  color: var(--hw-bg);
+}
+
 @media(hover:hover) and (pointer:fine) { .eagle-card:hover { transform: translateY(-2px); border-color: var(--hw-accent); box-shadow: 0 12px 28px #00000024; } }
 .eagle-select { display: block; text-align: left; color: inherit; width: 100%; background: none; border: 0; padding: 4px; min-height: 110px; border-radius: 10px; }
 .eagle-move-list summary { display: grid; place-items: center; cursor: pointer; min-height: 44px; color: var(--hw-muted); border-radius: 8px; list-style: none; }.eagle-move-list summary::-webkit-details-marker { display: none; }.eagle-move-list summary:focus-visible { outline: 2px solid var(--hw-accent); }.eagle-items { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; border-top: 1px solid var(--hw-line); padding-top: 6px; }.eagle-items:empty { display: none; }
