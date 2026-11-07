@@ -433,7 +433,7 @@ for chapter in CHAPTERS:
         f"    narrator {quoted(quiz['instruction_pt'])}",
         "    while True:",
         "        menu:",
-        f"            {quoted(quiz['question_pt'])}",
+        f"            {quoted('[QUIZ] ' + quiz['question_pt'])}",
     ])
     correct = quiz["correct_option_index"]
     for option_index, option in enumerate(quiz["options_pt"]):
