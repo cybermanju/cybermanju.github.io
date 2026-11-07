@@ -543,8 +543,14 @@ screen choice(items):
 
             hbox:
                 xfill True
+                $ _stem_is_quiz = "[QUIZ]" in stem_last_dialogue_text or "Quiz" in stem_last_dialogue_text or "quiz" in stem_last_dialogue_text
                 add "stem_ui_vine_divider" xalign 0.5
-                text ("PERGUNTA" if _stem_question else "ESCOLHA") size (22 if _stem_small else 20) color stem_theme_accent bold True yalign 0.5
+                if _stem_is_quiz:
+                    text "QUIZ MINIGAME · DESAFIO DE SABEDORIA" size (20 if _stem_small else 19) color "#ffd35a" bold True yalign 0.5
+                elif _stem_question:
+                    text "REFLEXÃO CONTEMPLATIVA" size (20 if _stem_small else 19) color stem_theme_accent bold True yalign 0.5
+                else:
+                    text "ESCOLHA DE RUMO" size (20 if _stem_small else 19) color stem_theme_accent bold True yalign 0.5
                 null width 1 xfill True
                 text (("%d opções · teclas 1–%d" % (len(items), len(items))) if len(items) <= 9 else ("%d opções" % len(items))) size (20 if _stem_small else 18) color "#a9b9c4" yalign 0.5
                 add "stem_ui_vine_divider" xalign 0.5
