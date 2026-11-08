@@ -5,11 +5,10 @@ init -100 python:
 
     def _stem_array_ci_observe_dialogue(event, interact=True, **kwargs):
         # Ren'Py's all-character callback receives show_done after a dialogue
-        # segment has actually been shown. Registered only under config.developer
-        # so it never runs in a shipped Web build (no per-line WASM<->JS bridge
-        # call during ordinary reading).
-        if not config.developer:
-            return
+        # segment has actually been shown. Fires in all modes (including
+        # shipped Web builds) so the smoke test can detect narrator lines via
+        # show_done telemetry. The JS bridge call is lightweight and guarded
+        # by try/except, so it never affects gameplay.
         if event != "show_done" or not renpy.emscripten:
             return
 
