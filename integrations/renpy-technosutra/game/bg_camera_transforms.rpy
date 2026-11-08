@@ -670,7 +670,6 @@ transform stem_bg_ch55_camera:
     ease 16.0 zoom 1.02
     ease 16.0 xalign 0.44
     ease 16.0 yalign 0.4
-    pause
 
 transform stem_bg_ch56_camera:
     zoom 1.02
@@ -682,6 +681,3 @@ transform stem_bg_ch56_camera:
     ease 19.0 zoom 1.02
     ease 19.0 xalign 0.56
     ease 19.0 yalign 0.6
-
-    pause
-    pause
