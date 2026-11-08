@@ -32,10 +32,11 @@ function onPointerDown(e: PointerEvent): void {
   const rip = ripples.value.find((r: Ripple) => r.id === id)
   if (!rip) return
   let start = 0
-  function animate(now: number) {
+  function animate(now: number): void {
     if (!start) start = now
     const elapsed = now - start
     const progress = Math.min(elapsed / duration(600), 1)
+    if (!rip) return
     rip.size = size * progress
     rip.opacity = 0.25 * (1 - progress)
     if (progress < 1) {

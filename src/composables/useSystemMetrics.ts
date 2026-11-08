@@ -72,8 +72,8 @@ export function useSystemMetrics() {
 
   /** Read osTop/osDf from the app store — best-effort, null on missing data. */
   function readOs(): void {
-    const top = store.osTop?.value
-    const df = store.osDf?.value
+    const top = store.osTop
+    const df = store.osDf
     if (top) {
       metrics.value.cpuPercent = top.cpuPercent ?? null
       metrics.value.uptimeSec = top.uptimeSec ?? null
