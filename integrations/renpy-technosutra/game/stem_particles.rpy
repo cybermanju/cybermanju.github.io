@@ -104,8 +104,8 @@ transform stem_chapter_ambient_particles:
     linear 0.3 alpha 0.08
     zoom 0.3
     alpha 0.08
-    linear STEM_PARTICLE_LIFETIME * 2 xalign 0.5 + 0.01
-    linear STEM_PARTICLE_LIFETIME * 2 yalign 0.5 + 0.01
+    linear 16.0 xalign 0.5 + 0.01
+    linear 16.0 yalign 0.5 + 0.01
     repeat
 
 # Particle burst for special moments (quiz correct, chapter complete)
