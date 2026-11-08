@@ -4,16 +4,15 @@
 # Integrates: screens.rpy (stem_theme_mode), bg_camera_transforms.rpy (ken-burns sync)
 # Contracts: zero WASM main-thread cost; respects prefers-reduced-motion; theme-color driven
 
-init python:
-    # Particle system configuration - all const for screen optimization
-    define STEM_PARTICLE_COUNT = 32
-    define STEM_PARTICLE_LIFETIME = 8.0
-    define STEM_PARTICLE_SPAWN_INTERVAL = 0.25
-    define STEM_PARTICLE_SIZE_RANGE = (4, 12)
-    define STEM_PARTICLE_OPACITY_RANGE = (0.15, 0.45)
-    define STEM_PARTICLE_SPEED_RANGE = (15, 45)  # pixels per second at 1920px
-    define STEM_PARTICLE_DRIFT_RANGE = (-0.02, 0.02)  # xalign drift per second
-    define STEM_PARTICLE_ROTATION_SPEED = (-180, 180)  # degrees per second
+# Particle system configuration - all const for screen optimization
+define STEM_PARTICLE_COUNT = 32
+define STEM_PARTICLE_LIFETIME = 8.0
+define STEM_PARTICLE_SPAWN_INTERVAL = 0.25
+define STEM_PARTICLE_SIZE_RANGE = (4, 12)
+define STEM_PARTICLE_OPACITY_RANGE = (0.15, 0.45)
+define STEM_PARTICLE_SPEED_RANGE = (15, 45)  # pixels per second at 1920px
+define STEM_PARTICLE_DRIFT_RANGE = (-0.02, 0.02)  # xalign drift per second
+define STEM_PARTICLE_ROTATION_SPEED = (-180, 180)  # degrees per second
 
 # Theme-aware particle color palettes
 # Flat (pixel) theme: cyan accent with dark base
@@ -85,12 +84,6 @@ screen stem_particle_overlay():
                         zoom=size / 1920,
                         alpha=opacity,
                         rotate=0,
-                        subtransform=Transform(
-                            linear 8.0 xalign x + drift_x,
-                            linear 8.0 yalign y + drift_y,
-                            linear 8.0 rotate rotation,
-                            linear 0.5 alpha 0.0
-                        )
                     ),
                     layer="particles",
                     delay=delay
