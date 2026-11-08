@@ -237,6 +237,15 @@ function syncFullscreenState() {
   }
 }
 
+/** On mobile, a phone rotation can drop the orientation lock. Re-request
+ *  landscape whenever the orientation changes so the game stays in its
+ *  designed 1920×1080 landscape grid instead of letterboxing in portrait. */
+function onOrientationChange(): void {
+  if (isImmersive.value || needsGesture.value === false) {
+    requestLandscape()
+  }
+}
+
 async function enterImmersive(fromGesture = false) {
   const element = stage.value
   if (!element) return
@@ -248,17 +257,22 @@ async function enterImmersive(fromGesture = false) {
       enteredNativeFullscreen = document.fullscreenElement === element
     } catch {
       // Some mobile browsers and embedded webviews reject element fullscreen.
+      // Fall through to CSS-immersive fallback so the game still fills the
+      // viewport on mobile (iOS Safari cannot fullscreen non-video elements).
     }
   }
 
-  if (enteredNativeFullscreen) {
+  if (enteredNativeFullscreen || fromGesture) {
     isImmersive.value = true
     needsGesture.value = false
+    // Lock landscape on every immersive entry — mobile browsers (esp. iOS)
+    // often cannot element-fullscreen, so this is the only way to keep the
+    // game in landscape after a phone rotation.
     requestLandscape()
-  } else if (fromGesture) {
-    // The focused OS window is already CSS-maximized; keep game-only fallback.
-    isImmersive.value = true
-    needsGesture.value = false
+  } else if (!enteredNativeFullscreen && document.fullscreenElement === null) {
+    // Fullscreen was denied and there's no gesture: stay out of immersive
+    // mode but still attempt landscape so a rotated phone isn't stuck in
+    // portrait with a letterboxed game.
     requestLandscape()
   }
 }
@@ -300,8 +314,13 @@ async function minimizeWindow() {
 onMounted(() => {
   window.addEventListener('message', onGameThemeMessage)
   document.addEventListener('fullscreenchange', syncFullscreenState)
+  window.addEventListener('orientationchange', onOrientationChange)
   syncFullscreenState()
   publishOsTheme()
+  // Request landscape immediately on mount so a phone opened in landscape
+  // (or rotated before the first tap) locks to the game's design grid even
+  // before fullscreen/gesture. Best-effort: iOS and some webviews ignore it.
+  requestLandscape()
   // The app-opening tap may still carry transient activation. If not, the
   // invisible full-surface gesture retries on the user's first game tap.
   void enterImmersive(false)
@@ -311,6 +330,7 @@ onBeforeUnmount(() => {
   clearControlsTimer()
   window.removeEventListener('message', onGameThemeMessage)
   document.removeEventListener('fullscreenchange', syncFullscreenState)
+  window.removeEventListener('orientationchange', onOrientationChange)
   if (stage.value && document.fullscreenElement === stage.value) {
     void document.exitFullscreen().catch(() => {})
   }

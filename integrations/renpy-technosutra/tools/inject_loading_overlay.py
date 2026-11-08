@@ -23,6 +23,10 @@ SCRIPT_TAG = '<script src="loading/loading.js" defer></script>'
 def head_block(art: str) -> str:
     return (
         f"{HEAD_START}\n"
+        # Mobile-first viewport: lock to device width, no user zoom so the
+        # Ren'Py canvas (1920×1080 design grid) scales predictably on rotate.
+        # viewport-fit=cover lets content edge-to-edge on notched phones.
+        '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">\n'
         '<link rel="stylesheet" href="loading/loading.css">\n'
         f'<link rel="preload" as="image" href="{art}" fetchpriority="high">\n'
         f"{HEAD_END}\n"
