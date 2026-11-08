@@ -48,16 +48,16 @@ transform stem_particle_base:
     linear 0.3 alpha 1.0
     # Drift and rotate over lifetime
     parallel:
-        linear STEM_PARTICLE_LIFETIME xalign 0.5 + STEM_PARTICLE_DRIFT_RANGE[1]
-        linear STEM_PARTICLE_LIFETIME yalign 0.5 + STEM_PARTICLE_DRIFT_RANGE[1]
-        linear STEM_PARTICLE_LIFETIME rotate 360 * (STEM_PARTICLE_ROTATION_SPEED[1] / 180)
+        linear 8.0 xalign 0.5 + STEM_PARTICLE_DRIFT_RANGE[1]
+        linear 8.0 yalign 0.5 + STEM_PARTICLE_DRIFT_RANGE[1]
+        linear 8.0 rotate 360 * (STEM_PARTICLE_ROTATION_SPEED[1] / 180)
     # Fade out
     linear 0.5 alpha 0.0
 
 # Particle emitter - spawns multiple particles with staggered delays
 transform stem_particle_emitter:
     subtransform stem_particle_base
-    pause STEM_PARTICLE_LIFETIME + 0.5
+    pause 8.5
     repeat
 
 # Screen-space particle overlay (for global ambient effects)
@@ -87,9 +87,9 @@ screen stem_particle_overlay():
                         alpha=opacity,
                         rotate=0,
                         subtransform=Transform(
-                            linear STEM_PARTICLE_LIFETIME xalign x + drift_x,
-                            linear STEM_PARTICLE_LIFETIME yalign y + drift_y,
-                            linear STEM_PARTICLE_LIFETIME rotate rotation,
+                            linear 8.0 xalign x + drift_x,
+                            linear 8.0 yalign y + drift_y,
+                            linear 8.0 rotate rotation,
                             linear 0.5 alpha 0.0
                         )
                     ),
@@ -100,8 +100,8 @@ screen stem_particle_overlay():
 # Chapter-specific particle effects (subtle, thematic)
 transform stem_chapter_ambient_particles:
     # Very subtle ambient particles that don't distract from reading
-    subtransform stem_particle_base
-    # Slower, fewer, more transparent
+    alpha 0.0
+    linear 0.3 alpha 0.08
     zoom 0.3
     alpha 0.08
     linear STEM_PARTICLE_LIFETIME * 2 xalign 0.5 + 0.01
