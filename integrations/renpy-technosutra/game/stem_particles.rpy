@@ -55,6 +55,7 @@ transform stem_particle_base:
 
 # Particle emitter - spawns multiple particles with staggered delays
 transform stem_particle_emitter:
+    stem_particle_base
     pause 8.5
     repeat
 
