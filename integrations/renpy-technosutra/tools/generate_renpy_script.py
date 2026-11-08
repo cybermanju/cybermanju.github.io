@@ -408,7 +408,8 @@ for chapter in CHAPTERS:
     lines.extend([
         "    # Optional authored reflection; branches reconverge by design.",
         "    menu:",
-        f"        {quoted(chapter['choice']['prompt_pt'])}",
+        f"        {quoted(chapter['choice']['prompt_pt'])}:",
+        "            pass",
     ])
     for option in chapter["choice"]["options"]:
         lines.extend([
@@ -438,7 +439,7 @@ for chapter in CHAPTERS:
         f"    narrator {quoted(quiz['instruction_pt'])}",
         "    while True:",
         "        menu:",
-        f"            {quoted(quiz['question_pt'])}",
+        f"            {quoted(quiz['question_pt'])}:",
     ])
     correct = quiz["correct_option_index"]
     for option_index, option in enumerate(quiz["options_pt"]):
