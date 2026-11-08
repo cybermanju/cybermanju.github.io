@@ -294,8 +294,16 @@ describe('renderMarkdown', () => {
 
   it('renders links only for web-safe targets', () => {
     expect(renderMarkdown('[docs](https://example.com/a?b=1&c=2)')).toContain('href="https://example.com/a?b=1&amp;c=2"')
+    expect(renderMarkdown('[local](/docs/overview)')).toContain('href="/docs/overview"')
+    expect(renderMarkdown('[anchor](#heading)')).toContain('href="#heading"')
+    expect(renderMarkdown('[email](mailto:test@example.com)')).toContain('href="mailto:test@example.com"')
+    // Rejects javascript:, data:, and protocol-relative / backslash open-redirect bypasses
     expect(renderMarkdown('[x](javascript:alert(1))')).not.toContain('<a ')
     expect(renderMarkdown('[x](data:text/html,<script>)')).not.toContain('<a ')
+    expect(renderMarkdown('[x](//evil.com)')).not.toContain('<a ')
+    expect(renderMarkdown('[x](///evil.com)')).not.toContain('<a ')
+    expect(renderMarkdown('[x](/\\evil.com)')).not.toContain('<a ')
+    expect(renderMarkdown('[x](/\\\\evil.com)')).not.toContain('<a ')
   })
 
   it('renders structure a human can scan', () => {

@@ -17,9 +17,12 @@ export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, ch => HTML_ESCAPES[ch])
 }
 
-/** Only web-safe link targets survive; `javascript:` and friends do not. */
+/** Only web-safe link targets survive; `javascript:`, data, and protocol-relative URLs (`//`, `/\`) do not. */
 function safeHref(href: string): string | null {
   const url = href.trim()
+  // Disallow protocol-relative URLs (`//evil.com` or `/\evil.com`) which browsers resolve to external schemes.
+  if (/^\/[/\\]/.test(url)) return null
+  // Accept standard http(s), mailto, anchor fragments, and rooted relative paths.
   if (/^(https?:\/\/|mailto:|#|\/)/i.test(url)) return url
   return null
 }
