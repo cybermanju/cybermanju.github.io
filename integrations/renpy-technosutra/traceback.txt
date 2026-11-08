@@ -1,0 +1,44 @@
+﻿I'm sorry, but an uncaught exception occurred.
+
+While running game code:
+BrokenPipeError: [Errno 32] Broken pipe
+
+-- Full Traceback ------------------------------------------------------------
+
+Traceback (most recent call last):
+  File "renpy/bootstrap.py", line 401, in bootstrap
+    renpy.main.main()
+    ~~~~~~~~~~~~~~~^^
+  File "renpy/main.py", line 596, in main
+    run(restart)
+    ~~~^^^^^^^^^
+  File "renpy/main.py", line 92, in run
+    if not renpy.arguments.post_init():
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^^ 
+  File "renpy/arguments.py", line 355, in post_init
+    return commands[command]()
+           ~~~~~~~~~~~~~~~~~^^
+  File "renpy/lint.py", line 1162, in lint
+    check_image(node)
+    ~~~~~~~~~~~^^^^^^
+  File "renpy/lint.py", line 380, in check_image
+    check_displayable("image %s" % name, renpy.display.image.images[node.imgname])
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "renpy/lint.py", line 373, in check_displayable
+    check_file(what, fn, directory="images")
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "renpy/lint.py", line 351, in check_file
+    report("%s uses file '%s', which is not loadable.", what.capitalize(), fn)
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "renpy/lint.py", line 69, in report
+    print(out)
+    ~~~~~^^^^^
+  File "renpy/log.py", line 256, in write
+    self.real_file.flush()
+    ~~~~~~~~~~~~~~~~~~~~^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+Linux-7.2.9-1-cachyos-x86_64-with-glibc2.44 x86_64
+Ren'Py 8.5.3.26051504
+The Stem Array — Technosutra VN 0.1.0
+Sun Nov  8 11:39:57 2026

@@ -17,6 +17,21 @@ define config.has_autosave = True
 define config.has_quicksave = True
 define config.main_menu_music = None
 
+# Text shader for dissolve effect (built-in)
+define config.default_textshader = "dissolve:u__duration=8.0"
+
+# Side image configuration
+define config.side_image_tag = "master"
+define config.side_image_only_not_showing = True
+
+# Accessibility hooks
+define config.tts_voice = None
+
+# Particle system layer (for burst effects and ambient particles)
+init python:
+    if "particles" not in config.layers:
+        config.layers.insert(config.layers.index("master") + 1, "particles")
+
 # Keep the distributable lean even when the launcher is run against the full
 # source tree instead of the minimal staging project used by build_web.sh.
 init python:

@@ -35,11 +35,15 @@ upstream_generated = {
     'public/technosutra-vn/renpy-pre.js',
     'public/technosutra-vn/service-worker.js',
 }
+# Vendored upstream documentation (Sphinx theme JS/CSS, images, pages) is not
+# OS-authored source; the Ren'Py docs mirror is committed for offline reference.
+vendored_docs = 'integrations/renpy-technosutra/docs/renpy-docs/'
 targets = [f for f in files if f.endswith(exts)
            and not f.startswith('target/')
            and not f.startswith('dist')
            and '/pkg/' not in f
            and f not in upstream_generated
+           and not f.startswith(vendored_docs)
            and 'tsbuildinfo' not in f]
 
 HEADER_RE = re.compile(r'CyberManju(\s+OS)?\s*[—\-–:]', re.IGNORECASE)

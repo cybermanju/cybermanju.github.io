@@ -2,6 +2,11 @@
 
 This integration contains the source data, Ren’Py generators, compact runtime art and a Web build script. The Vue bridge is in `src/components/TechnosutraStudio.vue` at the repository root. `.github/workflows/renpy-ci.yml` builds and smoke-tests the game without publishing or uploading the bundle.
 
+## Documentation
+
+- [`docs/RENPY.md`](docs/RENPY.md) — which Ren’Py features this VN uses, where they live, and how they work.
+- [`docs/renpy-docs/index.html`](docs/renpy-docs/index.html) — full offline copy of the official Ren’Py 8.5.3 documentation (snapshot 2026-11-08).
+
 ## Compact assets and quality checks
 
 The runtime needs 56 chapter backgrounds, one independent opening background and 54 transparent static sprites. The chapter backgrounds are quality-controlled 1920×1080 JPEG derivatives (q85, 4:4:4): 59,750,485 bytes total, 19.29% smaller than the previous 56-JPEG set. Comparing against resized original PNGs produced PSNR values from 30.34 to 35.02 dB, above the 30 dB gate. The opening JPEG is 963,067 bytes. The 54 600×800 RGBA sprites total 15,689,414 bytes and remain byte-identical to the manifest-pinned captures. Total runtime image payload is 72.86 MiB.

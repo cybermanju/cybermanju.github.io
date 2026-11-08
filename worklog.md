@@ -2913,3 +2913,22 @@ Only normalized position offsets are saved to device-local `cybermanju.ui.layout
   iframe element becomes visible; `open_stem_array()` hands that frame back.
 - **Verified.** The smoke PASSes against the live Pages build (`715a628`) in
   ~49 s with the default 90 s budget; 23 Python contract tests pass locally.
+
+## 2026-11-08 — Ren'Py reference docs mirrored into the VN
+
+- **Offline docs.** Mirrored the official `https://www.renpy.org/doc/html/`
+  documentation (snapshot 2026-11-08, changelog top 8.5.3, matching the pinned
+  SDK) into `integrations/renpy-technosutra/docs/renpy-docs/`: 106 HTML pages,
+  60 images, Sphinx CSS/fonts/JS and `searchindex.js` (~24 MB). Sphinx `?v=`
+  asset query strings were renamed/stripped so the copy opens from disk or a
+  static server; link check reports zero missing local refs.
+- **Usage map.** `docs/RENPY.md` records what the VN actually uses and where:
+  `options.rpy` config, the generated `script.rpy` story grammar, say/centered
+  dialogue, 21 screens, save/load/preferences/history, persistent text scale,
+  ATL camera/stage transforms, `renpy.emscripten` theme bridge, CI observer,
+  Web/PWA build path, and an explicit "not used" list. `docs/README.md` holds
+  the snapshot provenance and refresh command.
+- **Header gate.** `scripts/check-file-headers.sh` and
+  `scripts/generate-file-headers.py` skip the vendored `renpy-docs/` tree, so
+  upstream Sphinx JS is never given an OS header. `check-file-headers.sh` still
+  passes for all 927 OS-authored files.

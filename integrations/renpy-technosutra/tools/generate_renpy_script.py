@@ -221,10 +221,14 @@ lines = [
     "# Adaptation permission was separately confirmed by the project owner.",
     "# Original chapter environments; no Google Street View imagery or derivatives are used.",
     "",
-    'define narrator = Character("ORBE // NARRADOR")',
+    'define narrator = Character("ORBE // NARRADOR", what_textshader="dissolve")',
 ]
 for name in speakers:
-    lines.append(f"define {speaker_ids[name]} = Character({quoted(name)})")
+    chapter_num = cast_chapter(name)
+    if chapter_num:
+        lines.append(f'define {speaker_ids[name]} = Character({quoted(name)}, image="master_ch{chapter_num:02d}")')
+    else:
+        lines.append(f"define {speaker_ids[name]} = Character({quoted(name)})")
 lines.extend([
     "",
     'image narrator_orb = "images/narrator/orb.png"',
@@ -236,6 +240,9 @@ for chapter in CHAPTERS:
     lines.append(f'image bg_ch{number:02d} = "images/{chapter["background"]}"')
 for number, asset in sorted(PROVISIONAL_SPRITES.items()):
     lines.append(f'image master_ch{number:02d}_provisional = "images/{asset["file"]}"')
+# Side image declarations for automatic side image system
+for number, asset in sorted(PROVISIONAL_SPRITES.items()):
+    lines.append(f'image side master_ch{number:02d} = "images/{asset["file"]}"')
 lines.extend([
     "",
     "# Temporary static portraits from raw transparent captures; no animation or lip-sync.",
@@ -414,10 +421,8 @@ for chapter in CHAPTERS:
     ])
     if number < 56:
         lines.extend([
-            f'        "Continuar — capítulo {number + 1}":',
-            f"            jump chapter_{number + 1:02d}",
-            '        "Voltar ao índice":',
-            "            jump chapter_index",
+            "    $ renpy.pause(4.0)",
+            f"    jump chapter_{number + 1:02d}",
         ])
     else:
         lines.extend([

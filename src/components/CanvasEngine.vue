@@ -1,21 +1,29 @@
-<!-- CyberManju OS — CanvasEngine (src/components/CanvasEngine.vue). -->
-<!-- Role: Vue desktop UI: windows, panels, overlays. -->
-<!-- Exports: module root (see items below). -->
-<!-- Integrates: vue. -->
-<!-- Contracts: none special (pure logic; errors bubble to caller). -->
+// CyberManju OS — CanvasEngine (src/components/CanvasEngine.vue).
+// Role: Vue desktop UI: fullscreen animated canvas background (wallpaper slot).
+// Exports: module root component.
+// Integrates: vue, @/composables/useMotion.
+// Contracts: opt-in via `enabled`; pauses when tab hidden or reduced motion;
+//   all per-frame work is batched (single path stroke, pattern fills) and
+//   particle counts scale with screen size to keep frame cost stable.
+
 <template>
   <canvas ref="canvasRef" class="canvas-engine" />
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { useMotion } from '@/composables/useMotion'
+
+const { reduced } = useMotion()
 
 const props = withDefaults(defineProps<{
   enabled?: boolean
   mode?: number
+  particleCount?: number
 }>(), {
   enabled: true,
   mode: 0,
+  particleCount: 150,
 })
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -29,21 +37,24 @@ let edges: Int32Array
 let rotX = 0, rotY = 0, rotZ = 0
 
 let lissajousPhase = 0
-let particles: { x: number; y: number; vx: number; vy: number; life: number }[] = []
+let particles: { x: number; y: number; vx: number; vy: number; life: number; ax: number; ay: number }[] = []
 let scanlineOffset = 0
+
+// Mouse interaction: nearest particle is pulled/pushed by the cursor.
+let mouseX = -1000
+let mouseY = -1000
+let mouseActive = false
 
 // Tiles built ONCE (on mount / resize) so the per-frame cost is a handful of
 // pattern fills instead of thousands of primitive fills — same pixels, same
 // alpha, ~3 orders of magnitude fewer draw calls.
-const CHECKER_TILE = 40 // size * 2 — one lattice cell of the checkerboard
+const CHECKER_TILE = 40
 let checkerPattern: CanvasPattern | null = null
 let scanPattern: CanvasPattern | null = null
 
 function buildTiles() {
   if (!ctx) return
 
-  // One 40×40 cell: solid square top-left + diagonal square bottom-right,
-  // exactly the pair the old nested fillRect loop painted per cell.
   const c = document.createElement('canvas')
   c.width = CHECKER_TILE
   c.height = CHECKER_TILE
@@ -55,7 +66,6 @@ function buildTiles() {
   }
   checkerPattern = ctx.createPattern(c, 'repeat')
 
-  // One 1×4 cell: a single 1px row of alpha 0.015 → the CRT scanline ladder.
   const s = document.createElement('canvas')
   s.width = 1
   s.height = 4
@@ -78,6 +88,7 @@ function resize() {
   c.style.width = w + 'px'
   c.style.height = h + 'px'
   if (ctx) ctx.scale(dpr, dpr)
+  initParticles()
 }
 
 function initWireframe() {
@@ -95,13 +106,16 @@ function initWireframe() {
 
 function initParticles() {
   particles = []
-  for (let i = 0; i < 80; i++) {
+  const count = Math.min(props.particleCount, Math.floor((w * h) / 15000))
+  for (let i = 0; i < count; i++) {
     particles.push({
       x: Math.random() * w,
       y: Math.random() * h,
-      vx: (Math.random() - 0.5) * 2,
-      vy: (Math.random() - 0.5) * 2 - 1,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: (Math.random() - 0.5) * 1.5 - 0.5,
       life: Math.random(),
+      ax: 0,
+      ay: 0,
     })
   }
 }
@@ -138,8 +152,6 @@ function drawWireframe() {
   }
   ctx.strokeStyle = '#FFFFFF'
   ctx.lineWidth = 1.5
-  // One path holding every edge, one stroke (disjoint subpaths render the
-  // same as N separate strokes — without N begin/stroke flushes per frame).
   ctx.beginPath()
   for (let i = 0; i < edges.length; i += 2) {
     const p1 = projected[edges[i]]
@@ -186,22 +198,85 @@ function drawLissajous() {
 
 function drawParticles() {
   if (!ctx) return
-  // One fillStyle for the whole batch; per-particle brightness rides on
-  // globalAlpha (same source-over result, no per-particle style parsing).
-  ctx.fillStyle = '#FFFFFF'
-  for (const p of particles) {
+  const count = particles.length
+  if (count === 0) return
+
+  const mx = mouseActive ? mouseX : -1
+  const my = mouseActive ? mouseY : -1
+  const interactRadius = 120
+
+  // Precompute per-particle positions + mouse influence so the draw pass is
+  // a tight loop with no allocations.
+  const xs = new Float64Array(count)
+  const ys = new Float64Array(count)
+  const alphas = new Float64Array(count)
+
+  for (let i = 0; i < count; i++) {
+    const p = particles[i]
+
+    // Mouse interaction: attract/repel from cursor.
+    if (mouseActive) {
+      const dx = mx - p.x
+      const dy = my - p.y
+      const dist2 = dx * dx + dy * dy
+      if (dist2 < interactRadius * interactRadius) {
+        const force = (interactRadius * interactRadius - dist2) / (interactRadius * interactRadius)
+        p.vx += dx * force * 0.005
+        p.vy += dy * force * 0.005
+        mouseActive = false // consume one frame of interaction
+      }
+    }
+
     p.x += p.vx
     p.y += p.vy
-    p.life -= 0.005
-    if (p.life <= 0 || p.x < 0 || p.x > w || p.y < 0 || p.y > h) {
+    p.vx *= 0.98
+    p.vy *= 0.98
+    p.life -= 0.002
+
+    if (p.life <= 0 || p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > h + 20) {
       p.x = Math.random() * w
-      p.y = h + 10
-      p.vx = (Math.random() - 0.5) * 2
+      p.y = h + 20
+      p.vx = (Math.random() - 0.5) * 1.5
       p.vy = -(1 + Math.random() * 2)
       p.life = 0.5 + Math.random() * 0.5
     }
-    ctx.globalAlpha = Math.max(0, p.life)
-    ctx.fillRect(p.x, p.y, 3, 3)
+
+    xs[i] = p.x
+    ys[i] = p.y
+    alphas[i] = Math.max(0, p.life)
+  }
+
+  // Draw connections between nearby particles (constellation / neural net).
+  const connectDist = 110
+  const connectDist2 = connectDist * connectDist
+  ctx.beginPath()
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)'
+  ctx.lineWidth = 0.5
+  let hasLine = false
+  for (let i = 0; i < count; i++) {
+    for (let j = i + 1; j < count; j++) {
+      const dx = xs[i] - xs[j]
+      const dy = ys[i] - ys[j]
+      if (dx * dx + dy * dy < connectDist2) {
+        const alpha = 0.04 * (1 - (dx * dx + dy * dy) / connectDist2)
+        if (alpha > 0.005) {
+          if (!hasLine) {
+            ctx.beginPath()
+            hasLine = true
+          }
+          ctx.moveTo(xs[i], ys[i])
+          ctx.lineTo(xs[j], ys[j])
+        }
+      }
+    }
+  }
+  if (hasLine) ctx.stroke()
+
+  // Draw particles: one fillStyle, per-particle alpha via globalAlpha.
+  ctx.fillStyle = '#FFFFFF'
+  for (let i = 0; i < count; i++) {
+    ctx.globalAlpha = alphas[i]
+    ctx.fillRect(xs[i], ys[i], 2.5, 2.5)
   }
   ctx.globalAlpha = 1
 }
@@ -214,8 +289,6 @@ function drawOpArtRings() {
   const cy = h / 2
   const maxR = Math.sqrt(w * w + h * h) / 2 + 50
   const offset = (t * 0.3) % 40
-  // One path, one stroke: N subpaths render identically to N strokes but
-  // avoid N style/state flushes per frame.
   ctx.beginPath()
   for (let r = offset; r < maxR; r += 40) {
     ctx.moveTo(cx + r, cy)
@@ -296,7 +369,17 @@ function stop() {
 /** Backgrounded app → stop burning frames on an invisible wallpaper. */
 function onVisibility() {
   if (document.hidden) stop()
-  else if (props.enabled) start()
+  else if (props.enabled && !reduced.value) start()
+}
+
+function onMouseMove(e: MouseEvent) {
+  mouseX = e.clientX
+  mouseY = e.clientY
+  mouseActive = true
+}
+
+function onMouseLeave() {
+  mouseActive = false
 }
 
 onMounted(() => {
@@ -305,19 +388,29 @@ onMounted(() => {
     ctx = c.getContext('2d')
   }
   buildTiles()
-  if (props.enabled) start()
   window.addEventListener('resize', resize)
   document.addEventListener('visibilitychange', onVisibility)
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseleave', onMouseLeave)
+  if (props.enabled && !reduced.value) start()
 })
 
 onUnmounted(() => {
   stop()
   window.removeEventListener('resize', resize)
   document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('mousemove', onMouseMove)
+  window.removeEventListener('mouseleave', onMouseLeave)
 })
 
-watch(() => props.enabled, (v) => {
-  v ? start() : stop()
+watch(() => props.enabled, (v: boolean) => {
+  if (v && !reduced.value) start()
+  else stop()
+})
+
+watch(reduced, (v: boolean) => {
+  if (v) stop()
+  else if (props.enabled) start()
 })
 </script>
 

@@ -20,32 +20,34 @@ OUTPUT = ROOT / "game" / "images" / "pixel"
 
 # name: (size, border, fill, bevel_light, bevel_dark, accent, kind)
 # kind: "frame" (plain 9-slice bevel) | "vine" (vine + flower adorned border)
+# Sizes doubled (2x) vs the original 96/64/48/128/160 baseline so the
+# 9-slice frames stay crisp when stretched across a 1920×1080 canvas.
 FRAMES = {
-    "pixel_panel.png": (96, 24, "#0b1220", "#2f4a5e", "#05070c", "#55edff", "frame"),
-    "pixel_button.png": (64, 16, "#12202e", "#3c6a7d", "#05070c", "#2ea9bd", "frame"),
-    "pixel_button_hover.png": (64, 16, "#1a2f42", "#9df3ff", "#05070c", "#55edff", "frame"),
-    "pixel_start.png": (96, 22, "#16324a", "#55edff", "#05070c", "#f2cd5f", "frame"),
-    "pixel_start_hover.png": (96, 22, "#1d4360", "#d9fbff", "#05070c", "#ffd97a", "frame"),
-    "pixel_choice.png": (64, 16, "#101b29", "#2f5f70", "#05070c", "#55edff", "frame"),
-    "pixel_choice_hover.png": (64, 16, "#15293c", "#8ee9ff", "#05070c", "#f2cd5f", "frame"),
-    "pixel_nameplate.png": (48, 12, "#0d1725", "#55edff", "#05070c", "#55edff", "frame"),
-    "pixel_slot.png": (64, 16, "#0a1420", "#24404f", "#05070c", "#2ea9bd", "frame"),
-    "pixel_dialogue.png": (96, 24, "#0a1420", "#24404f", "#05070c", "#2ea9bd", "frame"),
-    "pixel_choice_card.png": (96, 20, "#101b29", "#2f5f70", "#05070c", "#55edff", "frame"),
-    "pixel_interstitial.png": (96, 24, "#0d1725", "#2f4a5e", "#05070c", "#2ea9bd", "frame"),
-    "pixel_nav.png": (96, 24, "#0a1420", "#2f4a5e", "#05070c", "#55edff", "frame"),
-    "pixel_slider_track.png": (64, 8, "#12202e", "#2f4a5e", "#05070c", "#8ad9c4", "frame"),
-    "pixel_slider_thumb.png": (48, 6, "#1a2f42", "#9df3ff", "#05070c", "#55edff", "frame"),
-    "pixel_frame_header.png": (96, 20, "#16324a", "#55edff", "#05070c", "#f2cd5f", "frame"),
-    "pixel_quote_box.png": (80, 16, "#1d4360", "#d9fbff", "#05070c", "#ffd97a", "frame"),
-    "pixel_divider.png": (64, 4, "#0b1220", "#2f4a5e", "#05070c", "#55edff", "frame"),
-    "pixel_menu_panel.png": (128, 32, "#0b1220", "#2f4a5e", "#05070c", "#55edff", "frame"),
+    "pixel_panel.png": (192, 48, "#0b1220", "#2f4a5e", "#05070c", "#55edff", "frame"),
+    "pixel_button.png": (128, 32, "#12202e", "#3c6a7d", "#05070c", "#2ea9bd", "frame"),
+    "pixel_button_hover.png": (128, 32, "#1a2f42", "#9df3ff", "#05070c", "#55edff", "frame"),
+    "pixel_start.png": (192, 44, "#16324a", "#55edff", "#05070c", "#f2cd5f", "frame"),
+    "pixel_start_hover.png": (192, 44, "#1d4360", "#d9fbff", "#05070c", "#ffd97a", "frame"),
+    "pixel_choice.png": (128, 32, "#101b29", "#2f5f70", "#05070c", "#55edff", "frame"),
+    "pixel_choice_hover.png": (128, 32, "#15293c", "#8ee9ff", "#05070c", "#f2cd5f", "frame"),
+    "pixel_nameplate.png": (96, 24, "#0d1725", "#55edff", "#05070c", "#55edff", "frame"),
+    "pixel_slot.png": (128, 32, "#0a1420", "#24404f", "#05070c", "#2ea9bd", "frame"),
+    "pixel_dialogue.png": (192, 48, "#0a1420", "#24404f", "#05070c", "#2ea9bd", "frame"),
+    "pixel_choice_card.png": (192, 40, "#101b29", "#2f5f70", "#05070c", "#55edff", "frame"),
+    "pixel_interstitial.png": (192, 48, "#0d1725", "#2f4a5e", "#05070c", "#2ea9bd", "frame"),
+    "pixel_nav.png": (192, 48, "#0a1420", "#2f4a5e", "#05070c", "#55edff", "frame"),
+    "pixel_slider_track.png": (128, 16, "#12202e", "#2f4a5e", "#05070c", "#8ad9c4", "frame"),
+    "pixel_slider_thumb.png": (96, 12, "#1a2f42", "#9df3ff", "#05070c", "#55edff", "frame"),
+    "pixel_frame_header.png": (192, 40, "#16324a", "#55edff", "#05070c", "#f2cd5f", "frame"),
+    "pixel_quote_box.png": (160, 32, "#1d4360", "#d9fbff", "#05070c", "#ffd97a", "frame"),
+    "pixel_divider.png": (128, 8, "#0b1220", "#2f4a5e", "#05070c", "#55edff", "frame"),
+    "pixel_menu_panel.png": (256, 64, "#0b1220", "#2f4a5e", "#05070c", "#55edff", "frame"),
     # Vine + flower adorned borders (canvas-spanning adornment frames).
-    "pixel_vine_panel.png": (128, 28, "#0a1420", "#2f4a5e", "#05070c", "#55edff", "vine"),
-    "pixel_vine_choice.png": (128, 24, "#101b29", "#2f5f70", "#05070c", "#f472b6", "vine"),
-    "pixel_vine_menu.png": (160, 36, "#0b1220", "#2f4a5e", "#05070c", "#fbbf24", "vine"),
-    "pixel_vine_divider.png": (160, 6, "#0a1420", "#2f4a5e", "#05070c", "#4ade80", "vine"),
-    "pixel_flower_corner.png": (64, 16, "#0a1420", "#2f4a5e", "#05070c", "#f472b6", "vine"),
+    "pixel_vine_panel.png": (256, 56, "#0a1420", "#2f4a5e", "#05070c", "#55edff", "vine"),
+    "pixel_vine_choice.png": (256, 48, "#101b29", "#2f5f70", "#05070c", "#f472b6", "vine"),
+    "pixel_vine_menu.png": (320, 72, "#0b1220", "#2f4a5e", "#05070c", "#fbbf24", "vine"),
+    "pixel_vine_divider.png": (320, 12, "#0a1420", "#2f4a5e", "#05070c", "#4ade80", "vine"),
+    "pixel_flower_corner.png": (128, 32, "#0a1420", "#2f4a5e", "#05070c", "#f472b6", "vine"),
 }
 
 

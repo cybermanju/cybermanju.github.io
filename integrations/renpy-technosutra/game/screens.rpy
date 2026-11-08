@@ -15,12 +15,14 @@
 #       speaker never hides the portraits already on stage (only `scene`, i.e.
 #       a chapter change, clears them).
 
+# Tab de preferências lembrado entre aberturas do menu (nível de módulo,
+# não dentro do screen — `default` dentro de screen é inválido no Ren'Py).
+default _stem_pref_tab = "visual"
+
 init offset = -1
 
 init python:
-    if "quick_menu" not in config.overlay_screens:
-        config.overlay_screens.append("quick_menu")
-
+    @renpy.pure
     def stem_compact_layout():
         """True when the viewport is smaller than the 1920x1080 design grid."""
         if renpy.variant("mobile") or renpy.variant("small"):
@@ -31,15 +33,32 @@ init python:
         except Exception:
             return False
 
+    @renpy.pure
     def stem_option_label(index, caption):
         """Number the option so keyboard/screen-reader order is visible."""
         return "%02d   %s" % (index, caption)
 
+    @renpy.pure
     def stem_body_size(compact):
         """Dialogue type size: responsive base plus the reader's step."""
         base = 32 if compact else 34
         step = max(0, min(len(STEM_TEXT_STEPS) - 1, int(getattr(persistent, "stem_text_step", 0) or 0)))
         return base + STEM_TEXT_STEPS[step]
+
+# Screen optimization constants (const expressions for performance)
+# These must be defined before style statements that use them
+define BUTTON_XPAD = 26
+define BUTTON_YPAD = 16
+define DIALOGUE_XMAX_PC = 1720
+define DIALOGUE_XMAX_MOBILE = config.screen_width - 48
+define CHOICE_CARD_MAX_PC = config.screen_height - 240
+define CHOICE_CARD_MAX_MOBILE = config.screen_height - 160
+define QUICK_BUTTON_YMIN_PC = 60
+define QUICK_BUTTON_YMIN_MOBILE = 88
+
+# Const values for text scaling
+define STEM_TEXT_STEPS = (0, 4, 9)
+define STEM_TEXT_LABELS = ("PADRÃO", "MAIOR", "MUITO MAIOR")
 
 
 default quick_menu = True
@@ -52,8 +71,6 @@ define stem_speaker_portraits = {}
 # Reader-controlled dialogue type scale (persistent). Only the dialogue body
 # scales; nameplates, buttons and menus keep their layout metrics.
 default persistent.stem_text_step = 0
-define STEM_TEXT_STEPS = (0, 4, 9)
-define STEM_TEXT_LABELS = ("PADRÃO", "MAIOR", "MUITO MAIOR")
 
 # One texture per surface, pixel-art finish. Hard-edged bevels, stepped 2 px
 # corners, single accent rule: the look holds at any scale and costs nine quads
@@ -148,8 +165,8 @@ style button:
     hover_background "stem_ui_button_hover"
     selected_background "stem_ui_button_hover"
     insensitive_background "stem_ui_button"
-    xpadding 26
-    ypadding 16
+    xpadding BUTTON_XPAD
+    ypadding BUTTON_YPAD
     yminimum 72
 
 style button_text:
@@ -440,60 +457,75 @@ screen say(who, what):
     $ _stem_portrait = stem_speaker_portraits.get(str(_stem_speaker)) if _stem_speaker else None
     $ _stem_avatar = 104 if _stem_small else 128
     $ _stem_body = stem_body_size(_stem_small)
+    # Side image for speaking character (auto-managed by Ren'Py when Character has image=)
+    $ _stem_side_image = SideImage() if not _stem_narrator and _stem_speaker else None
 
     window:
         id "window"
         xalign 0.5
         yalign 1.0
         xfill True
-        xmaximum (config.screen_width - 48 if _stem_small else 1720)
+        xmaximum (config.screen_width - 48 if _stem_small else DIALOGUE_XMAX_PC)
         # Size to the text instead of a fixed panel height: a fixed height plus a
         # ymaximum on the text silently clips long narration pages.
         ymaximum (config.screen_height - 140)
         padding (24 if _stem_small else 34, 20 if _stem_small else 26)
         background "stem_ui_dialogue"
 
-        vbox:
+        # Subtle ambient particles during dialogue (respects reduced-motion)
+        add "stem_chapter_particles"
+
+        hbox:
             xfill True
-            spacing (10 if _stem_small else 14)
-
-            hbox:
+            spacing (20 if _stem_small else 26)
+            # Side image on the left
+            if _stem_side_image:
+                add _stem_side_image:
+                    xalign 0.0
+                    yalign 1.0
+                    xsize 180
+                    ysize 180
+            vbox:
                 xfill True
-                spacing 12
-                frame:
-                    padding (16, 9)
-                    background "stem_ui_nameplate"
-                    xmaximum (config.screen_width - 160 if _stem_small else 1180)
-                    text (who if who else "NARRADOR") id "who" style "say_label" size (24 if _stem_small else 28)
-                null width 1 xfill True
-                text ("TOQUE · AVANÇAR" if _stem_small else "CLIQUE / ENTER · AVANÇAR") size (16 if _stem_small else 16) color "#a9b9c4" yalign 0.5
+                spacing (10 if _stem_small else 14)
 
-            hbox:
-                xfill True
-                spacing (20 if _stem_small else 26)
-                if _stem_narrator:
+                hbox:
+                    xfill True
+                    spacing 12
                     frame:
-                        xsize _stem_avatar
-                        ysize _stem_avatar
-                        padding (10, 10)
-                        background "stem_ui_panel"
-                        add "narrator_orb":
-                            xsize _stem_avatar - 22
-                            ysize _stem_avatar - 22
-                            xalign 0.5
-                            yalign 0.5
-                elif _stem_portrait:
-                    frame:
-                        xsize _stem_avatar
-                        ysize _stem_avatar
-                        padding (8, 8)
-                        background "stem_ui_interstitial"
-                        add _stem_portrait:
-                            xsize _stem_avatar - 18
-                            ysize _stem_avatar - 18
-                            xalign 0.5
-                            yalign 0.5
-                text what id "what" style "say_dialogue" size _stem_body xfill True text_align 0.0 yalign 0.0
+                        padding (16, 9)
+                        background "stem_ui_nameplate"
+                        xmaximum (config.screen_width - 160 if _stem_small else DIALOGUE_XMAX_PC)
+                        text (who if who else "NARRADOR") id "who" style "say_label" size (24 if _stem_small else 28)
+                    null width 1 xfill True
+                    text ("TOQUE · AVANÇAR" if _stem_small else "CLIQUE / ENTER · AVANÇAR") size (16 if _stem_small else 16) color "#a9b9c4" yalign 0.5
+
+                hbox:
+                    xfill True
+                    spacing (20 if _stem_small else 26)
+                    if _stem_narrator:
+                        frame:
+                            xsize _stem_avatar
+                            ysize _stem_avatar
+                            padding (10, 10)
+                            background "stem_ui_panel"
+                            add "narrator_orb":
+                                xsize _stem_avatar - 22
+                                ysize _stem_avatar - 22
+                                xalign 0.5
+                                yalign 0.5
+                    elif _stem_portrait:
+                        frame:
+                            xsize _stem_avatar
+                            ysize _stem_avatar
+                            padding (8, 8)
+                            background "stem_ui_interstitial"
+                            add _stem_portrait:
+                                xsize _stem_avatar - 18
+                                ysize _stem_avatar - 18
+                                xalign 0.5
+                                yalign 0.5
+                    text what id "what" style "say_dialogue" size _stem_body xfill True text_align 0.0 yalign 0.0
 
 
 ################################################################################
@@ -521,7 +553,7 @@ screen choice(items):
     $ _stem_small = stem_compact_layout()
     $ _stem_many = len(items) > 6
     $ _stem_yalign = 0.34 if _stem_many else 0.42
-    $ _stem_card_max = (config.screen_height - 160) if _stem_small else (config.screen_height - 240)
+    $ _stem_card_max = (config.screen_height - 160) if _stem_small else CHOICE_CARD_MAX_PC
     $ _stem_question = "?" in stem_last_dialogue_text or "？" in stem_last_dialogue_text
 
     # Number keys pick the matching numbered option. Bounded to nine so the
@@ -587,13 +619,13 @@ screen quick_menu():
                 style_prefix "quick"
                 spacing 8
                 textbutton "MENU" action ShowMenu("stem_controls"):
-                    yminimum (88 if _stem_small else 60)
+                    yminimum (QUICK_BUTTON_YMIN_MOBILE if _stem_small else QUICK_BUTTON_YMIN_PC)
                 textbutton "HISTÓRICO" action ShowMenu("history"):
-                    yminimum (88 if _stem_small else 60)
+                    yminimum (QUICK_BUTTON_YMIN_MOBILE if _stem_small else QUICK_BUTTON_YMIN_PC)
                 textbutton "AUTO" action Preference("auto-forward", "toggle"):
-                    yminimum (88 if _stem_small else 60)
+                    yminimum (QUICK_BUTTON_YMIN_MOBILE if _stem_small else QUICK_BUTTON_YMIN_PC)
                 textbutton "PULAR" action Skip() alternate Skip(fast=True, confirm=True):
-                    yminimum (88 if _stem_small else 60)
+                    yminimum (QUICK_BUTTON_YMIN_MOBILE if _stem_small else QUICK_BUTTON_YMIN_PC)
 
 
 screen stem_controls():
@@ -1009,7 +1041,6 @@ screen file_slots(title):
 
 screen preferences():
     tag menu
-    default _stem_pref_tab = "visual"
     $ _stem_small = stem_compact_layout()
     $ _stem_audio = config.has_music or config.has_sound or config.has_voice
     $ _stem_step = max(0, min(len(STEM_TEXT_STEPS) - 1, int(getattr(persistent, "stem_text_step", 0) or 0)))
@@ -1306,3 +1337,17 @@ screen skip_indicator():
         padding (20, 12)
         background "stem_ui_quick"
         text "MODO DE LEITURA RÁPIDA ATIVO" size 22 color "#b4e5d7"
+
+
+# Burst particle overlay for quiz correct / special moments
+screen stem_burst_particles():
+    zorder 200
+    $ _burst = store._stem_burst_trigger or 0
+    if _burst > 0:
+        python:
+            store._stem_burst_trigger = 0
+        add Transform("stem_particle_burst") xalign 0.5 yalign 0.5
+        add Transform("stem_particle_burst") xalign 0.45 yalign 0.55
+        add Transform("stem_particle_burst") xalign 0.55 yalign 0.45
+        add Transform("stem_particle_burst") xalign 0.4 yalign 0.6
+        add Transform("stem_particle_burst") xalign 0.6 yalign 0.4

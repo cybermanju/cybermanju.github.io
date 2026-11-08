@@ -30,6 +30,7 @@ import DesktopShell from '@/components/DesktopShell.vue'
 import LandingPage from '@/components/LandingPage.vue'
 import CanvasEngine from '@/components/CanvasEngine.vue'
 import NotificationStack from '@/components/NotificationStack.vue'
+import HudMetrics from '@/components/HudMetrics.vue'
 import CommandPalette from '@/components/CommandPalette.vue'
 import KeyboardShortcutsHelp from '@/components/KeyboardShortcutsHelp.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -120,6 +121,7 @@ provide(ShortcutsKey, shortcuts)
 const ctx = useContextMenu()
 const drag = useDrag()
 const { toggle: toggleFullscreen } = useFullscreen()
+const hudVisible = ref(false)
 
 const touchConfig = useTouchConfig({ autoDetect: true })
 function dispatchFileManagerAction(action: 'sidebar' | 'select' | 'context-menu' | 'zoom-in' | 'zoom-out' | 'scroll-up' | 'scroll-down' | 'paste' | 'sort' | 'view', value?: string) {
@@ -193,6 +195,7 @@ touchConfig.onAction((action: TouchAction) => {
     layout_tiled: () => { wm.setLayoutMode('tiled') },
     layout_strip: () => { wm.setLayoutMode('strip') },
     layout_overview: () => { wm.setLayoutMode('overview') },
+    toggle_hud: () => { hudVisible.value = !hudVisible.value },
   }
   actionMap[action]?.()
 })
@@ -973,6 +976,7 @@ onBeforeUnmount(() => {
     </Teleport>
 
     <NotificationStack />
+    <HudMetrics v-if="hudVisible" />
     <!-- Docker/web login gate: covers every device without a JWT. Fixed
          overlay, so it works over landing and desktop alike. -->
     <ServerAuthPanel v-if="store.needsAuth && !isPopupMode" />

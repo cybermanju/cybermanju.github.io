@@ -286,6 +286,7 @@ def main():
         exts = ('.rs', '.ts', '.vue', '.js', '.mjs', '.sh', '.go')
         files = [f for f in tracked if f.endswith(exts)
                  and not f.startswith('target/') and '/pkg/' not in f
+                 and not f.startswith('integrations/renpy-technosutra/docs/renpy-docs/')
                  and 'tsbuildinfo' not in f
                  and f not in ('scripts/collect-file-context.mjs',
                                'scripts/check-file-headers.sh',
