@@ -76,9 +76,9 @@ export function useSystemMetrics() {
     const df = store.osDf
     if (top) {
       metrics.value.cpuPercent = top.cpuPercent ?? null
-      metrics.value.uptimeSec = top.uptimeSec ?? null
-      metrics.value.netRxMBps = top.netRxMBps ?? null
-      metrics.value.netTxMBps = top.netTxMBps ?? null
+      metrics.value.uptimeSec = top.uptimeMs
+      metrics.value.netRxMBps = null
+      metrics.value.netTxMBps = null
     }
     if (df) {
       const total = df.totalBytes ?? 0

@@ -440,7 +440,7 @@ for chapter in CHAPTERS:
         "    while True:",
         "        menu:",
         f"            {quoted(quiz['question_pt'])}:",
-        "            pass",
+        "                pass",
     ])
     correct = quiz["correct_option_index"]
     for option_index, option in enumerate(quiz["options_pt"]):
