@@ -418,7 +418,6 @@ for chapter in CHAPTERS:
         ])
     lines.extend([
         f"    call quiz_ch{number:02d}",
-        "    menu:",
     ])
     if number < 56:
         lines.extend([
@@ -427,6 +426,7 @@ for chapter in CHAPTERS:
         ])
     else:
         lines.extend([
+            "    menu:",
             '        "Voltar ao índice":',
             "            jump chapter_index",
             '        "Rever a dedicação final":',
@@ -440,6 +440,7 @@ for chapter in CHAPTERS:
         "    while True:",
         "        menu:",
         f"            {quoted(quiz['question_pt'])}:",
+        "            pass",
     ])
     correct = quiz["correct_option_index"]
     for option_index, option in enumerate(quiz["options_pt"]):
