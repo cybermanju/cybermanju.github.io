@@ -54,7 +54,7 @@
   transform: scale(1);
   transform-origin: center;
   will-change: transform, opacity;
-  animation: stem-loader-zoom 12s ease-in-out both;
+  animation: stem-loader-zoom 8s ease-in-out both;
   transition: opacity 600ms ease, transform 900ms ease;
 }
 
@@ -63,12 +63,12 @@
 }
 
 #stem-loader.is-done .stem-loader__art {
-  transform: scale(1.04);
+  transform: scale(1.12);
 }
 
 @keyframes stem-loader-zoom {
   from { transform: scale(1); }
-  to   { transform: scale(1.04); }
+  to   { transform: scale(1.12); }
 }
 
 .stem-loader__shade {
@@ -82,9 +82,9 @@
 
 .stem-loader__card {
   position: relative;
-  width: min(320px, calc(100vw - 32px));
-  margin-bottom: max(16px, env(safe-area-inset-bottom));
-  padding: 10px 14px 8px;
+  width: min(260px, calc(100vw - 24px));
+  margin-bottom: max(12px, env(safe-area-inset-bottom));
+  padding: 8px 12px 6px;
   background: rgba(6, 12, 18, .86);
   border: 2px solid #24404f;
   box-shadow:
