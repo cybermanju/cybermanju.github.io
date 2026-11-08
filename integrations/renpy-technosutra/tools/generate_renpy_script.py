@@ -226,7 +226,7 @@ lines = [
 for name in speakers:
     chapter_num = cast_chapter(name)
     if chapter_num:
-        lines.append(f'define {speaker_ids[name]} = Character({quoted(name)}, image="master_ch{chapter_num:02d}")')
+        lines.append(f'define {speaker_ids[name]} = Character({quoted(name)}, image="master_ch{chapter_num:02d}_provisional")')
     else:
         lines.append(f"define {speaker_ids[name]} = Character({quoted(name)})")
 lines.extend([
