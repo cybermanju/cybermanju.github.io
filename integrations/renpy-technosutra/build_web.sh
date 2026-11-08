@@ -182,6 +182,12 @@ for required in index.html game.zip renpy-pre.js renpy.js renpy.wasm renpy.data 
   fi
 done
 
+# Ship all validated images as loose files so the progressive-download validator
+# can verify SHA-256/size/dimensions outside game.zip. Ren'Py's web_build may
+# package images inside game.zip; the candidate needs them as loose files too.
+mkdir -p "$WEB_DIR/game/images"
+cp -a "$PROJECT/game/images/." "$WEB_DIR/game/images/"
+
 python3 "$PROJECT/tools/validate_web_candidate.py" "$WEB_DIR" --project "$PROJECT"
 
 mkdir -p "$OUTPUT"
