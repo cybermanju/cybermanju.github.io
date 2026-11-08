@@ -32,6 +32,5 @@
 - image game/images/ui/velvet_tabs_flat.png
 - image game/images/ui/velvet_tabs_glass.png
 - image game/images/pixel/**
-- image game/images/narrator/orb.png
 - image game/images/speakers/generic_speaker_shadow.png
 + image game/**
