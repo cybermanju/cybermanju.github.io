@@ -1,7 +1,7 @@
 // CyberManju OS — external opener (src/utils/openExternal.ts).
 // Role: one seam that hands links and device files to the platform opener, so
 //   every runtime gets the path it can actually execute.
-// Exports: openExternalUrl, openLocalFile, externalOpenRoute.
+// Exports: openExternalUrl, openLocalFile, externalOpenRoute, isAllowedExternalUrl.
 // Integrates: useTauri (isAndroidApp / isTauri / invoke), @tauri-apps/plugin-shell
 //   (desktop/macOS/Windows), window.open (plain browser tabs).
 // Contracts: Android routes to `launcher_open_url` / `launcher_open_file` — the
@@ -12,6 +12,21 @@
 //   `not_found:` / `unsupported:` prefixes live in the Rust command.
 
 import { invoke, isAndroidApp, isTauri } from '@/composables/useTauri'
+
+/**
+ * Link schemes an external open may hand to the system resolver or browser.
+ * Refuses dangerous protocols (`javascript:`, `file:`, `data:`, etc.) across
+ * all desktop, mobile, and web runtimes.
+ */
+export const ALLOWED_EXTERNAL_SCHEMES = ['https://', 'http://', 'mailto:', 'tel:', 'cybermanju://'] as const
+
+/** Checks if a URL starts with one of the allowed external schemes and has a target. */
+export function isAllowedExternalUrl(url: string): boolean {
+  const u = String(url ?? '').trim()
+  return ALLOWED_EXTERNAL_SCHEMES.some(scheme => {
+    return u.length > scheme.length && u.toLowerCase().startsWith(scheme.toLowerCase())
+  })
+}
 
 /** Which opener one target gets on the current runtime. */
 export type ExternalOpenRoute = 'android-intent' | 'shell' | 'browser-tab'
@@ -40,6 +55,9 @@ function currentRoute(): ExternalOpenRoute {
 export async function openExternalUrl(url: string): Promise<void> {
   const target = String(url ?? '').trim()
   if (!target) throw new Error('unsupported: nothing to open')
+  if (!isAllowedExternalUrl(target)) {
+    throw new Error('invalid: scheme not allowed for external open')
+  }
   const route = currentRoute()
   if (route === 'android-intent') {
     await invoke('launcher_open_url', { url: target })

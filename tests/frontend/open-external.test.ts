@@ -27,7 +27,7 @@ vi.mock('@/composables/useTauri', () => ({
 
 vi.mock('@tauri-apps/plugin-shell', () => ({ open: mocks.shellOpen }))
 
-import { externalOpenRoute, openExternalUrl, openLocalFile } from '@/utils/openExternal'
+import { externalOpenRoute, isAllowedExternalUrl, openExternalUrl, openLocalFile } from '@/utils/openExternal'
 
 beforeEach(() => {
   mocks.android = false
@@ -85,6 +85,43 @@ describe('openExternalUrl', () => {
     await expect(openExternalUrl(undefined as unknown as string)).rejects.toThrow(/nothing to open/)
     expect(mocks.invocations).toEqual([])
     expect(mocks.shellOpen).not.toHaveBeenCalled()
+  })
+
+  it('rejects disallowed, dangerous, or malicious URL schemes', async () => {
+    const dangerous = [
+      'javascript:alert(1)',
+      'data:text/html,<script>alert(1)</script>',
+      'file:///etc/passwd',
+      'vbscript:msgbox',
+      'intent://scan/#Intent;scheme=zxing;end',
+      'https://',
+      'http://',
+      'mailto:',
+      'tel:',
+      'cybermanju://',
+    ]
+
+    for (const url of dangerous) {
+      expect(isAllowedExternalUrl(url)).toBe(false)
+      await expect(openExternalUrl(url)).rejects.toThrow(/invalid: scheme not allowed for external open/)
+    }
+    expect(mocks.invocations).toEqual([])
+    expect(mocks.shellOpen).not.toHaveBeenCalled()
+  })
+
+  it('permits valid allowed schemes across case variations', async () => {
+    const valid = [
+      'https://example.com',
+      'HTTPS://EXAMPLE.COM/PATH',
+      'http://localhost:3000',
+      'mailto:user@example.com',
+      'tel:+1234567890',
+      'cybermanju://oauth/callback?code=xyz',
+    ]
+
+    for (const url of valid) {
+      expect(isAllowedExternalUrl(url)).toBe(true)
+    }
   })
 })
 
